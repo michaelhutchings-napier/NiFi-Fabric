@@ -1,0 +1,25 @@
+apiVersion: platform.nifi.io/v1alpha1
+kind: NiFiCluster
+metadata:
+  name: nifi
+  namespace: nifi
+spec:
+  targetRef:
+    name: nifi
+  desiredState: Hibernated
+  suspend: false
+  restartTriggers:
+    configMaps:
+    - name: nifi-config
+    secrets:
+    - name: nifi-tls
+  restartPolicy:
+    tlsDrift: AutoreloadThenRestartOnFailure
+  rollout:
+    minReadySeconds: 30
+    podReadyTimeout: 10m
+    clusterHealthTimeout: 15m
+  hibernation:
+    offloadTimeout: 5m
+  safety:
+    requireClusterHealthy: true

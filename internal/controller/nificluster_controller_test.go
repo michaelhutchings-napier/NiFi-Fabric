@@ -667,6 +667,266 @@ func TestReconcileResumesConfigDriftRolloutAfterRestart(t *testing.T) {
 	}
 }
 
+func TestReconcileHibernatesManagedClusterAndCapturesLastRunningReplicas(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.DesiredState = platformv1alpha1.DesiredStateHibernated
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+		readyPod("nifi-2", "nifi", "nifi-rev"),
+	}
+	pvc := repositoryPVC("nifi-content-nifi-0")
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		podReadyResponses: []error{nil},
+		healthResponses:   []healthResponse{{result: healthyResult(3)}},
+	}, cluster, statefulSet, pvc, &pods[0], &pods[1], &pods[2])
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected requeue while hibernating, got %s", result.RequeueAfter)
+	}
+
+	updatedStatefulSet := &appsv1.StatefulSet{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), updatedStatefulSet); err != nil {
+		t.Fatalf("get updated statefulset: %v", err)
+	}
+	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != 0 {
+		t.Fatalf("expected target replicas to scale to 0, got %d", got)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.Hibernation.LastRunningReplicas != replicas {
+		t.Fatalf("expected lastRunningReplicas=%d, got %d", replicas, updatedCluster.Status.Hibernation.LastRunningReplicas)
+	}
+	if updatedCluster.Status.LastOperation.Phase != platformv1alpha1.OperationPhaseRunning {
+		t.Fatalf("expected running last operation, got %s", updatedCluster.Status.LastOperation.Phase)
+	}
+
+	persistedPVC := &corev1.PersistentVolumeClaim{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(pvc), persistedPVC); err != nil {
+		t.Fatalf("expected PVC to remain present after hibernation scale-down: %v", err)
+	}
+}
+
+func TestReconcileMarksClusterHibernatedAfterScaleDownCompletes(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.DesiredState = platformv1alpha1.DesiredStateHibernated
+	cluster.Status.Hibernation.LastRunningReplicas = 3
+
+	statefulSet := managedStatefulSet("nifi", 0, "nifi-rev", "nifi-rev")
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{}, cluster, statefulSet)
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != 0 {
+		t.Fatalf("expected no requeue after hibernation completion, got %s", result.RequeueAfter)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	hibernated := updatedCluster.GetCondition(platformv1alpha1.ConditionHibernated)
+	if hibernated == nil || hibernated.Status != metav1.ConditionTrue {
+		t.Fatalf("expected Hibernated condition true, got %#v", hibernated)
+	}
+	if updatedCluster.Status.LastOperation.Phase != platformv1alpha1.OperationPhaseSucceeded {
+		t.Fatalf("expected succeeded last operation, got %s", updatedCluster.Status.LastOperation.Phase)
+	}
+}
+
+func TestReconcileRestoresPriorReplicaCount(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Status.Hibernation.LastRunningReplicas = 3
+	cluster.Status.Conditions = []metav1.Condition{{
+		Type:   platformv1alpha1.ConditionHibernated,
+		Status: metav1.ConditionTrue,
+		Reason: "Hibernated",
+	}}
+
+	statefulSet := managedStatefulSet("nifi", 0, "nifi-rev", "nifi-rev")
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		podReadyResponses: []error{nil},
+		healthResponses:   []healthResponse{{result: healthyResult(3)}},
+	}, cluster, statefulSet)
+
+	firstResult, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("first reconcile returned error: %v", err)
+	}
+	if firstResult.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected requeue after scaling up restore, got %s", firstResult.RequeueAfter)
+	}
+
+	updatedStatefulSet := &appsv1.StatefulSet{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), updatedStatefulSet); err != nil {
+		t.Fatalf("get updated statefulset: %v", err)
+	}
+	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != 3 {
+		t.Fatalf("expected restore target replicas=3, got %d", got)
+	}
+
+	updatedStatefulSet.Status.ReadyReplicas = 3
+	updatedStatefulSet.Status.CurrentReplicas = 3
+	updatedStatefulSet.Status.UpdatedReplicas = 3
+	if err := k8sClient.Status().Update(ctx, updatedStatefulSet); err != nil {
+		t.Fatalf("update statefulset status: %v", err)
+	}
+
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+		readyPod("nifi-2", "nifi", "nifi-rev"),
+	}
+	for i := range pods {
+		if err := k8sClient.Create(ctx, &pods[i]); err != nil {
+			t.Fatalf("create restored pod %s: %v", pods[i].Name, err)
+		}
+	}
+
+	secondResult, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("second reconcile returned error: %v", err)
+	}
+	if secondResult.RequeueAfter != 0 {
+		t.Fatalf("expected restore completion without requeue, got %s", secondResult.RequeueAfter)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.LastOperation.Phase != platformv1alpha1.OperationPhaseSucceeded {
+		t.Fatalf("expected succeeded restore operation, got %s", updatedCluster.Status.LastOperation.Phase)
+	}
+	hibernated := updatedCluster.GetCondition(platformv1alpha1.ConditionHibernated)
+	if hibernated == nil || hibernated.Status != metav1.ConditionFalse || hibernated.Reason != "Running" {
+		t.Fatalf("expected Hibernated condition false/running after restore, got %#v", hibernated)
+	}
+}
+
+func TestReconcileRestoreFallsBackToSingleReplicaWhenNoLastRunningReplicaExists(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Status.Conditions = []metav1.Condition{{
+		Type:   platformv1alpha1.ConditionHibernated,
+		Status: metav1.ConditionTrue,
+		Reason: "Hibernated",
+	}}
+
+	statefulSet := managedStatefulSet("nifi", 0, "nifi-rev", "nifi-rev")
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{}, cluster, statefulSet)
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected requeue after fallback restore scale-up, got %s", result.RequeueAfter)
+	}
+
+	updatedStatefulSet := &appsv1.StatefulSet{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), updatedStatefulSet); err != nil {
+		t.Fatalf("get updated statefulset: %v", err)
+	}
+	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != hibernationFallbackReplicas {
+		t.Fatalf("expected fallback restore replicas=%d, got %d", hibernationFallbackReplicas, got)
+	}
+}
+
+func TestReconcileResumesSafelyDuringHibernation(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.DesiredState = platformv1alpha1.DesiredStateHibernated
+	cluster.Status.Hibernation.LastRunningReplicas = 3
+	cluster.Status.LastOperation = runningOperation("Hibernation", "Scaled StatefulSet \"nifi\" to 0 replicas; waiting for pods to terminate")
+
+	statefulSet := managedStatefulSet("nifi", 0, "nifi-rev", "nifi-rev")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+	}
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{}, cluster, statefulSet, &pods[0])
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected requeue while waiting for remaining pods to terminate, got %s", result.RequeueAfter)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.Hibernation.LastRunningReplicas != 3 {
+		t.Fatalf("expected lastRunningReplicas to be preserved, got %d", updatedCluster.Status.Hibernation.LastRunningReplicas)
+	}
+	progressing := updatedCluster.GetCondition(platformv1alpha1.ConditionProgressing)
+	if progressing == nil || progressing.Reason != "WaitingForScaleDown" {
+		t.Fatalf("expected WaitingForScaleDown progressing reason, got %#v", progressing)
+	}
+}
+
+func TestReconcileRestoreWaitsForStableHealthBeforeSuccess(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Status.Hibernation.LastRunningReplicas = 3
+	cluster.Status.LastOperation = runningOperation("Hibernation", "Waiting for pod readiness and cluster convergence while restoring to 3 replicas")
+	cluster.Status.Conditions = []metav1.Condition{{
+		Type:   platformv1alpha1.ConditionHibernated,
+		Status: metav1.ConditionFalse,
+		Reason: "Restoring",
+	}}
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		podReadyResponses: []error{nil},
+		healthResponses: []healthResponse{{
+			result: ClusterHealthResult{ExpectedReplicas: 3, ReadyPods: 3, ReachablePods: 3, ConvergedPods: 1},
+			err:    errors.New("cluster health gate not yet satisfied"),
+		}},
+	}, cluster, statefulSet)
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected requeue while waiting for restore health, got %s", result.RequeueAfter)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.LastOperation.Phase != platformv1alpha1.OperationPhaseRunning {
+		t.Fatalf("expected running restore operation, got %s", updatedCluster.Status.LastOperation.Phase)
+	}
+	progressing := updatedCluster.GetCondition(platformv1alpha1.ConditionProgressing)
+	if progressing == nil || progressing.Reason != "WaitingForClusterHealth" {
+		t.Fatalf("expected WaitingForClusterHealth progressing reason, got %#v", progressing)
+	}
+}
+
 func newTestReconciler(t *testing.T, healthChecker ClusterHealthChecker, objects ...client.Object) (*NiFiClusterReconciler, client.Client) {
 	t.Helper()
 
@@ -854,6 +1114,15 @@ func watchedSecret(name string, secretType corev1.SecretType, data map[string][]
 		},
 		Type: secretType,
 		Data: data,
+	}
+}
+
+func repositoryPVC(name string) *corev1.PersistentVolumeClaim {
+	return &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "nifi",
+		},
 	}
 }
 

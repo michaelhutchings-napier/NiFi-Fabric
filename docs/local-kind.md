@@ -5,6 +5,7 @@ This repository now includes concrete local workflows for:
 - a standalone NiFi 2 chart install
 - a managed-mode install with the thin `OnDelete` rollout controller
 - watched config and TLS drift verification against that managed controller
+- managed hibernation and restore verification against that same controller
 
 ## What This Flow Does
 
@@ -327,4 +328,47 @@ The auth Secret contains:
 - Managed mode currently coordinates template, revision, and watched non-TLS config drift rollouts through the same `OnDelete` path.
 - Stable TLS content drift observes autoreload first and can reconcile without restart.
 - Material TLS configuration changes and restart-required TLS policy decisions use the same managed `OnDelete` path.
-- Offload or disconnect sequencing and hibernation are still intentionally deferred.
+- Managed hibernation is implemented as a direct scale-to-zero and restore flow.
+- Offload or disconnect sequencing before restart or scale-down is still intentionally deferred.
+
+## Managed Hibernation And Restore Verification
+
+The current hibernation slice is intentionally small:
+
+- it captures `status.hibernation.lastRunningReplicas` before the first scale-down below the running size
+- it scales the target `StatefulSet` directly to `0`
+- it does not delete PVCs
+- it restores back to `status.hibernation.lastRunningReplicas`
+- if that status field is absent, it falls back to `1` replica
+
+Exact commands:
+
+```bash
+make kind-hibernate
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.hibernation.lastRunningReplicas}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'
+kubectl -n nifi get sts nifi -o jsonpath='{.spec.replicas}{"\n"}{.status.readyReplicas}{"\n"}'
+kubectl -n nifi get pvc
+kubectl -n nifi get pods
+```
+
+Expected behavior:
+
+- `status.hibernation.lastRunningReplicas` captures the pre-hibernation running size
+- the target `StatefulSet.spec.replicas` becomes `0`
+- PVCs remain present
+- `ConditionHibernated=True` appears only after pods are fully gone
+
+Restore commands:
+
+```bash
+make kind-restore
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.hibernation.lastRunningReplicas}{"\n"}{.status.lastOperation.phase}{"\n"}{.status.lastOperation.message}{"\n"}'
+kubectl -n nifi get sts nifi -o jsonpath='{.spec.replicas}{"\n"}{.status.readyReplicas}{"\n"}' --watch
+make kind-health
+```
+
+Expected behavior:
+
+- the target `StatefulSet.spec.replicas` returns to the recorded running size
+- `ConditionProgressing=True` with a restore reason remains set until health is stable again
+- the controller reports success only after the same per-pod NiFi convergence gate passes

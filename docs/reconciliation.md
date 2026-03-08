@@ -10,8 +10,8 @@ The controller stays small by splitting behavior into a few narrow, idempotent l
 | --- | --- | --- |
 | Target resolution and validation | `NiFiCluster`, target `StatefulSet` | resolve `spec.targetRef.name`, verify same-namespace `StatefulSet`, set `TargetResolved` |
 | Watched-resource hash aggregation | referenced Secrets and ConfigMaps, target pod template | compute aggregate config and certificate hashes, compare with status |
-| Rollout coordinator | `StatefulSet` revision drift, hash drift, pod readiness, NiFi node state | gate rollout, sequence offload or disconnect, delete pods one at a time |
-| Hibernation coordinator | desired state, current replicas, NiFi node state | capture prior replica count, offload or disconnect nodes, scale to zero, restore later |
+| Rollout coordinator | `StatefulSet` revision drift, hash drift, pod readiness, NiFi node state | gate rollout, delete pods one at a time, and wait for stable health before continuing |
+| Hibernation coordinator | desired state, current replicas, cluster health | capture prior replica count, scale to zero in managed mode, restore later |
 | Status and condition sync | all observed objects and controller operations | update conditions, replica counts, node counts, last operation, hashes |
 
 ## Watched Resources
@@ -61,7 +61,7 @@ Failure handling is explicit:
 - target resolution failures set `TargetResolved=False`
 - unhealthy cluster gates set `Progressing=False` and `Degraded=True`
 - NiFi API failures preserve the current pod set and requeue with backoff
-- timeouts during offload or disconnect use a documented failure policy and never silently continue
+- replica mutation failures set `Degraded=True` and preserve the prior persisted hibernation status
 - controller restarts resume from current object state and status fields
 
 ## Backoff And Requeue Logic
@@ -160,9 +160,9 @@ Hibernation behavior is:
 
 1. `spec.desiredState=Hibernated`
 2. record `status.hibernation.lastRunningReplicas`
-3. offload or disconnect the highest ordinal node
-4. reduce `StatefulSet.spec.replicas` by one
-5. repeat until replicas reach zero
+3. if `spec.safety.requireClusterHealthy=true`, wait for the documented per-pod health gate before scaling down
+4. set `StatefulSet.spec.replicas=0`
+5. wait until pods are fully gone
 6. set `Hibernated=True`
 
 Restore behavior is:
@@ -170,10 +170,16 @@ Restore behavior is:
 1. `spec.desiredState=Running`
 2. restore `StatefulSet.spec.replicas` to `status.hibernation.lastRunningReplicas`
 3. wait for pods to become Ready
-4. wait for NiFi nodes to reconnect
+4. wait for secured API reachability and stable NiFi convergence
 5. clear hibernation progress once the prior running size is reached
 
-If `status.hibernation.lastRunningReplicas` is absent, the controller falls back to the documented baseline desired replica count from the workload flow and records that fallback in status.
+If `status.hibernation.lastRunningReplicas` is absent, the current implementation falls back to `1` replica.
+
+Current implementation notes:
+
+- hibernation and restore reuse the same documented per-pod health gate that managed rollouts use
+- the controller persists enough state to resume from `spec.desiredState`, `status.hibernation.lastRunningReplicas`, and the `Hibernated` condition
+- offload or disconnect sequencing before scale-down is intentionally deferred to a later slice
 
 ## Conditions And State Transitions
 
@@ -197,7 +203,6 @@ The controller logic should be tested for:
 - controller restart during TLS observation
 - controller restart during TLS-triggered rollout
 - controller restart during hibernation
-- timeout during offload
 - TLS content drift resolved without restart
 - TLS content drift escalating to rollout when policy or health requires it
 - watched non-TLS Secret and ConfigMap changes triggering the same rollout path used for StatefulSet drift

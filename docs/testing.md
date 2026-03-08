@@ -30,6 +30,11 @@ Current unit coverage in the scaffold includes:
 - TLS content drift escalating to rollout when health degrades or policy requires it
 - material TLS configuration drift triggering rollout immediately
 - safe resume of TLS observation and TLS rollout after controller restart
+- capture of `status.hibernation.lastRunningReplicas` before managed scale-to-zero
+- restore to the prior running replica count
+- fallback restore to `1` replica when no prior running size was recorded
+- safe resume while hibernation is already waiting for pods to terminate
+- restore remaining `Progressing=True` until stable health returns
 - NiFi access-token and cluster-summary request handling
 
 ## controller-runtime `envtest`

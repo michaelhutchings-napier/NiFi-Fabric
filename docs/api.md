@@ -233,8 +233,8 @@ status:
   conditions:
   - type: Hibernated
     status: "True"
-    reason: ReplicasZero
-    message: Cluster scaled to zero and ready for restore
+    reason: Hibernated
+    message: Cluster is hibernated and ready for restore
 ```
 
 ## Field-By-Field Rationale
@@ -252,6 +252,12 @@ The controller must know which chart-managed workload it should watch and orches
 ### Why Hibernation State Needs Prior Replica Memory
 
 Hibernation is not safe if restore depends on a guessed replica count. `status.hibernation.lastRunningReplicas` gives the controller a durable restore target that survives controller restarts and makes unhibernate deterministic.
+
+The current implementation uses one explicit fallback when that field is absent:
+
+- restore to `1` replica
+
+That fallback is intentionally simple. It is only there to recover cleanly from older status or manual state, not to replace explicit prior replica tracking.
 
 ### Why Rollout And Safety Knobs Are Small And Typed
 

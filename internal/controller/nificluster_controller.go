@@ -89,7 +89,14 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 		return ctrl.Result{}, nil
 	}
 
-	if cluster.Spec.DesiredState != platformv1alpha1.DesiredStateRunning {
+	switch cluster.Spec.DesiredState {
+	case platformv1alpha1.DesiredStateHibernated:
+		return r.reconcileHibernation(ctx, cluster, target, pods)
+	case platformv1alpha1.DesiredStateRunning:
+		if restoreInProgress(cluster, target) {
+			return r.reconcileRestore(ctx, cluster, target)
+		}
+	default:
 		r.markUnsupportedDesiredState(cluster)
 		return ctrl.Result{}, nil
 	}
@@ -489,35 +496,35 @@ func (r *NiFiClusterReconciler) markUnsupportedDesiredState(cluster *platformv1a
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionAvailable,
 		Status:             metav1.ConditionFalse,
-		Reason:             "DesiredStateDeferred",
-		Message:            "Only desiredState=Running is implemented in this rollout slice",
+		Reason:             "DesiredStateUnsupported",
+		Message:            "Only desiredState=Running and desiredState=Hibernated are supported",
 		LastTransitionTime: metav1.Now(),
 	})
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionProgressing,
 		Status:             metav1.ConditionFalse,
-		Reason:             "DesiredStateDeferred",
-		Message:            "Hibernation sequencing is intentionally deferred",
+		Reason:             "DesiredStateUnsupported",
+		Message:            "No orchestration is in progress for the requested desired state",
 		LastTransitionTime: metav1.Now(),
 	})
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionDegraded,
 		Status:             metav1.ConditionFalse,
-		Reason:             "DesiredStateDeferred",
-		Message:            "No rollout failure is active; the requested desired state is deferred",
+		Reason:             "DesiredStateUnsupported",
+		Message:            "No rollout failure is active; the requested desired state is unsupported",
 		LastTransitionTime: metav1.Now(),
 	})
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionHibernated,
 		Status:             metav1.ConditionFalse,
-		Reason:             "NotImplemented",
-		Message:            "Hibernation is not implemented yet",
+		Reason:             "UnknownDesiredState",
+		Message:            "Hibernation state is unknown for the requested desired state",
 		LastTransitionTime: metav1.Now(),
 	})
 	cluster.Status.LastOperation = platformv1alpha1.LastOperation{
 		Type:    "StatusSync",
 		Phase:   platformv1alpha1.OperationPhasePending,
-		Message: "DesiredState=Hibernated is deferred to a later slice",
+		Message: "Requested desired state is unsupported by this controller",
 	}
 }
 
@@ -593,13 +600,6 @@ func (r *NiFiClusterReconciler) syncReplicaStatus(cluster *platformv1alpha1.NiFi
 		Status:             metav1.ConditionTrue,
 		Reason:             "TargetFound",
 		Message:            "Target StatefulSet was resolved successfully",
-		LastTransitionTime: metav1.Now(),
-	})
-	cluster.SetCondition(metav1.Condition{
-		Type:               platformv1alpha1.ConditionHibernated,
-		Status:             metav1.ConditionFalse,
-		Reason:             "Running",
-		Message:            "Hibernation is not active",
 		LastTransitionTime: metav1.Now(),
 	})
 	cluster.Status.ClusterNodes.Offloaded = 0

@@ -75,7 +75,6 @@ The controller owns:
 - computing aggregate hashes for watched Secrets and ConfigMaps
 - setting and updating `NiFiCluster.status`
 - coordinating health-gated rolling restarts
-- sequencing offload and disconnect operations before restart or scale-down
 - coordinating hibernation and restore from hibernation
 - enforcing rollout safety checks
 - recording events and exposing controller metrics
@@ -91,7 +90,7 @@ NiFi native behavior owns:
 - cluster join and rejoin behavior
 - TLS autoreload capability
 
-The controller may call the NiFi API to request offload or disconnect actions, but the semantics of cluster membership and node state remain NiFi behavior.
+Future controller slices may call the NiFi API to request offload or disconnect actions, but the semantics of cluster membership and node state remain NiFi behavior.
 
 ## Controller-Owned Mutations In Managed Mode
 
@@ -100,7 +99,7 @@ Managed mode is explicit. When `controllerManaged.enabled=true` in the chart and
 - writes to `NiFiCluster.status`
 - pod deletions used to advance a controlled `OnDelete` rollout
 - updates to `StatefulSet.spec.replicas` for hibernation and unhibernate only
-- NiFi API calls that request node offload and disconnect before restart or scale-down
+- future NiFi API calls that request node offload and disconnect before restart or scale-down
 
 Everything else remains Helm-owned or NiFi-owned.
 
@@ -124,7 +123,7 @@ For GitOps users, the important implication is narrow and documented:
 2. Helm or GitOps updates the desired pod template.
 3. The controller detects template or watched-resource drift.
 4. The controller waits for cluster health gates.
-5. The controller sequences offload or disconnect if required, deletes one pod, and waits for the new pod to become Ready and rejoin before continuing.
+5. The controller deletes one pod and waits for the new pod to become Ready and rejoin before continuing.
 
 ### Cert Rotation
 
@@ -144,16 +143,21 @@ For GitOps users, the important implication is narrow and documented:
 
 1. `NiFiCluster.spec.desiredState` becomes `Hibernated`.
 2. The controller records `status.hibernation.lastRunningReplicas`.
-3. The controller sequences offload or disconnect from highest ordinal downward.
-4. The controller reduces `StatefulSet.spec.replicas` until zero while preserving PVCs.
+3. If health gating is required, the controller waits for the documented per-pod health signal.
+4. The controller reduces `StatefulSet.spec.replicas` directly to zero while preserving PVCs.
 5. The controller sets `Hibernated=True` when the cluster is quiesced and scaled down.
 
 ### Restore From Hibernation
 
 1. `NiFiCluster.spec.desiredState` becomes `Running`.
 2. The controller restores the prior replica count from `status.hibernation.lastRunningReplicas`.
-3. The controller waits for pods to become Ready and for nodes to reconnect.
-4. The controller clears hibernation progress once the prior running shape is restored.
+3. If that field is absent, the current implementation falls back to `1` replica.
+4. The controller waits for pods to become Ready and for cluster convergence to stabilize again.
+5. The controller clears hibernation progress once the prior running shape is restored.
+
+Current implementation note:
+
+- per-pod offload or disconnect sequencing before restart or scale-down is intentionally deferred; the hibernation slice uses direct scale-to-zero and health-gated restore
 
 ## Why This Is Not NiFiKop
 
