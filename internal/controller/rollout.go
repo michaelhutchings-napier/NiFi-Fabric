@@ -34,8 +34,8 @@ func BuildRolloutPlan(sts *appsv1.StatefulSet, pods []corev1.Pod, rolloutStatus 
 		CurrentReplicas:  sts.Status.CurrentReplicas,
 	}
 
-	if rolloutStatus.Trigger == platformv1alpha1.RolloutTriggerConfigDrift && rolloutStatus.StartedAt != nil {
-		plan.Trigger = platformv1alpha1.RolloutTriggerConfigDrift
+	if planUsesRestartTimestamp(rolloutStatus.Trigger) && rolloutStatus.StartedAt != nil {
+		plan.Trigger = rolloutStatus.Trigger
 		startedAt := rolloutStatus.StartedAt.Time
 		for _, pod := range pods {
 			if podWasRecreatedAfter(&pod, startedAt) {
@@ -152,12 +152,22 @@ func rolloutMessage(plan RolloutPlan) string {
 		if plan.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
 			return fmt.Sprintf("config drift rollout pending; next pod is %s", next.Name)
 		}
+		if plan.Trigger == platformv1alpha1.RolloutTriggerTLSDrift {
+			return fmt.Sprintf("TLS drift rollout pending; next pod is %s", next.Name)
+		}
 		return fmt.Sprintf("rollout to revision %q pending; next pod is %s", plan.UpdateRevision, next.Name)
 	}
 	if plan.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
 		return "config drift rollout is waiting for pod and cluster status to converge"
 	}
+	if plan.Trigger == platformv1alpha1.RolloutTriggerTLSDrift {
+		return "TLS drift rollout is waiting for pod and cluster status to converge"
+	}
 	return fmt.Sprintf("rollout is waiting for StatefulSet status to converge to revision %q", plan.UpdateRevision)
+}
+
+func planUsesRestartTimestamp(trigger platformv1alpha1.RolloutTrigger) bool {
+	return trigger == platformv1alpha1.RolloutTriggerConfigDrift || trigger == platformv1alpha1.RolloutTriggerTLSDrift
 }
 
 func podWasRecreatedAfter(pod *corev1.Pod, startedAt time.Time) bool {

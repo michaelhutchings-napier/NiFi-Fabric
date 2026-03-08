@@ -151,20 +151,20 @@ What is runnable now:
 - the chart wires Kubernetes leader election and ConfigMap-backed cluster state settings through explicit NiFi configuration rather than hidden controller behavior
 - the chart mounts persistent repositories, config, Services, and probes suitable for a kind-focused local workflow
 - the repo includes a repeatable health-check flow that separates pod readiness, secured API reachability, and actual cluster convergence
-- the optional controller can coordinate managed `OnDelete` rollouts one pod at a time for StatefulSet template drift, revision drift, and explicitly watched non-TLS config drift
+- the optional controller can coordinate managed `OnDelete` rollouts one pod at a time for StatefulSet template drift, revision drift, explicitly watched non-TLS config drift, and TLS drift that policy marks restart-required
 - the repo includes a minimal in-cluster controller deployment path for local kind verification
 
 What is still intentionally stubbed:
 
 - offload or disconnect sequencing before pod deletion
-- TLS restart policy decisions after watched certificate drift
 - hibernation orchestration
 - production-grade TLS automation beyond documented Secret expectations
 - production-hardening of chart defaults, auth choices, and storage layouts
 
 Implementation note for this slice:
 
-- standalone mode keeps NiFi TLS autoreload configurable but disabled by default so the minimal local cluster starts cleanly; the cert-rotation/controller slice will revisit the full autoreload-first policy
+- the chart default still keeps NiFi TLS autoreload configurable and off by default for the minimal standalone path
+- the managed example enables NiFi TLS autoreload so the local TLS policy flow exercises the intended autoreload-first design
 
 ## Local Kind Flow
 
@@ -216,7 +216,9 @@ Managed watched-drift behavior:
 - a watched Secret contributes to certificate drift only when it is the same Secret mounted as the target StatefulSet TLS volume
 - every other watched Secret contributes to config drift
 - config drift reuses the same managed `OnDelete` rollout path as StatefulSet revision drift
-- certificate drift is recorded in status and conditions but does not restart pods yet
+- stable TLS content drift follows `spec.restartPolicy.tlsDrift`
+- material TLS ref, mount path, or password-key changes are treated as restart-required
+- the current autoreload observation window is `30s`
 
 Local drift verification commands:
 
@@ -231,15 +233,25 @@ make kind-health
 
 ```bash
 make kind-tls-drift
-kubectl -n nifi get nificluster nifi -o jsonpath='{.status.observedCertificateHash}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.observedCertificateHash}{"\n"}{.status.observedTLSConfigurationHash}{"\n"}{.status.tls.observationStartedAt}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'
 kubectl -n nifi get pods \
   -o custom-columns=NAME:.metadata.name,DEL:.metadata.deletionTimestamp,READY:.status.containerStatuses[0].ready
+```
+
+```bash
+make kind-tls-config-drift
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.rollout.trigger}{"\n"}{.status.rollout.targetCertificateHash}{"\n"}{.status.rollout.targetTLSConfigurationHash}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'
+kubectl -n nifi get pods \
+  -o custom-columns=NAME:.metadata.name,DEL:.metadata.deletionTimestamp,READY:.status.containerStatuses[0].ready \
+  --watch
+make kind-health
 ```
 
 Expected results:
 
 - `make kind-config-drift` should trigger a one-pod-at-a-time managed rollout and then settle back to a healthy cluster
-- `make kind-tls-drift` should change status reporting only; no pod should be deleted in this slice
+- `make kind-tls-drift` should enter a TLS autoreload observation window and, if health stays good, reconcile without pod deletion
+- `make kind-tls-config-drift` should trigger a one-pod-at-a-time managed TLS rollout because the TLS mount path changed
 
 ## Standalone Health Gate
 
@@ -284,6 +296,7 @@ Useful local commands:
 - `make kind-health`
 - `make kind-config-drift`
 - `make kind-tls-drift`
+- `make kind-tls-config-drift`
 - `make helm-install-managed`
 - `make apply-managed`
 - `make run`

@@ -50,6 +50,7 @@ Idempotency rules are strict:
 - one operation is active per cluster at a time
 - pod deletion is never repeated until the expected pod and NiFi node state changes are observed
 - config-triggered rollout progress is resumed from `status.rollout.startedAt` and `status.rollout.targetConfigHash`
+- TLS observation progress is resumed from `status.tls.observationStartedAt`, `status.tls.targetCertificateHash`, and `status.tls.targetTLSConfigurationHash`
 - `status.hibernation.lastRunningReplicas` is captured before the first scale-down below the current running size
 - unhibernate uses recorded status rather than guessing from history or annotations
 
@@ -125,7 +126,9 @@ Current implementation notes:
 - managed mode is limited to `StatefulSet.updateStrategy=OnDelete`
 - the controller uses `StatefulSet.status.currentRevision`, `updateRevision`, and `currentReplicas` as the primary ordinal-planning signal
 - config-triggered rollouts persist `status.rollout.trigger=ConfigDrift`, `status.rollout.startedAt`, and `status.rollout.targetConfigHash`
+- TLS-triggered rollouts persist `status.rollout.trigger=TLSDrift`, `status.rollout.startedAt`, `status.rollout.targetCertificateHash`, and `status.rollout.targetTLSConfigurationHash`
 - during a config-triggered rollout, a pod counts as updated once it has been recreated after `status.rollout.startedAt`
+- during a TLS-triggered rollout, a pod counts as updated once it has been recreated after `status.rollout.startedAt`
 - if `currentRevision` lags briefly after all pods are healthy on the target revision, the controller treats the rollout as complete once the pods and health gate are converged
 - offload or disconnect sequencing is intentionally deferred to a later slice
 
@@ -134,17 +137,22 @@ Current implementation notes:
 Config and certificate handling use separate aggregate hashes:
 
 - non-TLS config drift triggers a controlled rolling restart
-- TLS Secret content drift is detected and stored separately in status
-- TLS restart policy decisions are intentionally deferred to the next slice
-- `spec.restartPolicy.tlsDrift` is not applied yet
+- TLS Secret content drift with stable refs, paths, and password refs enters a `30s` autoreload observation window by default
+- `spec.restartPolicy.tlsDrift=ObserveOnly` never starts a TLS rollout for content-only drift
+- `spec.restartPolicy.tlsDrift=AlwaysRestart` skips observation and starts the managed rollout immediately
+- `spec.restartPolicy.tlsDrift=AutoreloadThenRestartOnFailure` starts rollout only if health degrades during observation or the stable-health check still fails after the window
+- TLS Secret ref changes, TLS mount path changes, and TLS password-key changes are always treated as restart-required material drift
 
 Current implementation details:
 
 - `status.observedConfigHash` tracks the last config hash that has been fully applied to a healthy cluster
 - `status.observedCertificateHash` tracks the last TLS hash that the controller has accepted as steady state
+- `status.observedTLSConfigurationHash` tracks the last reconciled TLS wiring fingerprint from the target StatefulSet
 - if config drift is detected, the controller captures the desired target in `status.rollout.targetConfigHash` and advances the existing managed `OnDelete` rollout path
-- if certificate drift is detected, the controller records that drift in conditions and leaves the observed certificate hash unchanged
+- if TLS content drift is detected and policy allows observation, the controller records `status.tls.*`, waits through the observation window, and advances `status.observedCertificateHash` only after the cluster remains healthy
+- if TLS rollout is required, the controller advances the existing managed `OnDelete` rollout path and updates both `status.observedCertificateHash` and `status.observedTLSConfigurationHash` only after rollout success
 - if watched inputs change again during a config rollout, the controller finishes the in-flight rollout against the recorded target hash and then detects the new drift on the next reconcile
+- if watched TLS inputs change again during observation, the controller resets the observation target hashes to the latest values and starts the observation window again
 
 ## Hibernation And Restore
 
@@ -186,7 +194,10 @@ The controller logic should be tested for:
 - repeated events causing no duplicate pod deletion
 - controller restart during rollout
 - controller restart during config-triggered rollout
+- controller restart during TLS observation
+- controller restart during TLS-triggered rollout
 - controller restart during hibernation
 - timeout during offload
-- TLS drift detected without restart before policy handling is implemented
+- TLS content drift resolved without restart
+- TLS content drift escalating to rollout when policy or health requires it
 - watched non-TLS Secret and ConfigMap changes triggering the same rollout path used for StatefulSet drift

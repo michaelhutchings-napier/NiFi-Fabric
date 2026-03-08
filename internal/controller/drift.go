@@ -16,15 +16,19 @@ import (
 )
 
 type WatchedResourceDrift struct {
-	CurrentConfigHash      string
-	CurrentCertificateHash string
-	TargetConfigHash       string
-	HasConfigInputs        bool
-	HasCertificateInputs   bool
-	ConfigDrift            bool
-	CertificateDrift       bool
-	ConfigRefs             []string
-	CertificateRefs        []string
+	CurrentConfigHash           string
+	CurrentCertificateHash      string
+	CurrentTLSConfigurationHash string
+	TargetConfigHash            string
+	HasConfigInputs             bool
+	HasCertificateInputs        bool
+	ConfigDrift                 bool
+	CertificateDrift            bool
+	TLSConfigurationDrift       bool
+	MaterialTLSChange           bool
+	TLSResolvedWithoutRestart   bool
+	ConfigRefs                  []string
+	CertificateRefs             []string
 }
 
 func (r *NiFiClusterReconciler) computeWatchedResourceDrift(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet) (WatchedResourceDrift, error) {
@@ -44,15 +48,20 @@ func (r *NiFiClusterReconciler) computeWatchedResourceDrift(ctx context.Context,
 
 	configHash := aggregateConfigHash(configMaps, configSecrets)
 	certificateHash := aggregateCertificateHash(certificateSecrets)
+	tlsConfigurationHash, err := computeTLSConfigurationHash(target)
+	if err != nil {
+		tlsConfigurationHash = ""
+	}
 
 	drift := WatchedResourceDrift{
-		CurrentConfigHash:      configHash,
-		CurrentCertificateHash: certificateHash,
-		HasConfigInputs:        len(configMaps) > 0 || len(configSecrets) > 0,
-		HasCertificateInputs:   len(certificateSecrets) > 0,
-		TargetConfigHash:       cluster.Status.Rollout.TargetConfigHash,
-		ConfigRefs:             referencedConfigRefs(cluster.Spec.RestartTriggers.ConfigMaps, configSecrets),
-		CertificateRefs:        referencedSecretRefs(certificateSecrets),
+		CurrentConfigHash:           configHash,
+		CurrentCertificateHash:      certificateHash,
+		CurrentTLSConfigurationHash: tlsConfigurationHash,
+		HasConfigInputs:             len(configMaps) > 0 || len(configSecrets) > 0,
+		HasCertificateInputs:        len(certificateSecrets) > 0,
+		TargetConfigHash:            cluster.Status.Rollout.TargetConfigHash,
+		ConfigRefs:                  referencedConfigRefs(cluster.Spec.RestartTriggers.ConfigMaps, configSecrets),
+		CertificateRefs:             referencedSecretRefs(certificateSecrets),
 	}
 
 	if drift.TargetConfigHash == "" {
@@ -65,11 +74,25 @@ func (r *NiFiClusterReconciler) computeWatchedResourceDrift(ctx context.Context,
 	if shouldCompareObservedHash(cluster.Status.ObservedCertificateHash, drift.HasCertificateInputs) && drift.CurrentCertificateHash != cluster.Status.ObservedCertificateHash {
 		drift.CertificateDrift = true
 	}
+	if shouldCompareObservedHash(cluster.Status.ObservedTLSConfigurationHash, drift.HasCertificateInputs) &&
+		drift.CurrentTLSConfigurationHash != cluster.Status.ObservedTLSConfigurationHash {
+		drift.TLSConfigurationDrift = true
+	}
+	if drift.TLSConfigurationDrift {
+		drift.CertificateDrift = true
+		drift.MaterialTLSChange = true
+	}
 
 	if cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerConfigDrift &&
 		cluster.Status.Rollout.TargetConfigHash != "" &&
 		cluster.Status.Rollout.TargetConfigHash != cluster.Status.ObservedConfigHash {
 		drift.ConfigDrift = true
+		drift.TargetConfigHash = cluster.Status.Rollout.TargetConfigHash
+	}
+	if cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerTLSDrift &&
+		cluster.Status.Rollout.TargetCertificateHash != "" &&
+		cluster.Status.Rollout.TargetCertificateHash != cluster.Status.ObservedCertificateHash {
+		drift.CertificateDrift = true
 		drift.TargetConfigHash = cluster.Status.Rollout.TargetConfigHash
 	}
 

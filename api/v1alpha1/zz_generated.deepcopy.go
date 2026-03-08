@@ -142,6 +142,7 @@ func (in *NiFiClusterSpec) DeepCopy() *NiFiClusterSpec {
 
 func (in *NiFiClusterStatus) DeepCopyInto(out *NiFiClusterStatus) {
 	*out = *in
+	in.TLS.DeepCopyInto(&out.TLS)
 	in.Rollout.DeepCopyInto(&out.Rollout)
 	out.Replicas = in.Replicas
 	out.ClusterNodes = in.ClusterNodes
@@ -210,6 +211,23 @@ func (in *RestartTriggers) DeepCopy() *RestartTriggers {
 		return nil
 	}
 	out := new(RestartTriggers)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *TLSStatus) DeepCopyInto(out *TLSStatus) {
+	*out = *in
+	if in.ObservationStartedAt != nil {
+		in, out := &in.ObservationStartedAt, &out.ObservationStartedAt
+		*out = (*in).DeepCopy()
+	}
+}
+
+func (in *TLSStatus) DeepCopy() *TLSStatus {
+	if in == nil {
+		return nil
+	}
+	out := new(TLSStatus)
 	in.DeepCopyInto(out)
 	return out
 }

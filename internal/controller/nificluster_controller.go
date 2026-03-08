@@ -100,7 +100,14 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 	}
 
 	r.syncObservedHashes(cluster, drift)
-	r.reconcileCertificateDriftStatus(cluster, drift)
+	drift, tlsResult, handledEarly, err := r.handleTLSPolicy(ctx, cluster, target, drift)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if handledEarly {
+		return tlsResult, nil
+	}
+
 	r.startConfigRolloutIfNeeded(cluster, drift)
 
 	plan := BuildRolloutPlan(target, pods, cluster.Status.Rollout)
@@ -145,7 +152,7 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 	}
 
 	nextPod := plan.NextPodToDelete()
-	if nextPod == nil && plan.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
+	if nextPod == nil && planUsesRestartTimestamp(plan.Trigger) {
 		return r.finishSteadyState(ctx, cluster, target, drift)
 	}
 	if nextPod == nil {
@@ -232,8 +239,9 @@ func (r *NiFiClusterReconciler) finishSteadyState(ctx context.Context, cluster *
 		Message:            "Hibernation is not active",
 		LastTransitionTime: metav1.Now(),
 	})
-	cluster.Status.LastOperation = succeededOperation(lastOperationTypeForSteadyState(cluster), lastOperationMessageForSteadyState(target, drift))
+	cluster.Status.LastOperation = succeededOperation(lastOperationTypeForSteadyState(cluster), lastOperationMessageForSteadyState(cluster, target, drift))
 	cluster.Status.Rollout = platformv1alpha1.RolloutStatus{}
+	clearTLSObservation(cluster)
 
 	return ctrl.Result{}, nil
 }
@@ -602,12 +610,18 @@ func rolloutConditionDetails(plan RolloutPlan, drift WatchedResourceDrift) (stri
 	if plan.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
 		return "ConfigDriftDetected", configDriftMessage(drift)
 	}
+	if plan.Trigger == platformv1alpha1.RolloutTriggerTLSDrift {
+		return "TLSRolloutInProgress", tlsRolloutMessage(drift)
+	}
 	return "RevisionDriftDetected", rolloutMessage(plan)
 }
 
 func rolloutOperationMessage(plan RolloutPlan, drift WatchedResourceDrift) string {
 	if plan.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
 		return fmt.Sprintf("Reconciling config drift toward hash %q from refs %s", drift.TargetConfigHash, joinOrNone(drift.ConfigRefs))
+	}
+	if plan.Trigger == platformv1alpha1.RolloutTriggerTLSDrift {
+		return fmt.Sprintf("Reconciling TLS drift toward certificate hash %q from refs %s", clusterTargetCertificateHash(plan, drift), joinOrNone(drift.CertificateRefs))
 	}
 	return fmt.Sprintf("Reconciling revision drift from %q to %q", plan.CurrentRevision, plan.UpdateRevision)
 }
@@ -616,12 +630,18 @@ func podDeletedMessage(podName string, plan RolloutPlan) string {
 	if plan.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
 		return fmt.Sprintf("Deleted pod %s to apply watched config drift; waiting for replacement pod readiness and cluster convergence", podName)
 	}
+	if plan.Trigger == platformv1alpha1.RolloutTriggerTLSDrift {
+		return fmt.Sprintf("Deleted pod %s to apply TLS rollout; waiting for replacement pod readiness and cluster convergence", podName)
+	}
 	return fmt.Sprintf("Deleted pod %s; waiting for replacement pod readiness and cluster convergence", podName)
 }
 
 func deletedOperationMessage(podName string, plan RolloutPlan) string {
 	if plan.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
 		return fmt.Sprintf("Deleted pod %s to apply watched config drift", podName)
+	}
+	if plan.Trigger == platformv1alpha1.RolloutTriggerTLSDrift {
+		return fmt.Sprintf("Deleted pod %s to apply TLS rollout", podName)
 	}
 	return fmt.Sprintf("Deleted pod %s to advance StatefulSet revision %q", podName, plan.UpdateRevision)
 }
@@ -630,6 +650,9 @@ func availableRolloutMessage(plan RolloutPlan) string {
 	if plan.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
 		return "Waiting for watched config rollout pods and NiFi cluster health to converge"
 	}
+	if plan.Trigger == platformv1alpha1.RolloutTriggerTLSDrift {
+		return "Waiting for TLS rollout pods and NiFi cluster health to converge"
+	}
 	return "Waiting for StatefulSet pods and NiFi cluster health to converge to the update revision"
 }
 
@@ -637,55 +660,49 @@ func clusterHealthBlockedMessage(plan RolloutPlan, err error) string {
 	if plan.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
 		return fmt.Sprintf("Cluster health gate blocked watched config rollout: %v", err)
 	}
+	if plan.Trigger == platformv1alpha1.RolloutTriggerTLSDrift {
+		return fmt.Sprintf("Cluster health gate blocked TLS rollout: %v", err)
+	}
 	return fmt.Sprintf("Cluster health gate blocked rollout at revision %q: %v", plan.UpdateRevision, err)
 }
 
 func degradedMessageForDrift(drift WatchedResourceDrift) string {
-	if drift.CertificateDrift {
-		return "No rollout failure is currently active; certificate drift is recorded separately until restart policy handling is added"
-	}
 	return "No rollout failure is currently active"
 }
 
 func availableReasonForSteadyState(drift WatchedResourceDrift) string {
-	if drift.CertificateDrift {
-		return "CertificateDriftDetected"
+	if drift.TLSResolvedWithoutRestart {
+		return "TLSDriftResolvedWithoutRestart"
 	}
 	return "RolloutHealthy"
 }
 
 func availableMessageForSteadyState(drift WatchedResourceDrift) string {
-	if drift.CertificateDrift {
-		return "Target StatefulSet and NiFi cluster health are converged; certificate drift is recorded for a later TLS policy slice"
+	if drift.TLSResolvedWithoutRestart {
+		return "Target StatefulSet and NiFi cluster health stayed healthy while TLS drift was resolved without restart"
 	}
 	return "Target StatefulSet and NiFi cluster health are converged"
 }
 
 func progressingReasonForSteadyState(drift WatchedResourceDrift) string {
-	if drift.CertificateDrift {
-		return "CertificateDriftObserved"
+	if drift.TLSResolvedWithoutRestart {
+		return "TLSDriftResolvedWithoutRestart"
 	}
 	return "NoDrift"
 }
 
 func progressingMessageForSteadyState(drift WatchedResourceDrift) string {
-	if drift.CertificateDrift {
-		return "No rollout is in progress; certificate drift is recorded but restart policy is deferred"
+	if drift.TLSResolvedWithoutRestart {
+		return "No rollout is in progress; TLS drift was resolved during the autoreload observation window"
 	}
 	return "No rollout is currently in progress and no watched drift is active"
 }
 
 func degradedReasonForSteadyState(drift WatchedResourceDrift) string {
-	if drift.CertificateDrift {
-		return "CertificateDriftPendingPolicy"
-	}
 	return "AsExpected"
 }
 
 func degradedMessageForSteadyState(drift WatchedResourceDrift) string {
-	if drift.CertificateDrift {
-		return "No degradation detected; certificate drift remains pending policy handling"
-	}
 	return "No degradation detected"
 }
 
@@ -693,12 +710,18 @@ func lastOperationTypeForSteadyState(cluster *platformv1alpha1.NiFiCluster) stri
 	if cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
 		return "Rollout"
 	}
+	if cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerTLSDrift {
+		return "Rollout"
+	}
 	return "StatusSync"
 }
 
-func lastOperationMessageForSteadyState(target *appsv1.StatefulSet, drift WatchedResourceDrift) string {
-	if drift.CertificateDrift {
-		return fmt.Sprintf("Revision %q is healthy; certificate drift is recorded without restart", target.Status.UpdateRevision)
+func lastOperationMessageForSteadyState(cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, drift WatchedResourceDrift) string {
+	if drift.TLSResolvedWithoutRestart {
+		return fmt.Sprintf("TLS drift resolved without restart and revision %q is healthy", target.Status.UpdateRevision)
+	}
+	if cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerTLSDrift {
+		return fmt.Sprintf("TLS rollout completed and revision %q is healthy", target.Status.UpdateRevision)
 	}
 	return fmt.Sprintf("Revision %q is fully rolled out and healthy", target.Status.UpdateRevision)
 }
@@ -708,7 +731,18 @@ func configDriftMessage(drift WatchedResourceDrift) string {
 }
 
 func certificateDriftMessage(drift WatchedResourceDrift) string {
-	return fmt.Sprintf("Watched certificate drift detected for %s; restart policy handling is deferred in this slice", joinOrNone(drift.CertificateRefs))
+	return fmt.Sprintf("Watched certificate drift detected for %s", joinOrNone(drift.CertificateRefs))
+}
+
+func tlsRolloutMessage(drift WatchedResourceDrift) string {
+	return fmt.Sprintf("TLS rollout is in progress for %s", joinOrNone(drift.CertificateRefs))
+}
+
+func clusterTargetCertificateHash(plan RolloutPlan, drift WatchedResourceDrift) string {
+	if drift.CurrentCertificateHash != "" {
+		return drift.CurrentCertificateHash
+	}
+	return plan.UpdateRevision
 }
 
 func joinOrNone(values []string) string {
@@ -725,9 +759,15 @@ func (r *NiFiClusterReconciler) syncObservedHashes(cluster *platformv1alpha1.NiF
 	if cluster.Status.ObservedCertificateHash == "" && !drift.CertificateDrift {
 		cluster.Status.ObservedCertificateHash = drift.CurrentCertificateHash
 	}
+	if cluster.Status.ObservedTLSConfigurationHash == "" && !drift.TLSConfigurationDrift {
+		cluster.Status.ObservedTLSConfigurationHash = drift.CurrentTLSConfigurationHash
+	}
 }
 
 func (r *NiFiClusterReconciler) startConfigRolloutIfNeeded(cluster *platformv1alpha1.NiFiCluster, drift WatchedResourceDrift) {
+	if cluster.Status.Rollout.Trigger != "" {
+		return
+	}
 	if !drift.ConfigDrift {
 		return
 	}
@@ -745,50 +785,172 @@ func (r *NiFiClusterReconciler) startConfigRolloutIfNeeded(cluster *platformv1al
 	}
 }
 
-func (r *NiFiClusterReconciler) reconcileCertificateDriftStatus(cluster *platformv1alpha1.NiFiCluster, drift WatchedResourceDrift) {
-	if !drift.CertificateDrift || cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
+func (r *NiFiClusterReconciler) startTLSRolloutIfNeeded(cluster *platformv1alpha1.NiFiCluster, drift WatchedResourceDrift) {
+	if cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerTLSDrift &&
+		cluster.Status.Rollout.TargetCertificateHash == drift.CurrentCertificateHash &&
+		cluster.Status.Rollout.TargetTLSConfigurationHash == drift.CurrentTLSConfigurationHash &&
+		cluster.Status.Rollout.StartedAt != nil {
 		return
 	}
 
+	now := metav1.NewTime(time.Now().UTC())
+	cluster.Status.Rollout = platformv1alpha1.RolloutStatus{
+		Trigger:                    platformv1alpha1.RolloutTriggerTLSDrift,
+		StartedAt:                  &now,
+		TargetCertificateHash:      drift.CurrentCertificateHash,
+		TargetTLSConfigurationHash: drift.CurrentTLSConfigurationHash,
+	}
+	clearTLSObservation(cluster)
+}
+
+func (r *NiFiClusterReconciler) captureSteadyStateHashes(cluster *platformv1alpha1.NiFiCluster, drift WatchedResourceDrift) {
+	if cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerConfigDrift && cluster.Status.Rollout.TargetConfigHash != "" {
+		cluster.Status.ObservedConfigHash = cluster.Status.Rollout.TargetConfigHash
+	} else if !drift.ConfigDrift {
+		cluster.Status.ObservedConfigHash = drift.CurrentConfigHash
+	}
+
+	if cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerTLSDrift {
+		if cluster.Status.Rollout.TargetCertificateHash != "" {
+			cluster.Status.ObservedCertificateHash = cluster.Status.Rollout.TargetCertificateHash
+		}
+		if cluster.Status.Rollout.TargetTLSConfigurationHash != "" {
+			cluster.Status.ObservedTLSConfigurationHash = cluster.Status.Rollout.TargetTLSConfigurationHash
+		}
+		return
+	}
+
+	if !drift.CertificateDrift || drift.TLSResolvedWithoutRestart {
+		cluster.Status.ObservedCertificateHash = drift.CurrentCertificateHash
+		cluster.Status.ObservedTLSConfigurationHash = drift.CurrentTLSConfigurationHash
+	}
+}
+
+func (r *NiFiClusterReconciler) handleTLSPolicy(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, drift WatchedResourceDrift) (WatchedResourceDrift, ctrl.Result, bool, error) {
+	if !drift.HasCertificateInputs {
+		clearTLSObservation(cluster)
+		return drift, ctrl.Result{}, false, nil
+	}
+
+	if cluster.Status.Rollout.Trigger != "" && cluster.Status.Rollout.Trigger != platformv1alpha1.RolloutTriggerTLSDrift {
+		return drift, ctrl.Result{}, false, nil
+	}
+
+	if cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerTLSDrift {
+		drift.CertificateDrift = true
+		return drift, ctrl.Result{}, false, nil
+	}
+
+	if !drift.CertificateDrift {
+		clearTLSObservation(cluster)
+		return drift, ctrl.Result{}, false, nil
+	}
+
+	if drift.MaterialTLSChange {
+		r.startTLSRolloutIfNeeded(cluster, drift)
+		return drift, ctrl.Result{}, false, nil
+	}
+
+	switch tlsDiffPolicy(cluster) {
+	case platformv1alpha1.TLSDiffPolicyAlwaysRestart:
+		r.startTLSRolloutIfNeeded(cluster, drift)
+		return drift, ctrl.Result{}, false, nil
+	case platformv1alpha1.TLSDiffPolicyObserveOnly:
+		return r.observeTLSDiff(ctx, cluster, target, drift, false)
+	default:
+		return r.observeTLSDiff(ctx, cluster, target, drift, true)
+	}
+}
+
+func (r *NiFiClusterReconciler) observeTLSDiff(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, drift WatchedResourceDrift, restartOnFailure bool) (WatchedResourceDrift, ctrl.Result, bool, error) {
+	startTLSObservation(cluster, drift)
+
+	healthResult, err := r.HealthChecker.CheckClusterHealth(ctx, cluster, target)
+	r.applyClusterHealth(cluster, healthResult)
+	if err != nil {
+		if restartOnFailure {
+			r.startTLSRolloutIfNeeded(cluster, drift)
+			return drift, ctrl.Result{}, false, nil
+		}
+		r.markTLSObservationDegraded(cluster, drift, err)
+		return drift, ctrl.Result{RequeueAfter: rolloutPollRequeue}, true, nil
+	}
+
+	if !tlsObservationElapsed(cluster) {
+		r.markTLSObserving(cluster, drift)
+		return drift, ctrl.Result{RequeueAfter: rolloutPollRequeue}, true, nil
+	}
+
+	healthResult, err = r.HealthChecker.WaitForClusterHealthy(ctx, cluster, target, clusterHealthTimeout(cluster))
+	r.applyClusterHealth(cluster, healthResult)
+	if err != nil {
+		if restartOnFailure {
+			r.startTLSRolloutIfNeeded(cluster, drift)
+			return drift, ctrl.Result{}, false, nil
+		}
+		r.markTLSObservationDegraded(cluster, drift, err)
+		return drift, ctrl.Result{RequeueAfter: rolloutPollRequeue}, true, nil
+	}
+
+	clearTLSObservation(cluster)
+	cluster.Status.ObservedCertificateHash = drift.CurrentCertificateHash
+	cluster.Status.ObservedTLSConfigurationHash = drift.CurrentTLSConfigurationHash
+	drift.CertificateDrift = false
+	drift.TLSConfigurationDrift = false
+	drift.MaterialTLSChange = false
+	drift.TLSResolvedWithoutRestart = true
+	cluster.Status.LastOperation = succeededOperation("TLSObservation", fmt.Sprintf("TLS drift resolved without restart for %s", joinOrNone(drift.CertificateRefs)))
+	return drift, ctrl.Result{}, false, nil
+}
+
+func (r *NiFiClusterReconciler) markTLSObserving(cluster *platformv1alpha1.NiFiCluster, drift WatchedResourceDrift) {
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionAvailable,
 		Status:             metav1.ConditionTrue,
-		Reason:             "CertificateDriftDetected",
+		Reason:             "TLSDriftDetected",
 		Message:            certificateDriftMessage(drift),
 		LastTransitionTime: metav1.Now(),
 	})
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionProgressing,
-		Status:             metav1.ConditionFalse,
-		Reason:             "CertificateDriftObserved",
-		Message:            "Certificate drift is recorded in status; restart policy is intentionally deferred in this slice",
+		Status:             metav1.ConditionTrue,
+		Reason:             "TLSAutoreloadObserving",
+		Message:            fmt.Sprintf("Observing TLS autoreload for %s before deciding whether a restart is required", joinOrNone(drift.CertificateRefs)),
 		LastTransitionTime: metav1.Now(),
 	})
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionDegraded,
 		Status:             metav1.ConditionFalse,
-		Reason:             "CertificateDriftPendingPolicy",
-		Message:            "No certificate restart has been triggered yet",
+		Reason:             "TLSAutoreloadObserving",
+		Message:            "No degradation detected during the TLS autoreload observation window",
 		LastTransitionTime: metav1.Now(),
 	})
-	cluster.Status.LastOperation = platformv1alpha1.LastOperation{
-		Type:    "DriftDetection",
-		Phase:   platformv1alpha1.OperationPhasePending,
-		Message: certificateDriftMessage(drift),
-	}
+	cluster.Status.LastOperation = runningOperation("TLSObservation", fmt.Sprintf("Observing TLS drift for %s", joinOrNone(drift.CertificateRefs)))
 }
 
-func (r *NiFiClusterReconciler) captureSteadyStateHashes(cluster *platformv1alpha1.NiFiCluster, drift WatchedResourceDrift) {
-	if !drift.CertificateDrift {
-		cluster.Status.ObservedCertificateHash = drift.CurrentCertificateHash
-	}
-	if cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerConfigDrift && cluster.Status.Rollout.TargetConfigHash != "" {
-		cluster.Status.ObservedConfigHash = cluster.Status.Rollout.TargetConfigHash
-		return
-	}
-	if !drift.ConfigDrift {
-		cluster.Status.ObservedConfigHash = drift.CurrentConfigHash
-	}
+func (r *NiFiClusterReconciler) markTLSObservationDegraded(cluster *platformv1alpha1.NiFiCluster, drift WatchedResourceDrift, healthErr error) {
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionAvailable,
+		Status:             metav1.ConditionFalse,
+		Reason:             "TLSAutoreloadHealthDegraded",
+		Message:            "Cluster health degraded while TLS drift remained unresolved",
+		LastTransitionTime: metav1.Now(),
+	})
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionProgressing,
+		Status:             metav1.ConditionFalse,
+		Reason:             "TLSDriftDetected",
+		Message:            certificateDriftMessage(drift),
+		LastTransitionTime: metav1.Now(),
+	})
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionDegraded,
+		Status:             metav1.ConditionTrue,
+		Reason:             "TLSAutoreloadHealthDegraded",
+		Message:            fmt.Sprintf("Cluster health degraded during TLS observation: %v", healthErr),
+		LastTransitionTime: metav1.Now(),
+	})
+	cluster.Status.LastOperation = runningOperation("TLSObservation", fmt.Sprintf("TLS drift remains unresolved because cluster health degraded: %v", healthErr))
 }
 
 func (r *NiFiClusterReconciler) listTargetPods(ctx context.Context, target *appsv1.StatefulSet) ([]corev1.Pod, error) {

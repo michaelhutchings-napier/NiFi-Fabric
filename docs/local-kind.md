@@ -182,7 +182,7 @@ The managed example CR watches:
 - `ConfigMap/nifi-config` as config input
 - `Secret/nifi-tls` as certificate input
 
-Config drift is currently the only watched-input drift that triggers a managed rollout.
+Config drift continues to use the managed rollout path. TLS drift uses either observation or that same rollout path depending on policy.
 
 Exact commands:
 
@@ -210,23 +210,65 @@ kubectl -n nifi get nificluster nifi -o jsonpath='{.status.observedConfigHash}{"
 
 ## Managed TLS Drift Verification
 
-TLS drift is detected separately from general config drift. In this slice it is recorded in status but does not trigger a restart yet.
+TLS drift now follows an explicit policy path:
+
+- stable TLS content drift enters a short autoreload observation window
+- stable content drift resolves without restart if the cluster stays healthy
+- `spec.restartPolicy.tlsDrift=AlwaysRestart` skips observation and starts a rollout immediately
+- TLS secret ref, mount path, or password-key changes are always restart-required
+
+The built-in observation window is currently `30s`.
 
 Exact commands:
 
 ```bash
 make kind-tls-drift
-kubectl -n nifi get nificluster nifi -o jsonpath='{.status.observedCertificateHash}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.observedCertificateHash}{"\n"}{.status.observedTLSConfigurationHash}{"\n"}{.status.tls.observationStartedAt}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'
 kubectl -n nifi get pods \
   -o custom-columns=NAME:.metadata.name,DEL:.metadata.deletionTimestamp,READY:.status.containerStatuses[0].ready
 ```
 
 Expected behavior:
 
-- `ConditionAvailable=True` with a certificate-drift reason
-- `ConditionProgressing=False` because no TLS restart policy is active yet
-- `status.observedCertificateHash` stays on the prior value until a later TLS policy slice decides whether to restart
+- `ConditionProgressing=True` with `TLSAutoreloadObserving` during the observation window
+- `status.tls.observationStartedAt` is populated while the controller waits to see whether autoreload settles cleanly
+- `status.observedCertificateHash` advances only after the controller considers the TLS state reconciled
 - no pod should have a deletion timestamp
+
+Final verification after the observation window:
+
+```bash
+make kind-health
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.observedCertificateHash}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'
+```
+
+## Managed Restart-Required TLS Drift Verification
+
+This flow changes the TLS mount path in the managed chart values. That is a material TLS configuration change, so the controller should skip observation and trigger the existing managed rollout path.
+
+Exact commands:
+
+```bash
+make kind-tls-config-drift
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.rollout.trigger}{"\n"}{.status.rollout.targetCertificateHash}{"\n"}{.status.rollout.targetTLSConfigurationHash}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'
+kubectl -n nifi get pods \
+  -o custom-columns=NAME:.metadata.name,DEL:.metadata.deletionTimestamp,READY:.status.containerStatuses[0].ready \
+  --watch
+```
+
+Expected behavior:
+
+- `status.rollout.trigger=TLSDrift`
+- `ConditionProgressing=True` with a TLS-rollout reason
+- pods are deleted highest ordinal first, one at a time
+- `status.observedCertificateHash` and `status.observedTLSConfigurationHash` advance only after the rollout completes and the cluster is healthy again
+
+Final verification:
+
+```bash
+make kind-health
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.observedCertificateHash}{"\n"}{.status.observedTLSConfigurationHash}{"\n"}{.status.lastOperation.phase}{"\n"}{.status.lastOperation.message}{"\n"}'
+```
 
 ## Managed Rollout Behavior
 
@@ -234,12 +276,13 @@ The current managed slice does exactly this:
 
 1. detect StatefulSet template or revision drift in managed `OnDelete` mode
 2. detect watched non-TLS config drift from `spec.restartTriggers`
-3. wait for all target pods to be `Ready`
-4. wait for the documented per-pod NiFi health gate to pass for multiple consecutive polls
-5. delete the highest remaining ordinal in the current revision set
-6. wait for the replacement pod to become `Ready`
-7. wait for the full cluster to converge again
-8. repeat until all ordinals have been replaced
+3. detect watched TLS drift and decide whether to observe autoreload or require rollout
+4. wait for all target pods to be `Ready`
+5. wait for the documented per-pod NiFi health gate to pass for multiple consecutive polls
+6. delete the highest remaining ordinal in the current revision set
+7. wait for the replacement pod to become `Ready`
+8. wait for the full cluster to converge again
+9. repeat until all ordinals have been replaced
 
 On one clean kind run, the observed delete order was:
 
@@ -279,8 +322,9 @@ The auth Secret contains:
 - The helper script uses a self-signed CA and a server certificate valid for the chart Service and headless Service DNS names.
 - The helper script creates both PKCS12 stores. If the workstation does not have `keytool`, it runs `keytool` in a disposable `apache/nifi:2.0.0` container.
 - The health checker executes `curl` inside each NiFi pod so the TLS hostname and NiFi node identity stay aligned.
-- The kind-focused standalone example leaves `nifi.security.autoreload.enabled=false` for now; cert rotation policy is still a later slice.
+- The chart default still leaves `nifi.security.autoreload.enabled=false` for the standalone path, but the managed example used for TLS policy verification enables autoreload explicitly.
 - The checker uses the exported `ca.crt` rather than `curl -k`.
 - Managed mode currently coordinates template, revision, and watched non-TLS config drift rollouts through the same `OnDelete` path.
-- TLS drift is detected and recorded but does not restart pods yet.
+- Stable TLS content drift observes autoreload first and can reconcile without restart.
+- Material TLS configuration changes and restart-required TLS policy decisions use the same managed `OnDelete` path.
 - Offload or disconnect sequencing and hibernation are still intentionally deferred.

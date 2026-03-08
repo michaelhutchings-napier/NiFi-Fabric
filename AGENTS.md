@@ -25,6 +25,7 @@ It must stay simpler than NiFiKop and avoid feature sprawl.
 - Prefer explicit status conditions.
 - Prefer small, testable reconciliation loops.
 - Prefer controller-runtime conventions.
+- Managed features require latest CRD installed.
 
 ## Quality bar
 - Every major design decision needs rationale.

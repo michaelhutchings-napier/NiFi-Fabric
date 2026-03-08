@@ -99,25 +99,36 @@ type RolloutTrigger string
 const (
 	RolloutTriggerStatefulSetRevision RolloutTrigger = "StatefulSetRevision"
 	RolloutTriggerConfigDrift         RolloutTrigger = "ConfigDrift"
+	RolloutTriggerTLSDrift            RolloutTrigger = "TLSDrift"
 )
 
 type RolloutStatus struct {
-	Trigger          RolloutTrigger `json:"trigger,omitempty"`
-	StartedAt        *metav1.Time   `json:"startedAt,omitempty"`
-	TargetConfigHash string         `json:"targetConfigHash,omitempty"`
+	Trigger                    RolloutTrigger `json:"trigger,omitempty"`
+	StartedAt                  *metav1.Time   `json:"startedAt,omitempty"`
+	TargetConfigHash           string         `json:"targetConfigHash,omitempty"`
+	TargetCertificateHash      string         `json:"targetCertificateHash,omitempty"`
+	TargetTLSConfigurationHash string         `json:"targetTLSConfigurationHash,omitempty"`
+}
+
+type TLSStatus struct {
+	ObservationStartedAt       *metav1.Time `json:"observationStartedAt,omitempty"`
+	TargetCertificateHash      string       `json:"targetCertificateHash,omitempty"`
+	TargetTLSConfigurationHash string       `json:"targetTLSConfigurationHash,omitempty"`
 }
 
 type NiFiClusterStatus struct {
-	ObservedGeneration          int64              `json:"observedGeneration,omitempty"`
-	ObservedStatefulSetRevision string             `json:"observedStatefulSetRevision,omitempty"`
-	ObservedConfigHash          string             `json:"observedConfigHash,omitempty"`
-	ObservedCertificateHash     string             `json:"observedCertificateHash,omitempty"`
-	Rollout                     RolloutStatus      `json:"rollout,omitempty"`
-	Replicas                    ReplicaStatus      `json:"replicas,omitempty"`
-	ClusterNodes                ClusterNodesStatus `json:"clusterNodes,omitempty"`
-	Hibernation                 HibernationStatus  `json:"hibernation,omitempty"`
-	LastOperation               LastOperation      `json:"lastOperation,omitempty"`
-	Conditions                  []metav1.Condition `json:"conditions,omitempty"`
+	ObservedGeneration           int64              `json:"observedGeneration,omitempty"`
+	ObservedStatefulSetRevision  string             `json:"observedStatefulSetRevision,omitempty"`
+	ObservedConfigHash           string             `json:"observedConfigHash,omitempty"`
+	ObservedCertificateHash      string             `json:"observedCertificateHash,omitempty"`
+	ObservedTLSConfigurationHash string             `json:"observedTLSConfigurationHash,omitempty"`
+	TLS                          TLSStatus          `json:"tls,omitempty"`
+	Rollout                      RolloutStatus      `json:"rollout,omitempty"`
+	Replicas                     ReplicaStatus      `json:"replicas,omitempty"`
+	ClusterNodes                 ClusterNodesStatus `json:"clusterNodes,omitempty"`
+	Hibernation                  HibernationStatus  `json:"hibernation,omitempty"`
+	LastOperation                LastOperation      `json:"lastOperation,omitempty"`
+	Conditions                   []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true

@@ -41,10 +41,16 @@ status:
   observedStatefulSetRevision: nifi-67c9c7c966
   observedConfigHash: sha256:...
   observedCertificateHash: sha256:...
+  observedTLSConfigurationHash: sha256:...
+  tls:
+    observationStartedAt: "2026-03-08T10:15:00Z"
+    targetCertificateHash: sha256:...
+    targetTLSConfigurationHash: sha256:...
   rollout:
-    trigger: ConfigDrift
+    trigger: TLSDrift
     startedAt: "2026-03-08T10:15:00Z"
-    targetConfigHash: sha256:...
+    targetCertificateHash: sha256:...
+    targetTLSConfigurationHash: sha256:...
   replicas:
     desired: 3
     ready: 3
@@ -100,9 +106,15 @@ Default for MVP:
 | `status.observedStatefulSetRevision` | string | last observed desired workload revision |
 | `status.observedConfigHash` | string | aggregate hash for watched config state |
 | `status.observedCertificateHash` | string | aggregate hash for watched TLS state |
+| `status.observedTLSConfigurationHash` | string | last reconciled TLS wiring fingerprint from the target StatefulSet |
+| `status.tls.observationStartedAt` | timestamp | start of the TLS autoreload observation window |
+| `status.tls.targetCertificateHash` | string | TLS content hash currently under observation |
+| `status.tls.targetTLSConfigurationHash` | string | TLS wiring fingerprint currently under observation |
 | `status.rollout.trigger` | enum | rollout source currently in progress |
 | `status.rollout.startedAt` | timestamp | durable marker used to resume a config-triggered rollout |
 | `status.rollout.targetConfigHash` | string | config hash the current rollout is applying |
+| `status.rollout.targetCertificateHash` | string | TLS content hash the current rollout is applying |
+| `status.rollout.targetTLSConfigurationHash` | string | TLS wiring fingerprint the current rollout is applying |
 | `status.replicas.desired` | integer | current desired replicas on the target workload |
 | `status.replicas.ready` | integer | current ready pods |
 | `status.replicas.updated` | integer | pods at the desired revision |
@@ -254,6 +266,15 @@ The watched-input model stays intentionally small:
 - every other watched Secret contributes to config drift
 
 This keeps the API thin while still separating general restart-trigger inputs from TLS-specific policy handling.
+
+### TLS Decision Fields
+
+The TLS status fields exist for one reason: they let the controller resume policy-driven TLS handling safely after a restart.
+
+- `status.observedCertificateHash` changes only when the controller considers TLS content reconciled
+- `status.observedTLSConfigurationHash` changes only when the controller considers TLS wiring reconciled
+- `status.tls.*` persists the autoreload observation window
+- `status.rollout.targetCertificateHash` and `status.rollout.targetTLSConfigurationHash` persist restart-required TLS rollout targets
 
 ## Intentionally Omitted Fields
 

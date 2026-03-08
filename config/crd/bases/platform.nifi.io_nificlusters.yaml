@@ -113,6 +113,18 @@ spec:
                 type: string
               observedCertificateHash:
                 type: string
+              observedTLSConfigurationHash:
+                type: string
+              tls:
+                type: object
+                properties:
+                  observationStartedAt:
+                    format: date-time
+                    type: string
+                  targetCertificateHash:
+                    type: string
+                  targetTLSConfigurationHash:
+                    type: string
               rollout:
                 type: object
                 properties:
@@ -121,10 +133,15 @@ spec:
                     enum:
                     - StatefulSetRevision
                     - ConfigDrift
+                    - TLSDrift
                   startedAt:
                     format: date-time
                     type: string
                   targetConfigHash:
+                    type: string
+                  targetCertificateHash:
+                    type: string
+                  targetTLSConfigurationHash:
                     type: string
               replicas:
                 type: object

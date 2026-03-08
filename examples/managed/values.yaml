@@ -9,6 +9,8 @@ auth:
 
 tls:
   existingSecret: nifi-tls
+  autoReload:
+    enabled: true
 
 serviceMonitor:
   enabled: false

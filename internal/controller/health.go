@@ -27,6 +27,7 @@ const (
 type ClusterHealthChecker interface {
 	WaitForPodsReady(ctx context.Context, sts *appsv1.StatefulSet, timeout time.Duration) error
 	WaitForClusterHealthy(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, sts *appsv1.StatefulSet, timeout time.Duration) (ClusterHealthResult, error)
+	CheckClusterHealth(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, sts *appsv1.StatefulSet) (ClusterHealthResult, error)
 }
 
 type PodHealth struct {
@@ -146,6 +147,10 @@ func (c *LiveClusterHealthChecker) WaitForClusterHealthy(ctx context.Context, cl
 			return lastResult, fmt.Errorf("timed out waiting for stable cluster health: %s", lastResult.Summary())
 		}
 	}
+}
+
+func (c *LiveClusterHealthChecker) CheckClusterHealth(ctx context.Context, _ *platformv1alpha1.NiFiCluster, sts *appsv1.StatefulSet) (ClusterHealthResult, error) {
+	return c.checkOnce(ctx, sts)
 }
 
 func (c *LiveClusterHealthChecker) checkOnce(ctx context.Context, sts *appsv1.StatefulSet) (ClusterHealthResult, error) {

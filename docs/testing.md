@@ -26,7 +26,10 @@ Current unit coverage in the scaffold includes:
 - safe resume from current status and StatefulSet state after controller restart
 - ConfigMap drift triggering the managed `OnDelete` rollout path
 - watched non-TLS Secret drift triggering the managed `OnDelete` rollout path
-- TLS drift being recorded in status without a forced restart
+- TLS content drift entering and resolving through the autoreload observation window
+- TLS content drift escalating to rollout when health degrades or policy requires it
+- material TLS configuration drift triggering rollout immediately
+- safe resume of TLS observation and TLS rollout after controller restart
 - NiFi access-token and cluster-summary request handling
 
 ## controller-runtime `envtest`
@@ -38,7 +41,10 @@ Current unit coverage in the scaffold includes:
 - status updates for `TargetResolved`, `Available`, `Progressing`, `Degraded`, and `Hibernated`
 - drift detection from watched Secrets and ConfigMaps
 - persistence of `status.observedConfigHash` and `status.observedCertificateHash`
+- persistence of `status.observedTLSConfigurationHash`
+- persistence of `status.tls.observationStartedAt`, `status.tls.targetCertificateHash`, and `status.tls.targetTLSConfigurationHash`
 - persistence of `status.rollout.startedAt` and `status.rollout.targetConfigHash`
+- persistence of `status.rollout.targetCertificateHash` and `status.rollout.targetTLSConfigurationHash`
 - blocked rollout when health gates fail
 - backoff and retry behavior for NiFi API failures
 - capture and restore of `status.hibernation.lastRunningReplicas`
@@ -62,7 +68,8 @@ kind-based integration should cover:
 
 - fresh multi-node NiFi cluster formation without ZooKeeper
 - ConfigMap drift triggering a health-gated sequential rollout
-- TLS Secret drift being detected and recorded without restart
+- TLS content drift resolving without restart when policy allows
+- TLS configuration drift triggering a health-gated sequential rollout
 - image or template upgrade through the `OnDelete` coordinator
 - hibernation to zero and restore to the prior running size
 - controller restart during rollout and during hibernation
@@ -74,7 +81,8 @@ The minimum acceptance suite should include:
 - no rollout begins while cluster health is failing
 - no second pod deletion occurs before the prior pod is Ready and reconnected
 - watched non-TLS drift uses the same restart path as StatefulSet revision drift
-- TLS drift is visible in status before restart policy handling is implemented
+- TLS content drift advances `status.observedCertificateHash` only after the controller considers TLS state reconciled
+- material TLS drift advances `status.observedCertificateHash` and `status.observedTLSConfigurationHash` only after rollout success
 - hibernation preserves PVCs and restores `status.hibernation.lastRunningReplicas`
 - rollout state resumes correctly after controller failure
 

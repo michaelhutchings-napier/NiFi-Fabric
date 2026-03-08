@@ -27,6 +27,13 @@ The controller evaluates TLS drift and follows this policy:
 - if cluster or pod health degrades after TLS drift, require a controlled rolling restart
 - if explicit restart policy demands restart on TLS drift, perform the controlled restart even if autoreload may succeed
 
+Current implementation details:
+
+- stable content drift uses a `30s` autoreload observation window
+- `ObserveOnly` records drift and never forces restart for content-only drift
+- `AutoreloadThenRestartOnFailure` escalates to restart only when health degrades or the stable-health gate still fails after observation
+- `AlwaysRestart` skips observation for content-only drift
+
 ## Consequences
 
 - Routine certificate renewal can stay low-disruption.
