@@ -20,6 +20,9 @@ spec:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         platform.nifi.io/controller-managed: {{ ternary "true" "false" .Values.controllerManaged.enabled | quote }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
       serviceAccountName: {{ include "nifi.serviceAccountName" . }}
       securityContext:

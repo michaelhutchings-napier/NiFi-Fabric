@@ -16,6 +16,14 @@ Unit tests should cover:
 - TLS restart policy selection
 - NiFi API client request and error handling
 
+Current unit coverage in the scaffold includes:
+
+- revision drift detection
+- rollout blocked while the health gate is failing
+- one-pod-at-a-time advancement
+- safe resume from current status and StatefulSet state after controller restart
+- NiFi access-token and cluster-summary request handling
+
 ## controller-runtime `envtest`
 
 `envtest` should cover:

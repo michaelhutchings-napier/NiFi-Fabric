@@ -1,5 +1,7 @@
 replicaCount: 3
 
+podAnnotations: {}
+
 image:
   repository: apache/nifi
   tag: "2.0.0"

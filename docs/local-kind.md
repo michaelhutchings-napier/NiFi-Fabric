@@ -1,13 +1,17 @@
 # Local Kind Workflow
 
-This repository now includes a concrete local workflow for bringing up a minimal NiFi 2 cluster on kind using the standalone Helm chart.
+This repository now includes concrete local workflows for:
+
+- a standalone NiFi 2 chart install
+- a managed-mode install with the thin `OnDelete` rollout controller
 
 ## What This Flow Does
 
 - creates a kind cluster
 - creates a PKCS12 TLS Secret and a single-user auth Secret
-- installs the standalone chart with kind-friendly values
+- installs either the standalone or managed chart path
 - validates the cluster with a repeatable health check that distinguishes Kubernetes readiness from NiFi convergence
+- optionally builds and deploys the controller inside kind for managed rollout verification
 
 This flow is intentionally local-development oriented. It is not a production deployment guide.
 
@@ -19,10 +23,11 @@ This flow is intentionally local-development oriented. It is not a production de
 - Helm 3
 - openssl
 - python3
+- Go
 
 `keytool` is optional. If it is not installed locally, `hack/create-kind-secrets.sh` runs `keytool` in a disposable `apache/nifi:2.0.0` container.
 
-## Exact Commands
+## Standalone Commands
 
 ```bash
 make kind-up
@@ -110,6 +115,89 @@ bash hack/check-nifi-health.sh \
   --stable-polls 3
 ```
 
+## Managed Mode Commands
+
+Managed mode needs the controller running inside the kind cluster so it can reach direct pod DNS names.
+
+The local image flow is intentionally simple:
+
+- `make docker-build-controller` builds `bin/manager` with the host Go toolchain
+- the Docker image uses a `scratch` runtime image and does not need to pull a base image for the local dev path
+
+Exact commands:
+
+```bash
+make kind-up
+make kind-secrets
+make install-crd
+make docker-build-controller
+make kind-load-controller
+make deploy-controller
+kubectl -n nifi-system rollout status deployment/nifi2-platform-controller-manager --timeout=5m
+make helm-install-managed
+make apply-managed
+make kind-health
+```
+
+To trigger a harmless template drift and watch the controller coordinate a rollout:
+
+```bash
+helm upgrade --install nifi charts/nifi \
+  -n nifi \
+  -f examples/managed/values.yaml \
+  --reuse-values \
+  --set-string podAnnotations.rolloutNonce=$(date +%s)
+```
+
+Useful watch commands while the rollout is running:
+
+```bash
+kubectl -n nifi get sts nifi \
+  -o custom-columns=NAME:.metadata.name,CURRENT:.status.currentRevision,UPDATE:.status.updateRevision,CURRENTREPLICAS:.status.currentReplicas,UPDATED:.status.updatedReplicas,READY:.status.readyReplicas \
+  --watch
+```
+
+```bash
+kubectl -n nifi get pods \
+  -o custom-columns=NAME:.metadata.name,REV:.metadata.labels.controller-revision-hash,DEL:.metadata.deletionTimestamp,READY:.status.containerStatuses[0].ready \
+  --watch
+```
+
+```bash
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.lastOperation.message}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'
+```
+
+Final verification after the rollout settles:
+
+```bash
+make kind-health
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.lastOperation.phase}{"\n"}{.status.lastOperation.message}{"\n"}'
+```
+
+## Managed Rollout Behavior
+
+The current managed slice does exactly this:
+
+1. detect StatefulSet template or revision drift in managed `OnDelete` mode
+2. wait for all target pods to be `Ready`
+3. wait for the documented per-pod NiFi health gate to pass for multiple consecutive polls
+4. delete the highest remaining ordinal in the current revision set
+5. wait for the replacement pod to become `Ready`
+6. wait for the full cluster to converge again
+7. repeat until all ordinals have been replaced
+
+On one clean kind run, the observed delete order was:
+
+- `nifi-2`
+- `nifi-1`
+- `nifi-0`
+
+Implementation notes from that run:
+
+- the pod replacement sequence was correct and reproducible
+- StatefulSet `currentRevision` lagged briefly after the pods had already converged
+- the controller now treats the rollout as complete once all pods are on the target revision and the health gate is satisfied, even if that status field lags for a short period
+
 ## Expected Secrets
 
 `make kind-secrets` calls `hack/create-kind-secrets.sh` and creates:
@@ -138,4 +226,5 @@ The auth Secret contains:
 - The health checker executes `curl` inside each NiFi pod so the TLS hostname and NiFi node identity stay aligned.
 - The kind-focused standalone example leaves `nifi.security.autoreload.enabled=false` for now; cert rotation policy is still a later slice.
 - The checker uses the exported `ca.crt` rather than `curl -k`.
-- Managed mode still renders, but advanced controller-driven rollout behavior is not implemented yet.
+- Managed mode currently coordinates only template or revision drift rollouts.
+- Config drift triggers, cert drift triggers, offload or disconnect sequencing, and hibernation are still intentionally deferred.

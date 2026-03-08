@@ -104,15 +104,21 @@ Managed restart behavior is:
 
 1. detect revision or restart-trigger drift
 2. confirm the cluster is healthy if `spec.safety.requireClusterHealthy=true`
-3. choose the next highest ordinal pod that has not been updated
-4. call the NiFi HTTPS API for offload or disconnect when required by the operation
-5. wait for the expected pre-restart node state or fail the operation on timeout
-6. delete the pod
-7. wait for the replacement pod to become Ready
-8. wait for the NiFi node to return to `CONNECTED`
-9. record progress and continue
+3. choose the next highest ordinal remaining in the current revision set
+4. delete the pod
+5. wait for the replacement pod to become Ready
+6. wait for the replacement pod's secured NiFi API to become reachable
+7. wait for full-cluster convergence and stable health polls
+8. record progress and continue
 
-The controller owns the sequencing. NiFi owns the cluster behavior that follows each action.
+The controller owns the sequencing. NiFi owns the cluster behavior that follows each deletion.
+
+Current implementation notes:
+
+- managed mode is limited to `StatefulSet.updateStrategy=OnDelete`
+- the controller uses `StatefulSet.status.currentRevision`, `updateRevision`, and `currentReplicas` as the primary ordinal-planning signal
+- if `currentRevision` lags briefly after all pods are healthy on the target revision, the controller treats the rollout as complete once the pods and health gate are converged
+- offload or disconnect sequencing is intentionally deferred to a later slice
 
 ## Cert Hash And Config Hash Logic
 

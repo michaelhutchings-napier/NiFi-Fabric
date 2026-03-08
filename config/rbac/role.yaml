@@ -32,9 +32,26 @@ rules:
   resources:
   - pods
   verbs:
+  - delete
   - get
   - list
   - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+  - update
 - apiGroups:
   - coordination.k8s.io
   resources:
@@ -46,4 +63,3 @@ rules:
   - create
   - update
   - patch
-

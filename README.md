@@ -151,11 +151,14 @@ What is runnable now:
 - the chart wires Kubernetes leader election and ConfigMap-backed cluster state settings through explicit NiFi configuration rather than hidden controller behavior
 - the chart mounts persistent repositories, config, Services, and probes suitable for a kind-focused local workflow
 - the repo includes a repeatable health-check flow that separates pod readiness, secured API reachability, and actual cluster convergence
-- the controller remains status-only and optional
+- the optional controller can coordinate managed `OnDelete` rollouts one pod at a time for StatefulSet template or revision drift
+- the repo includes a minimal in-cluster controller deployment path for local kind verification
 
 What is still intentionally stubbed:
 
-- advanced controller rollout, cert drift, and hibernation orchestration
+- config-driven and cert-driven rollout triggers
+- offload or disconnect sequencing before pod deletion
+- hibernation orchestration
 - production-grade TLS automation beyond documented Secret expectations
 - production-hardening of chart defaults, auth choices, and storage layouts
 
@@ -167,7 +170,7 @@ Implementation note for this slice:
 
 The exact local flow is documented in [docs/local-kind.md](docs/local-kind.md).
 
-The short version is:
+Standalone short version:
 
 1. `make kind-up`
 2. `make kind-secrets`
@@ -188,6 +191,22 @@ The script exits successfully only after the convergence signal stays healthy fo
 - three consecutive healthy convergence polls at about `+160s`
 
 Treat those numbers as an observed baseline, not a hard SLA.
+
+Managed rollout short version:
+
+1. `make kind-up`
+2. `make kind-secrets`
+3. `make install-crd`
+4. `make docker-build-controller`
+5. `make kind-load-controller`
+6. `make deploy-controller`
+7. `kubectl -n nifi-system rollout status deployment/nifi2-platform-controller-manager --timeout=5m`
+8. `make helm-install-managed`
+9. `make apply-managed`
+10. `make kind-health`
+11. `helm upgrade --install nifi charts/nifi -n nifi -f examples/managed/values.yaml --reuse-values --set-string podAnnotations.rolloutNonce=$(date +%s)`
+
+On one clean kind run, the controller advanced the rollout in the expected order: `nifi-2`, then `nifi-1`, then `nifi-0`.
 
 ## Standalone Health Gate
 
@@ -224,9 +243,14 @@ Useful local commands:
 - `make helm-lint`
 - `make kind-up`
 - `make kind-secrets`
+- `make install-crd`
+- `make docker-build-controller`
+- `make kind-load-controller`
+- `make deploy-controller`
 - `make helm-install-standalone`
 - `make kind-health`
 - `make helm-install-managed`
+- `make apply-managed`
 - `make run`
 
 ## References

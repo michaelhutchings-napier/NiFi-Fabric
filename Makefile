@@ -9,8 +9,9 @@ HELM_RELEASE ?= nifi
 LOCALBIN ?= $(PWD)/bin
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 ENVTEST_K8S_VERSION ?= 1.31.0
+CONTROLLER_IMAGE ?= nifi2-platform-controller:dev
 
-.PHONY: fmt test test-unit test-envtest helm-lint run setup-envtest envtest-use kind-up kind-down kind-secrets kind-health install-crd helm-install-standalone helm-install-managed apply-managed
+.PHONY: fmt test test-unit test-envtest helm-lint run setup-envtest envtest-use kind-up kind-down kind-secrets kind-health docker-build-controller kind-load-controller deploy-controller undeploy-controller install-crd helm-install-standalone helm-install-managed apply-managed
 
 fmt:
 	$(GO) fmt ./...
@@ -49,6 +50,23 @@ kind-secrets:
 
 kind-health:
 	bash hack/check-nifi-health.sh --namespace $(NAMESPACE) --statefulset $(HELM_RELEASE) --auth-secret nifi-auth
+
+docker-build-controller:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -o bin/manager ./main.go
+	docker build -t $(CONTROLLER_IMAGE) .
+
+kind-load-controller:
+	$(KIND) load docker-image $(CONTROLLER_IMAGE) --name $(KIND_CLUSTER_NAME)
+
+deploy-controller:
+	$(KUBECTL) apply -f config/manager/namespace.yaml
+	$(KUBECTL) apply -f config/rbac/service_account.yaml -f config/rbac/role.yaml -f config/rbac/role_binding.yaml
+	$(KUBECTL) apply -f config/manager/manager.yaml
+
+undeploy-controller:
+	-$(KUBECTL) delete -f config/manager/manager.yaml
+	-$(KUBECTL) delete -f config/rbac/role_binding.yaml -f config/rbac/role.yaml -f config/rbac/service_account.yaml
+	-$(KUBECTL) delete -f config/manager/namespace.yaml
 
 install-crd:
 	$(KUBECTL) apply -f config/crd/bases/platform.nifi.io_nificlusters.yaml
