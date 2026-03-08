@@ -5,15 +5,26 @@ metadata:
   labels:
     {{- include "nifi.labels" . | nindent 4 }}
 data:
-  nifi.properties: |
-    # Minimal scaffold only. This file is intentionally small until full chart work begins.
-    nifi.cluster.is.node=true
+  nifi.properties.overrides: |
     nifi.cluster.node.protocol.port={{ .Values.ports.cluster }}
-    nifi.web.https.port={{ .Values.ports.https }}
-    nifi.web.proxy.host=
-    nifi.sensitive.props.key=changeit-change-me
-    nifi.security.autoreload.enabled=true
+    nifi.cluster.node.protocol.max.threads={{ .Values.nifi.cluster.nodeProtocolMaxThreads }}
+    nifi.cluster.node.connection.timeout={{ .Values.nifi.cluster.nodeConnectionTimeout }}
+    nifi.cluster.node.read.timeout={{ .Values.nifi.cluster.nodeReadTimeout }}
+    nifi.cluster.load.balance.port={{ .Values.ports.loadBalance }}
+    nifi.cluster.load.balance.connections.per.node={{ .Values.nifi.cluster.loadBalanceConnectionsPerNode }}
+    nifi.cluster.load.balance.max.thread.count={{ .Values.nifi.cluster.loadBalanceMaxThreadCount }}
+    nifi.cluster.load.balance.comms.timeout={{ .Values.nifi.cluster.loadBalanceCommsTimeout }}
+    nifi.cluster.flow.election.max.wait.time={{ .Values.nifi.cluster.flowElectionMaxWait }}
+    nifi.cluster.flow.election.max.candidates={{ default (printf "%v" .Values.replicaCount) .Values.nifi.cluster.flowElectionMaxCandidates }}
+    nifi.cluster.is.node=true
+    nifi.cluster.leader.election.implementation=KubernetesLeaderElectionManager
+    nifi.cluster.leader.election.kubernetes.lease.prefix={{ include "nifi.fullname" . }}
+    nifi.state.management.provider.cluster=kubernetes-provider
+    nifi.security.autoreload.enabled={{ ternary "true" "false" .Values.tls.autoReload.enabled }}
+    nifi.security.autoreload.interval={{ .Values.tls.autoReload.interval }}
+    nifi.flowfile.repository.directory=./flowfile_repository
+    nifi.content.repository.directory.default=./content_repository
+    nifi.provenance.repository.directory.default=./provenance_repository
     {{- range $key, $value := .Values.config.extraProperties }}
     {{ $key }}={{ $value }}
     {{- end }}
-

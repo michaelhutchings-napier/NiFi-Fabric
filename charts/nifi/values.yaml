@@ -15,14 +15,31 @@ serviceAccount:
 service:
   type: ClusterIP
   annotations: {}
+  sessionAffinity: None
 
 ports:
   https: 8443
   cluster: 11443
+  loadBalance: 6342
 
 tls:
   existingSecret: nifi-tls
   mountPath: /opt/nifi/tls
+  caCertKey: ca.crt
+  keystoreKey: keystore.p12
+  truststoreKey: truststore.p12
+  keystorePasswordKey: keystorePassword
+  truststorePasswordKey: truststorePassword
+  sensitivePropsKeyKey: sensitivePropsKey
+  autoReload:
+    enabled: false
+    interval: 10 secs
+
+auth:
+  singleUser:
+    existingSecret: nifi-auth
+    usernameKey: username
+    passwordKey: password
 
 ingress:
   enabled: false
@@ -51,8 +68,17 @@ pdb:
 
 persistence:
   enabled: true
-  size: 20Gi
   storageClassName: ""
+  accessModes:
+  - ReadWriteOnce
+  databaseRepository:
+    size: 2Gi
+  flowfileRepository:
+    size: 2Gi
+  contentRepository:
+    size: 4Gi
+  provenanceRepository:
+    size: 4Gi
 
 resources: {}
 
@@ -69,8 +95,34 @@ securityContext:
   runAsGroup: 1000
   runAsNonRoot: true
 
-config:
-  # This scaffold keeps a small nifi.properties template.
-  # TLS and repository layout are intentionally incomplete until chart work begins in earnest.
-  extraProperties: {}
+nifi:
+  jvmHeapInit: 1g
+  jvmHeapMax: 1g
+  cluster:
+    nodeProtocolMaxThreads: 50
+    nodeConnectionTimeout: 5 sec
+    nodeReadTimeout: 5 sec
+    flowElectionMaxWait: 5 mins
+    flowElectionMaxCandidates: ""
+    loadBalanceConnectionsPerNode: 1
+    loadBalanceMaxThreadCount: 8
+    loadBalanceCommsTimeout: 30 sec
 
+probes:
+  startup:
+    periodSeconds: 10
+    failureThreshold: 90
+    timeoutSeconds: 3
+  readiness:
+    periodSeconds: 10
+    failureThreshold: 6
+    timeoutSeconds: 3
+  liveness:
+    periodSeconds: 20
+    failureThreshold: 6
+    timeoutSeconds: 3
+
+config:
+  # This chart writes a baseline nifi.properties and lets the official image patch pod-specific values at startup.
+  # cert-manager is expected to populate the same Secret shape out of band if used.
+  extraProperties: {}

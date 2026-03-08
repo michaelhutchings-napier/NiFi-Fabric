@@ -19,6 +19,7 @@ spec:
         {{- include "nifi.selectorLabels" . | nindent 8 }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        platform.nifi.io/controller-managed: {{ ternary "true" "false" .Values.controllerManaged.enabled | quote }}
     spec:
       serviceAccountName: {{ include "nifi.serviceAccountName" . }}
       securityContext:
@@ -39,61 +40,257 @@ spec:
       topologySpreadConstraints:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      initContainers:
+      - name: init-conf
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: NIFI_POD_FQDN
+          value: "$(POD_NAME).{{ include "nifi.fullname" . }}-headless.$(POD_NAMESPACE).svc.cluster.local"
+        - name: KEYSTORE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "tls.existingSecret is required" .Values.tls.existingSecret | quote }}
+              key: {{ .Values.tls.keystorePasswordKey | quote }}
+        - name: TRUSTSTORE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "tls.existingSecret is required" .Values.tls.existingSecret | quote }}
+              key: {{ .Values.tls.truststorePasswordKey | quote }}
+        - name: NIFI_SENSITIVE_PROPS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "tls.existingSecret is required" .Values.tls.existingSecret | quote }}
+              key: {{ .Values.tls.sensitivePropsKeyKey | quote }}
+        - name: SINGLE_USER_CREDENTIALS_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "auth.singleUser.existingSecret is required" .Values.auth.singleUser.existingSecret | quote }}
+              key: {{ .Values.auth.singleUser.usernameKey | quote }}
+        command:
+        - /bin/sh
+        - -ec
+        - |
+          replace_property() {
+            key="$1"
+            value="$2"
+            if grep -q "^${key}=" /work-conf/nifi.properties; then
+              sed -i "s|^${key}=.*$|${key}=${value}|" /work-conf/nifi.properties
+            else
+              echo "${key}=${value}" >> /work-conf/nifi.properties
+            fi
+          }
+
+          cp -R /opt/nifi/nifi-current/conf/* /work-conf/
+          sed -i "s|^java.arg.2=.*$|java.arg.2=-Xms{{ .Values.nifi.jvmHeapInit }}|" /work-conf/bootstrap.conf
+          sed -i "s|^java.arg.3=.*$|java.arg.3=-Xmx{{ .Values.nifi.jvmHeapMax }}|" /work-conf/bootstrap.conf
+          while IFS= read -r line; do
+            [ -z "${line}" ] && continue
+            case "${line}" in
+              \#*) continue ;;
+            esac
+            key="${line%%=*}"
+            value="${line#*=}"
+            replace_property "${key}" "${value}"
+          done < /config/nifi.properties.overrides
+          replace_property "nifi.security.keystore" "{{ .Values.tls.mountPath }}/{{ .Values.tls.keystoreKey }}"
+          replace_property "nifi.security.keystoreType" "PKCS12"
+          replace_property "nifi.security.keystorePasswd" "${KEYSTORE_PASSWORD}"
+          replace_property "nifi.security.keyPasswd" "${KEYSTORE_PASSWORD}"
+          replace_property "nifi.security.truststore" "{{ .Values.tls.mountPath }}/{{ .Values.tls.truststoreKey }}"
+          replace_property "nifi.security.truststoreType" "PKCS12"
+          replace_property "nifi.security.truststorePasswd" "${TRUSTSTORE_PASSWORD}"
+          NODE_IDENTITY="$(openssl pkcs12 -in {{ .Values.tls.mountPath }}/{{ .Values.tls.keystoreKey }} -passin pass:${KEYSTORE_PASSWORD} -clcerts -nokeys | openssl x509 -noout -subject -nameopt RFC2253 | sed 's/^subject=//')"
+          sed -i -e "s|<property name=\"Initial User Identity 1\"></property>|<property name=\"Initial User Identity 1\">${SINGLE_USER_CREDENTIALS_USERNAME}</property>|" /work-conf/authorizers.xml
+          sed -i -e "s|<property name=\"Initial Admin Identity\"></property>|<property name=\"Initial Admin Identity\">${SINGLE_USER_CREDENTIALS_USERNAME}</property>|" /work-conf/authorizers.xml
+          sed -i -e "s|<property name=\"Node Identity 1\"></property>|<property name=\"Node Identity 1\">${NODE_IDENTITY}</property>|" /work-conf/authorizers.xml
+          replace_property "nifi.security.user.authorizer" "managed-authorizer"
+          replace_property "nifi.security.user.login.identity.provider" "single-user-provider"
+          replace_property "nifi.sensitive.props.key" "${NIFI_SENSITIVE_PROPS_KEY}"
+          replace_property "nifi.web.http.host" ""
+          replace_property "nifi.web.http.port" ""
+          replace_property "nifi.web.https.host" "${NIFI_POD_FQDN}"
+          replace_property "nifi.web.https.port" "{{ .Values.ports.https }}"
+          replace_property "nifi.web.proxy.host" "${NIFI_POD_FQDN}:{{ .Values.ports.https }}"
+          replace_property "nifi.remote.input.host" "${NIFI_POD_FQDN}"
+          replace_property "nifi.remote.input.secure" "true"
+          replace_property "nifi.cluster.protocol.is.secure" "true"
+          replace_property "nifi.cluster.node.address" "${NIFI_POD_FQDN}"
+          replace_property "nifi.cluster.load.balance.host" "${NIFI_POD_FQDN}"
+          xmlstarlet ed --inplace -u "/stateManagement/cluster-provider/property[@name='ConfigMap Name Prefix']" -v "{{ include "nifi.fullname" . }}" /work-conf/state-management.xml
+          awk -F= '
+            NR == FNR {
+              if ($0 !~ /^#/ && index($0, "=") > 0) {
+                last[$1] = NR
+              }
+              next
+            }
+            {
+              if ($0 ~ /^#/ || index($0, "=") == 0) {
+                print
+                next
+              }
+              if (last[$1] == FNR) {
+                print
+              }
+            }
+          ' /work-conf/nifi.properties /work-conf/nifi.properties > /work-conf/nifi.properties.rendered
+          mv /work-conf/nifi.properties.rendered /work-conf/nifi.properties
+        volumeMounts:
+        - name: config-template
+          mountPath: /config
+        - name: writable-conf
+          mountPath: /work-conf
       containers:
       - name: nifi
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command:
+        - /bin/sh
+        - -ec
+        - |
+          /opt/nifi/nifi-current/bin/nifi.sh set-single-user-credentials "${SINGLE_USER_CREDENTIALS_USERNAME}" "${SINGLE_USER_CREDENTIALS_PASSWORD}"
+          /opt/nifi/nifi-current/bin/nifi.sh run &
+          nifi_pid="$!"
+          tail -F --pid="${nifi_pid}" /opt/nifi/nifi-current/logs/nifi-app.log &
+          wait "${nifi_pid}"
         securityContext:
           {{- toYaml .Values.securityContext | nindent 10 }}
+        env:
+        - name: SINGLE_USER_CREDENTIALS_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "auth.singleUser.existingSecret is required" .Values.auth.singleUser.existingSecret | quote }}
+              key: {{ .Values.auth.singleUser.usernameKey | quote }}
+        - name: SINGLE_USER_CREDENTIALS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "auth.singleUser.existingSecret is required" .Values.auth.singleUser.existingSecret | quote }}
+              key: {{ .Values.auth.singleUser.passwordKey | quote }}
         ports:
         - name: https
           containerPort: {{ .Values.ports.https }}
         - name: cluster
           containerPort: {{ .Values.ports.cluster }}
+        - name: load-balance
+          containerPort: {{ .Values.ports.loadBalance }}
+        startupProbe:
+          tcpSocket:
+            port: https
+          periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+          failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+          timeoutSeconds: {{ .Values.probes.startup.timeoutSeconds }}
         readinessProbe:
           tcpSocket:
             port: https
-          initialDelaySeconds: 30
-          periodSeconds: 10
+          periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+          failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
         livenessProbe:
           tcpSocket:
             port: https
-          initialDelaySeconds: 60
-          periodSeconds: 20
+          periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+          failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
         resources:
           {{- toYaml .Values.resources | nindent 10 }}
         volumeMounts:
-        - name: config
-          mountPath: /opt/nifi/nifi-current/conf/nifi.properties
-          subPath: nifi.properties
-        - name: data
-          mountPath: /opt/nifi/nifi-current/data
-        {{- if .Values.tls.existingSecret }}
+        - name: writable-conf
+          mountPath: /opt/nifi/nifi-current/conf
+        - name: database-repository
+          mountPath: /opt/nifi/nifi-current/database_repository
+        - name: flowfile-repository
+          mountPath: /opt/nifi/nifi-current/flowfile_repository
+        - name: content-repository
+          mountPath: /opt/nifi/nifi-current/content_repository
+        - name: provenance-repository
+          mountPath: /opt/nifi/nifi-current/provenance_repository
+        - name: logs
+          mountPath: /opt/nifi/nifi-current/logs
         - name: tls
           mountPath: {{ .Values.tls.mountPath }}
           readOnly: true
-        {{- end }}
       volumes:
-      - name: config
+      - name: config-template
         configMap:
           name: {{ include "nifi.fullname" . }}-config
-      {{- if .Values.tls.existingSecret }}
+      - name: writable-conf
+        emptyDir: {}
+      - name: logs
+        emptyDir: {}
       - name: tls
         secret:
-          secretName: {{ .Values.tls.existingSecret }}
+          secretName: {{ required "tls.existingSecret is required" .Values.tls.existingSecret }}
+      {{- if not .Values.persistence.enabled }}
+      - name: database-repository
+        emptyDir: {}
+      - name: flowfile-repository
+        emptyDir: {}
+      - name: content-repository
+        emptyDir: {}
+      - name: provenance-repository
+        emptyDir: {}
       {{- end }}
+  {{- if .Values.persistence.enabled }}
   volumeClaimTemplates:
   - metadata:
-      name: data
+      name: database-repository
       labels:
         {{- include "nifi.labels" . | nindent 8 }}
     spec:
       accessModes:
-      - ReadWriteOnce
+      {{- toYaml .Values.persistence.accessModes | nindent 6 }}
       resources:
         requests:
-          storage: {{ .Values.persistence.size }}
+          storage: {{ .Values.persistence.databaseRepository.size }}
       {{- if .Values.persistence.storageClassName }}
       storageClassName: {{ .Values.persistence.storageClassName }}
       {{- end }}
-
+  - metadata:
+      name: flowfile-repository
+      labels:
+        {{- include "nifi.labels" . | nindent 8 }}
+    spec:
+      accessModes:
+      {{- toYaml .Values.persistence.accessModes | nindent 6 }}
+      resources:
+        requests:
+          storage: {{ .Values.persistence.flowfileRepository.size }}
+      {{- if .Values.persistence.storageClassName }}
+      storageClassName: {{ .Values.persistence.storageClassName }}
+      {{- end }}
+  - metadata:
+      name: content-repository
+      labels:
+        {{- include "nifi.labels" . | nindent 8 }}
+    spec:
+      accessModes:
+      {{- toYaml .Values.persistence.accessModes | nindent 6 }}
+      resources:
+        requests:
+          storage: {{ .Values.persistence.contentRepository.size }}
+      {{- if .Values.persistence.storageClassName }}
+      storageClassName: {{ .Values.persistence.storageClassName }}
+      {{- end }}
+  - metadata:
+      name: provenance-repository
+      labels:
+        {{- include "nifi.labels" . | nindent 8 }}
+    spec:
+      accessModes:
+      {{- toYaml .Values.persistence.accessModes | nindent 6 }}
+      resources:
+        requests:
+          storage: {{ .Values.persistence.provenanceRepository.size }}
+      {{- if .Values.persistence.storageClassName }}
+      storageClassName: {{ .Values.persistence.storageClassName }}
+      {{- end }}
+  {{- end }}

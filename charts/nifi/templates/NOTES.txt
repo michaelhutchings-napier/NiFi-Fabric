@@ -1,7 +1,7 @@
-This chart is the initial NiFi 2.x scaffold for nifi2-platform.
+This chart now deploys a minimal real NiFi 2.x cluster shape for kind and other small environments.
 
 - Standalone mode is the default.
 - Set controllerManaged.enabled=true only when using the optional controller.
-- The StatefulSet template and nifi.properties content are intentionally minimal in this scaffold.
-- Create the TLS Secret referenced by .Values.tls.existingSecret before installing into a secure cluster.
-
+- The chart expects a PKCS12-based TLS Secret and a single-user credentials Secret.
+- For kind, use hack/create-kind-secrets.sh before installing the chart.
+- This chart is still not production complete. Advanced controller-driven rollout logic remains stubbed.

@@ -143,13 +143,39 @@ After the design pack, the repository should grow into:
 9. Add `envtest`, Helm, and kind coverage.
 10. Validate AKS first and document OpenShift-specific adjustments.
 
-## Scaffold Status
+## Current Scaffold Status
 
-The initial scaffold is intentionally incomplete and honest about it:
+What is runnable now:
 
-- the controller is status-only and resolves the target `StatefulSet`
-- advanced rollout, cert drift, and hibernation orchestration are not implemented yet
-- the Helm chart renders the expected Kubernetes shapes, but its NiFi runtime configuration is still intentionally minimal
+- the standalone Helm chart can render and deploy a minimal real NiFi 2 cluster on kind
+- the chart wires Kubernetes leader election and ConfigMap-backed cluster state settings through explicit NiFi configuration rather than hidden controller behavior
+- the chart mounts persistent repositories, config, Services, and probes suitable for a kind-focused local workflow
+- the controller remains status-only and optional
+
+What is still intentionally stubbed:
+
+- advanced controller rollout, cert drift, and hibernation orchestration
+- production-grade TLS automation beyond documented Secret expectations
+- production-hardening of chart defaults, auth choices, and storage layouts
+
+Implementation note for this slice:
+
+- standalone mode keeps NiFi TLS autoreload configurable but disabled by default so the minimal local cluster starts cleanly; the cert-rotation/controller slice will revisit the full autoreload-first policy
+
+## Local Kind Flow
+
+The exact local flow is documented in [docs/local-kind.md](docs/local-kind.md).
+
+The short version is:
+
+1. `make kind-up`
+2. `make kind-secrets`
+3. `make helm-install-standalone`
+4. `kubectl -n nifi rollout status statefulset/nifi --timeout=20m`
+5. `kubectl -n nifi get pods`
+6. `kubectl -n nifi exec nifi-0 -c nifi -- sh -ec 'TOKEN=$(curl --silent --show-error --fail --cacert /opt/nifi/tls/ca.crt -H "Content-Type: application/x-www-form-urlencoded; charset=UTF-8" --data-urlencode "username=admin" --data-urlencode "password=ChangeMeChangeMe1!" https://nifi-0.nifi-headless.nifi.svc.cluster.local:8443/nifi-api/access/token) && curl --silent --show-error --fail --cacert /opt/nifi/tls/ca.crt -H "Authorization: Bearer ${TOKEN}" https://nifi-0.nifi-headless.nifi.svc.cluster.local:8443/nifi-api/flow/cluster/summary'`
+
+The kind helper stores `ca.crt` in the TLS Secret and also creates a PKCS12 truststore, using local `keytool` when available or a disposable `apache/nifi:2.0.0` container when it is not.
 
 Useful local commands:
 
@@ -157,6 +183,7 @@ Useful local commands:
 - `make test`
 - `make helm-lint`
 - `make kind-up`
+- `make kind-secrets`
 - `make helm-install-standalone`
 - `make helm-install-managed`
 - `make run`

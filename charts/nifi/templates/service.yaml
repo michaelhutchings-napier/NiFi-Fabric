@@ -10,6 +10,7 @@ metadata:
   {{- end }}
 spec:
   type: {{ .Values.service.type }}
+  sessionAffinity: {{ .Values.service.sessionAffinity }}
   selector:
     {{- include "nifi.selectorLabels" . | nindent 4 }}
   ports:
@@ -17,4 +18,3 @@ spec:
     port: {{ .Values.ports.https }}
     protocol: TCP
     targetPort: https
-

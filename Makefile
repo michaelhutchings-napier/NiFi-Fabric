@@ -10,7 +10,7 @@ LOCALBIN ?= $(PWD)/bin
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 ENVTEST_K8S_VERSION ?= 1.31.0
 
-.PHONY: fmt test test-unit test-envtest helm-lint run setup-envtest envtest-use kind-up kind-down install-crd helm-install-standalone helm-install-managed apply-managed
+.PHONY: fmt test test-unit test-envtest helm-lint run setup-envtest envtest-use kind-up kind-down kind-secrets install-crd helm-install-standalone helm-install-managed apply-managed
 
 fmt:
 	$(GO) fmt ./...
@@ -44,6 +44,9 @@ kind-up:
 kind-down:
 	$(KIND) delete cluster --name $(KIND_CLUSTER_NAME)
 
+kind-secrets:
+	bash hack/create-kind-secrets.sh $(NAMESPACE) $(HELM_RELEASE) nifi-tls nifi-auth
+
 install-crd:
 	$(KUBECTL) apply -f config/crd/bases/platform.nifi.io_nificlusters.yaml
 
@@ -55,4 +58,3 @@ helm-install-managed:
 
 apply-managed:
 	$(KUBECTL) apply -f examples/managed/nificluster.yaml
-

@@ -3,9 +3,16 @@ replicaCount: 3
 controllerManaged:
   enabled: true
 
+auth:
+  singleUser:
+    existingSecret: nifi-auth
+
 tls:
   existingSecret: nifi-tls
 
 serviceMonitor:
-  enabled: true
+  enabled: false
 
+nifi:
+  jvmHeapInit: 512m
+  jvmHeapMax: 512m
