@@ -143,18 +143,19 @@ For GitOps users, the important implication is narrow and documented:
 ### Hibernation
 
 1. `NiFiCluster.spec.desiredState` becomes `Hibernated`.
-2. The controller records `status.hibernation.lastRunningReplicas`.
+2. The controller records `status.hibernation.lastRunningReplicas` and preserves a non-zero restore baseline in status.
 3. If health gating is required, the controller waits for the documented per-pod health signal.
-4. The controller reduces `StatefulSet.spec.replicas` directly to zero while preserving PVCs.
+4. The controller reduces `StatefulSet.spec.replicas` toward zero while preserving PVCs.
 5. The controller sets `Hibernated=True` when the cluster is quiesced and scaled down.
 
 ### Restore From Hibernation
 
 1. `NiFiCluster.spec.desiredState` becomes `Running`.
 2. The controller restores the prior replica count from `status.hibernation.lastRunningReplicas`.
-3. If that field is absent, the current implementation falls back to `1` replica.
-4. The controller waits for pods to become Ready and for cluster convergence to stabilize again.
-5. The controller clears hibernation progress once the prior running shape is restored.
+3. If that field is absent, the controller falls back to the preserved non-zero baseline in `status.hibernation.baselineReplicas`.
+4. The controller falls back to `1` replica only if both status hints are absent.
+5. The controller waits for pods to become Ready and for cluster convergence to stabilize again.
+6. The controller clears hibernation progress once the prior running shape is restored.
 
 Current implementation note:
 

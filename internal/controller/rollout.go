@@ -21,6 +21,8 @@ type RolloutPlan struct {
 	ExpectedReplicas int32
 	CurrentReplicas  int32
 	Trigger          platformv1alpha1.RolloutTrigger
+	StartedAt        *time.Time
+	CompletedPods    []string
 	OutdatedPods     []corev1.Pod
 	UpdatedPods      []corev1.Pod
 	StatusOnlyDrift  bool
@@ -32,13 +34,38 @@ func BuildRolloutPlan(sts *appsv1.StatefulSet, pods []corev1.Pod, rolloutStatus 
 		CurrentRevision:  sts.Status.CurrentRevision,
 		ExpectedReplicas: derefInt32(sts.Spec.Replicas),
 		CurrentReplicas:  sts.Status.CurrentReplicas,
+		CompletedPods:    append([]string(nil), rolloutStatus.CompletedPods...),
+	}
+	if rolloutStatus.StartedAt != nil {
+		startedAt := rolloutStatus.StartedAt.Time
+		plan.StartedAt = &startedAt
+	}
+
+	if rolloutStatus.Trigger == platformv1alpha1.RolloutTriggerStatefulSetRevision && rolloutStatus.TargetRevision != "" {
+		plan.Trigger = rolloutStatus.Trigger
+		plan.UpdateRevision = rolloutStatus.TargetRevision
+		for _, pod := range pods {
+			if podRevision(&pod) == plan.UpdateRevision {
+				plan.UpdatedPods = append(plan.UpdatedPods, pod)
+				continue
+			}
+			plan.OutdatedPods = append(plan.OutdatedPods, pod)
+		}
+
+		sortPodsByOrdinal(plan.OutdatedPods)
+		sortPodsByOrdinal(plan.UpdatedPods)
+		return plan
 	}
 
 	if planUsesRestartTimestamp(rolloutStatus.Trigger) && rolloutStatus.StartedAt != nil {
 		plan.Trigger = rolloutStatus.Trigger
 		startedAt := rolloutStatus.StartedAt.Time
+		completedPods := make(map[string]struct{}, len(rolloutStatus.CompletedPods))
+		for _, name := range rolloutStatus.CompletedPods {
+			completedPods[name] = struct{}{}
+		}
 		for _, pod := range pods {
-			if podWasRecreatedAfter(&pod, startedAt) {
+			if _, completed := completedPods[pod.Name]; completed || podWasRecreatedAfter(&pod, startedAt) {
 				plan.UpdatedPods = append(plan.UpdatedPods, pod)
 				continue
 			}
@@ -51,23 +78,6 @@ func BuildRolloutPlan(sts *appsv1.StatefulSet, pods []corev1.Pod, rolloutStatus 
 	}
 
 	plan.Trigger = platformv1alpha1.RolloutTriggerStatefulSetRevision
-	if plan.CurrentRevision != "" && plan.UpdateRevision != "" && plan.CurrentRevision != plan.UpdateRevision && plan.CurrentReplicas > 0 {
-		for _, pod := range pods {
-			ordinal, ok := podOrdinal(&pod)
-			if !ok {
-				continue
-			}
-			if int32(ordinal) < plan.CurrentReplicas {
-				plan.OutdatedPods = append(plan.OutdatedPods, pod)
-			} else {
-				plan.UpdatedPods = append(plan.UpdatedPods, pod)
-			}
-		}
-
-		sortPodsByOrdinal(plan.OutdatedPods)
-		sortPodsByOrdinal(plan.UpdatedPods)
-		return plan
-	}
 
 	for _, pod := range pods {
 		if podRevision(&pod) == plan.UpdateRevision {
@@ -167,26 +177,31 @@ func podNames(pods []corev1.Pod) string {
 }
 
 func rolloutMessage(plan RolloutPlan) string {
+	progress := rolloutProgressSuffix(plan)
 	if next := plan.NextPodToDelete(); next != nil {
 		if plan.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
-			return fmt.Sprintf("config drift rollout pending; next pod is %s", next.Name)
+			return fmt.Sprintf("config drift rollout pending; next pod is %s%s", next.Name, progress)
 		}
 		if plan.Trigger == platformv1alpha1.RolloutTriggerTLSDrift {
-			return fmt.Sprintf("TLS drift rollout pending; next pod is %s", next.Name)
+			return fmt.Sprintf("TLS drift rollout pending; next pod is %s%s", next.Name, progress)
 		}
-		return fmt.Sprintf("rollout to revision %q pending; next pod is %s", plan.UpdateRevision, next.Name)
+		return fmt.Sprintf("rollout to revision %q pending; next pod is %s%s", plan.UpdateRevision, next.Name, progress)
 	}
 	if plan.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
-		return "config drift rollout is waiting for pod and cluster status to converge"
+		return fmt.Sprintf("config drift rollout is waiting for pod and cluster status to converge%s", progress)
 	}
 	if plan.Trigger == platformv1alpha1.RolloutTriggerTLSDrift {
-		return "TLS drift rollout is waiting for pod and cluster status to converge"
+		return fmt.Sprintf("TLS drift rollout is waiting for pod and cluster status to converge%s", progress)
 	}
-	return fmt.Sprintf("rollout is waiting for StatefulSet status to converge to revision %q", plan.UpdateRevision)
+	return fmt.Sprintf("rollout to revision %q is waiting for pod and cluster status to converge%s", plan.UpdateRevision, progress)
 }
 
 func planUsesRestartTimestamp(trigger platformv1alpha1.RolloutTrigger) bool {
 	return trigger == platformv1alpha1.RolloutTriggerConfigDrift || trigger == platformv1alpha1.RolloutTriggerTLSDrift
+}
+
+func rolloutManagedByPodState(plan RolloutPlan) bool {
+	return (plan.Trigger == platformv1alpha1.RolloutTriggerStatefulSetRevision && plan.UpdateRevision != "") || planUsesRestartTimestamp(plan.Trigger)
 }
 
 func podWasRecreatedAfter(pod *corev1.Pod, startedAt time.Time) bool {
@@ -194,4 +209,11 @@ func podWasRecreatedAfter(pod *corev1.Pod, startedAt time.Time) bool {
 		return false
 	}
 	return !pod.CreationTimestamp.Time.Before(startedAt)
+}
+
+func rolloutProgressSuffix(plan RolloutPlan) string {
+	if len(plan.CompletedPods) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (completed pods: %s)", strings.Join(plan.CompletedPods, ","))
 }

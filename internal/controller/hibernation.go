@@ -40,6 +40,28 @@ func (r *NiFiClusterReconciler) reconcileHibernation(ctx context.Context, cluste
 
 		clearNodeOperationIfPodMissing(cluster, pods)
 
+		if currentNodeOpPod, ok := findNodeOperationPod(pods, cluster.Status.NodeOperation, platformv1alpha1.NodeOperationPurposeHibernation); ok {
+			prepared, result, err := r.preparePodForHibernation(ctx, cluster, target, pods, currentNodeOpPod)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if !prepared {
+				return result, nil
+			}
+
+			nextReplicas := currentReplicas - 1
+			if err := r.patchTargetReplicas(ctx, target, nextReplicas); err != nil {
+				r.markHibernationFailure(cluster, fmt.Sprintf("Scale target StatefulSet %q to %d replicas failed: %v", target.Name, nextReplicas, err))
+				return ctrl.Result{}, fmt.Errorf("scale StatefulSet %s/%s to %d replicas: %w", target.Namespace, target.Name, nextReplicas, err)
+			}
+
+			cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
+			cluster.Status.Replicas.Desired = nextReplicas
+			cluster.Status.LastOperation = runningOperation("Hibernation", fmt.Sprintf("Scaled StatefulSet %q down to %d replicas after preparing pod %s for hibernation", target.Name, nextReplicas, currentNodeOpPod.Name))
+			r.setHibernationProgressConditions(cluster, "ScalingDown", fmt.Sprintf("Prepared pod %s for hibernation and reduced StatefulSet replicas to %d", currentNodeOpPod.Name, nextReplicas))
+			return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
+		}
+
 		if podsPendingTermination(pods) || int32(len(pods)) != currentReplicas {
 			cluster.Status.LastOperation = runningOperation("Hibernation", fmt.Sprintf("Waiting for the previous hibernation scale-down step to settle before removing the next node; current pods: %s", podNames(pods)))
 			r.setHibernationProgressConditions(cluster, "WaitingForScaleDown", fmt.Sprintf("Waiting for the previous hibernation scale-down step to settle before removing the next node; current pods: %s", podNames(pods)))
@@ -302,6 +324,9 @@ func (r *NiFiClusterReconciler) markHibernationFailure(cluster *platformv1alpha1
 func restoreReplicaFallback(cluster *platformv1alpha1.NiFiCluster) int32 {
 	if cluster.Status.Hibernation.LastRunningReplicas > 0 {
 		return cluster.Status.Hibernation.LastRunningReplicas
+	}
+	if cluster.Status.Hibernation.BaselineReplicas > 0 {
+		return cluster.Status.Hibernation.BaselineReplicas
 	}
 	return hibernationFallbackReplicas
 }

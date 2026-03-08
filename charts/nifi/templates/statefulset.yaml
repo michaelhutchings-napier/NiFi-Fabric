@@ -111,8 +111,10 @@ spec:
           replace_property "nifi.security.truststore" "{{ .Values.tls.mountPath }}/{{ .Values.tls.truststoreKey }}"
           replace_property "nifi.security.truststoreType" "PKCS12"
           replace_property "nifi.security.truststorePasswd" "${TRUSTSTORE_PASSWORD}"
-          NODE_IDENTITY="$(openssl pkcs12 -in {{ .Values.tls.mountPath }}/{{ .Values.tls.keystoreKey }} -passin pass:${KEYSTORE_PASSWORD} -clcerts -nokeys | openssl x509 -noout -subject -nameopt RFC2253 | sed 's/^subject=//')"
+          NODE_IDENTITY="$(openssl pkcs12 -in {{ .Values.tls.mountPath }}/{{ .Values.tls.keystoreKey }} -passin pass:${KEYSTORE_PASSWORD} -clcerts -nokeys | openssl x509 -noout -subject -nameopt RFC2253 | sed 's/^subject=//' | sed 's/,/, /g')"
           sed -i -e "s|<property name=\"Initial User Identity 1\"></property>|<property name=\"Initial User Identity 1\">${SINGLE_USER_CREDENTIALS_USERNAME}</property>|" /work-conf/authorizers.xml
+          sed -i -e "/<property name=\"Initial User Identity 1\">${SINGLE_USER_CREDENTIALS_USERNAME}<\/property>/a\\
+          \\        <property name=\"Initial User Identity 2\">${NODE_IDENTITY}<\/property>" /work-conf/authorizers.xml
           sed -i -e "s|<property name=\"Initial Admin Identity\"></property>|<property name=\"Initial Admin Identity\">${SINGLE_USER_CREDENTIALS_USERNAME}</property>|" /work-conf/authorizers.xml
           sed -i -e "s|<property name=\"Node Identity 1\"></property>|<property name=\"Node Identity 1\">${NODE_IDENTITY}</property>|" /work-conf/authorizers.xml
           replace_property "nifi.security.user.authorizer" "managed-authorizer"
@@ -122,7 +124,7 @@ spec:
           replace_property "nifi.web.http.port" ""
           replace_property "nifi.web.https.host" "${NIFI_POD_FQDN}"
           replace_property "nifi.web.https.port" "{{ .Values.ports.https }}"
-          replace_property "nifi.web.proxy.host" "${NIFI_POD_FQDN}:{{ .Values.ports.https }}"
+          replace_property "nifi.web.proxy.host" "{{ include "nifi.proxyHosts" . }}"
           replace_property "nifi.remote.input.host" "${NIFI_POD_FQDN}"
           replace_property "nifi.remote.input.secure" "true"
           replace_property "nifi.cluster.protocol.is.secure" "true"
@@ -152,6 +154,9 @@ spec:
           mountPath: /config
         - name: writable-conf
           mountPath: /work-conf
+        - name: tls
+          mountPath: {{ .Values.tls.mountPath }}
+          readOnly: true
       containers:
       - name: nifi
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"

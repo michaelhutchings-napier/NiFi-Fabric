@@ -52,8 +52,9 @@ func main() {
 	}
 
 	if err := (&controller.NiFiClusterReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("nificluster-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		ctrl.Log.WithName("setup").Error(err, "unable to create controller", "controller", "NiFiCluster")
 		os.Exit(1)

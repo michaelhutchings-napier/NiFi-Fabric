@@ -84,6 +84,7 @@ type ClusterNodesStatus struct {
 
 type HibernationStatus struct {
 	LastRunningReplicas int32 `json:"lastRunningReplicas,omitempty"`
+	BaselineReplicas    int32 `json:"baselineReplicas,omitempty"`
 }
 
 type NodeOperationPurpose string
@@ -103,6 +104,7 @@ const (
 type NodeOperationStatus struct {
 	Purpose   NodeOperationPurpose `json:"purpose,omitempty"`
 	PodName   string               `json:"podName,omitempty"`
+	PodUID    string               `json:"podUid,omitempty"`
 	NodeID    string               `json:"nodeId,omitempty"`
 	Stage     NodeOperationStage   `json:"stage,omitempty"`
 	StartedAt *metav1.Time         `json:"startedAt,omitempty"`
@@ -127,9 +129,11 @@ const (
 type RolloutStatus struct {
 	Trigger                    RolloutTrigger `json:"trigger,omitempty"`
 	StartedAt                  *metav1.Time   `json:"startedAt,omitempty"`
+	TargetRevision             string         `json:"targetRevision,omitempty"`
 	TargetConfigHash           string         `json:"targetConfigHash,omitempty"`
 	TargetCertificateHash      string         `json:"targetCertificateHash,omitempty"`
 	TargetTLSConfigurationHash string         `json:"targetTLSConfigurationHash,omitempty"`
+	CompletedPods              []string       `json:"completedPods,omitempty"`
 }
 
 type TLSStatus struct {
@@ -144,12 +148,12 @@ type NiFiClusterStatus struct {
 	ObservedConfigHash           string              `json:"observedConfigHash,omitempty"`
 	ObservedCertificateHash      string              `json:"observedCertificateHash,omitempty"`
 	ObservedTLSConfigurationHash string              `json:"observedTLSConfigurationHash,omitempty"`
-	TLS                          TLSStatus           `json:"tls,omitempty"`
-	Rollout                      RolloutStatus       `json:"rollout,omitempty"`
+	TLS                          TLSStatus           `json:"tls"`
+	Rollout                      RolloutStatus       `json:"rollout"`
 	Replicas                     ReplicaStatus       `json:"replicas,omitempty"`
 	ClusterNodes                 ClusterNodesStatus  `json:"clusterNodes,omitempty"`
 	Hibernation                  HibernationStatus   `json:"hibernation,omitempty"`
-	NodeOperation                NodeOperationStatus `json:"nodeOperation,omitempty"`
+	NodeOperation                NodeOperationStatus `json:"nodeOperation"`
 	LastOperation                LastOperation       `json:"lastOperation,omitempty"`
 	Conditions                   []metav1.Condition  `json:"conditions,omitempty"`
 }

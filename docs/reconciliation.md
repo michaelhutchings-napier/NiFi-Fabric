@@ -164,29 +164,30 @@ Hibernation behavior is:
 
 1. `spec.desiredState=Hibernated`
 2. record `status.hibernation.lastRunningReplicas`
-3. if `spec.safety.requireClusterHealthy=true`, wait for the documented per-pod health gate before scaling down
-4. choose the highest ordinal remaining pod
-5. persist `status.nodeOperation` for hibernation
-6. request `DISCONNECTING` and wait for `DISCONNECTED`
-7. request `OFFLOADING` and wait for `OFFLOADED`
-8. reduce `StatefulSet.spec.replicas` by one
-9. repeat until pods are fully gone
-10. set `Hibernated=True`
+3. preserve `status.hibernation.baselineReplicas` whenever the target is running above zero
+4. if `spec.safety.requireClusterHealthy=true`, wait for the documented per-pod health gate before scaling down
+5. choose the highest ordinal remaining pod
+6. persist `status.nodeOperation` for hibernation
+7. request `DISCONNECTING` and wait for `DISCONNECTED`
+8. request `OFFLOADING` and wait for `OFFLOADED`
+9. reduce `StatefulSet.spec.replicas` by one
+10. repeat until pods are fully gone
+11. set `Hibernated=True`
 
 Restore behavior is:
 
 1. `spec.desiredState=Running`
 2. restore `StatefulSet.spec.replicas` to `status.hibernation.lastRunningReplicas`
-3. wait for pods to become Ready
-4. wait for secured API reachability and stable NiFi convergence
-5. clear hibernation progress once the prior running size is reached
-
-If `status.hibernation.lastRunningReplicas` is absent, the current implementation falls back to `1` replica.
+3. if `lastRunningReplicas` is absent, restore to `status.hibernation.baselineReplicas`
+4. if both status hints are absent, use the final last-resort fallback of `1`
+5. wait for pods to become Ready
+6. wait for secured API reachability and stable NiFi convergence
+7. clear hibernation progress once the prior running size is reached
 
 Current implementation notes:
 
 - hibernation and restore reuse the same documented per-pod health gate that managed rollouts use
-- the controller persists enough state to resume from `spec.desiredState`, `status.hibernation.lastRunningReplicas`, `status.nodeOperation`, and the `Hibernated` condition
+- the controller persists enough state to resume from `spec.desiredState`, `status.hibernation.lastRunningReplicas`, `status.hibernation.baselineReplicas`, `status.nodeOperation`, and the `Hibernated` condition
 
 ## Conditions And State Transitions
 

@@ -17,6 +17,28 @@ This repository now includes concrete local workflows for:
 
 This flow is intentionally local-development oriented. It is not a production deployment guide.
 
+## Private Alpha Workflow
+
+The repo now includes a single fresh-kind entrypoint:
+
+```bash
+make kind-alpha-e2e
+```
+
+The workflow currently:
+
+- creates a fresh kind cluster
+- installs the controller and managed chart
+- runs the per-pod health gate
+- exercises managed rollout, config drift, TLS observe-only, TLS restart-required, hibernation, and restore
+- checks controller metrics and Kubernetes events
+- fails fast and dumps diagnostics on the first failing stage
+
+Current limitation:
+
+- the command is the intended private-alpha workflow, but it is not yet green end to end
+- the current blocker is repeated managed revision-rollout advancement after the first healthy replacement
+
 ## Prerequisites
 
 - Docker
@@ -139,6 +161,12 @@ kubectl -n nifi-system rollout status deployment/nifi2-platform-controller-manag
 make helm-install-managed
 make apply-managed
 make kind-health
+```
+
+The full alpha path wraps these commands plus the drift and hibernation checks:
+
+```bash
+make kind-alpha-e2e
 ```
 
 To trigger a harmless template drift and watch the controller coordinate a rollout:

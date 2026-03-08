@@ -11,7 +11,7 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 ENVTEST_K8S_VERSION ?= 1.31.0
 CONTROLLER_IMAGE ?= nifi2-platform-controller:dev
 
-.PHONY: fmt test test-unit test-envtest helm-lint run setup-envtest envtest-use kind-up kind-down kind-secrets kind-health kind-config-drift kind-tls-drift kind-tls-config-drift kind-hibernate kind-restore docker-build-controller kind-load-controller deploy-controller undeploy-controller install-crd helm-install-standalone helm-install-managed apply-managed
+.PHONY: fmt test test-unit test-envtest helm-lint run setup-envtest envtest-use kind-up kind-down kind-secrets kind-health kind-config-drift kind-tls-drift kind-tls-config-drift kind-hibernate kind-restore kind-alpha-e2e docker-build-controller kind-load-controller deploy-controller undeploy-controller install-crd helm-install-standalone helm-install-managed apply-managed
 
 fmt:
 	$(GO) fmt ./...
@@ -65,6 +65,9 @@ kind-hibernate:
 
 kind-restore:
 	$(KUBECTL) -n $(NAMESPACE) patch nificluster $(HELM_RELEASE) --type merge -p '{"spec":{"desiredState":"Running"}}'
+
+kind-alpha-e2e:
+	bash hack/kind-alpha-e2e.sh
 
 docker-build-controller:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -o bin/manager ./main.go

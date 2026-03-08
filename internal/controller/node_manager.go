@@ -61,6 +61,7 @@ func (m *LiveNodeManager) PreparePodForOperation(ctx context.Context, _ *platfor
 		operation = platformv1alpha1.NodeOperationStatus{
 			Purpose:   purpose,
 			PodName:   pod.Name,
+			PodUID:    string(pod.UID),
 			NodeID:    node.NodeID,
 			Stage:     platformv1alpha1.NodeOperationStageDisconnecting,
 			StartedAt: &now,
@@ -166,8 +167,10 @@ func (m *LiveNodeManager) resolvePodNode(ctx context.Context, apiRequest nifi.AP
 	}
 
 	targetAddress := podDNSName(sts, &pod)
+	targetHost := normalizeNodeAddress(targetAddress)
+	targetIP := normalizeNodeAddress(pod.Status.PodIP)
 	for _, node := range nodes {
-		if node.Address == targetAddress || node.Address == pod.Status.PodIP {
+		if normalizeNodeAddress(node.Address) == targetHost || normalizeNodeAddress(node.Address) == targetIP {
 			return node, nil
 		}
 	}
@@ -221,6 +224,15 @@ func nodeOperationTimedOut(operation platformv1alpha1.NodeOperationStatus, timeo
 
 func podDNSName(sts *appsv1.StatefulSet, pod *corev1.Pod) string {
 	return strings.TrimPrefix(strings.TrimPrefix(podBaseURL(sts, pod), "https://"), "http://")
+}
+
+func normalizeNodeAddress(address string) string {
+	address = strings.TrimPrefix(strings.TrimPrefix(address, "https://"), "http://")
+	host, _, found := strings.Cut(address, ":")
+	if found {
+		return host
+	}
+	return address
 }
 
 func metav1Now() metav1.Time {

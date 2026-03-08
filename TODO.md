@@ -17,9 +17,11 @@ Completed in the scaffold:
 
 ## Next Steps
 
-1. Replace the hand-written CRD and deepcopy scaffolding with generated artifacts once controller-tools are introduced.
-2. Replace the local-development TLS Secret workflow with an optional cert-manager-backed chart path once the secret contract is stable.
-3. Expand CI to include envtest assets and kind-based smoke coverage.
+1. Finish the managed `OnDelete` alpha hardening work so `make kind-alpha-e2e` passes on a fresh kind cluster.
+2. Fix the remaining repeated-ordinal rollout bug after the first healthy replacement during managed revision rollout.
+3. Replace the hand-written CRD and deepcopy scaffolding with generated artifacts once controller-tools are introduced.
+4. Replace the local-development TLS Secret workflow with an optional cert-manager-backed chart path once the secret contract is stable.
+5. Expand CI to include envtest assets and kind-based smoke coverage.
 
 ## Current Managed Rollout Behavior
 
@@ -49,6 +51,11 @@ What is still intentionally deferred:
 
 - controller metrics and events beyond the minimal runtime defaults
 - richer restore target memory than `status.hibernation.lastRunningReplicas` with a `1` replica fallback
+
+Current alpha blocker:
+
+- `make kind-alpha-e2e` is now the single private-alpha workflow, but managed revision rollout still re-targets an already replaced ordinal after the first healthy replacement
+- the blocker is in rollout progression hardening, not in the standalone chart or the per-pod health gate itself
 
 Current watched-drift assumptions:
 

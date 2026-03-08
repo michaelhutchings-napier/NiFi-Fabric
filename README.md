@@ -148,6 +148,7 @@ After the design pack, the repository should grow into:
 What is runnable now:
 
 - the standalone Helm chart can render and deploy a minimal real NiFi 2 cluster on kind
+- the repo has a single alpha workflow entrypoint: `make kind-alpha-e2e`
 - the chart wires Kubernetes leader election and ConfigMap-backed cluster state settings through explicit NiFi configuration rather than hidden controller behavior
 - the chart mounts persistent repositories, config, Services, and probes suitable for a kind-focused local workflow
 - the repo includes a repeatable health-check flow that separates pod readiness, secured API reachability, and actual cluster convergence
@@ -161,6 +162,12 @@ What is still intentionally stubbed:
 - production-grade TLS automation beyond documented Secret expectations
 - production-hardening of chart defaults, auth choices, and storage layouts
 - richer restore target memory than `status.hibernation.lastRunningReplicas` plus the current `1` replica fallback
+
+Current alpha limitation:
+
+- the fresh-kind `make kind-alpha-e2e` workflow is in place and fail-fast, but it is not yet green end to end
+- the current blocker is managed revision rollout repetition after the first healthy replacement during `OnDelete` rollout coordination
+- treat the workflow as an active hardening target, not a release gate that already passes
 
 Implementation note for this slice:
 
@@ -210,6 +217,12 @@ Managed rollout short version:
 13. `make kind-tls-drift`
 14. `make kind-hibernate`
 15. `make kind-restore`
+
+Private-alpha full path:
+
+1. `make kind-alpha-e2e`
+
+The command provisions a fresh kind cluster, installs the managed chart and controller, runs the health gate, exercises managed rollout, config drift, TLS observe-only, TLS restart-required, hibernation, and restore, then checks controller metrics and events. It exits on the first failing stage and dumps diagnostics.
 
 On one clean kind run, the controller advanced the rollout in the expected order: `nifi-2`, then `nifi-1`, then `nifi-0`.
 

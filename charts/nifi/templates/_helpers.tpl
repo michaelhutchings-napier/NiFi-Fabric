@@ -34,3 +34,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- default "default" .Values.serviceAccount.name -}}
 {{- end -}}
 {{- end -}}
+
+{{- define "nifi.proxyHosts" -}}
+{{- $root := . -}}
+{{- $hosts := list -}}
+{{- $fullname := include "nifi.fullname" $root -}}
+{{- range $ordinal := until (int $root.Values.replicaCount) -}}
+{{- $hosts = append $hosts (printf "%s-%d.%s-headless.%s.svc.cluster.local:%v" $fullname $ordinal $fullname $root.Release.Namespace $root.Values.ports.https) -}}
+{{- end -}}
+{{- $hosts = append $hosts (printf "%s.%s.svc.cluster.local:%v" $fullname $root.Release.Namespace $root.Values.ports.https) -}}
+{{- join "," $hosts -}}
+{{- end -}}

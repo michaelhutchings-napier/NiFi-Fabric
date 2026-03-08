@@ -137,12 +137,18 @@ spec:
                   startedAt:
                     format: date-time
                     type: string
+                  targetRevision:
+                    type: string
                   targetConfigHash:
                     type: string
                   targetCertificateHash:
                     type: string
                   targetTLSConfigurationHash:
                     type: string
+                  completedPods:
+                    items:
+                      type: string
+                    type: array
               replicas:
                 type: object
                 properties:
@@ -170,6 +176,9 @@ spec:
               hibernation:
                 type: object
                 properties:
+                  baselineReplicas:
+                    format: int32
+                    type: integer
                   lastRunningReplicas:
                     format: int32
                     type: integer
@@ -182,6 +191,8 @@ spec:
                     - Restart
                     - Hibernation
                   podName:
+                    type: string
+                  podUid:
                     type: string
                   nodeId:
                     type: string

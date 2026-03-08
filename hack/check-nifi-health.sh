@@ -76,6 +76,7 @@ require_command base64
 
 expected_replicas="$(kubectl -n "${NAMESPACE}" get statefulset "${STATEFULSET}" -o jsonpath='{.spec.replicas}')"
 service_name="$(kubectl -n "${NAMESPACE}" get statefulset "${STATEFULSET}" -o jsonpath='{.spec.serviceName}')"
+tls_mount_path="$(kubectl -n "${NAMESPACE}" get statefulset "${STATEFULSET}" -o jsonpath="{.spec.template.spec.containers[?(@.name==\"${CONTAINER}\")].volumeMounts[?(@.name==\"tls\")].mountPath}")"
 username="$(kubectl -n "${NAMESPACE}" get secret "${AUTH_SECRET}" -o jsonpath='{.data.username}' | base64 -d)"
 password="$(kubectl -n "${NAMESPACE}" get secret "${AUTH_SECRET}" -o jsonpath='{.data.password}' | base64 -d)"
 
@@ -86,6 +87,11 @@ fi
 
 if [[ -z "${service_name}" ]]; then
   echo "statefulset/${STATEFULSET} has no serviceName" >&2
+  exit 1
+fi
+
+if [[ -z "${tls_mount_path}" ]]; then
+  echo "statefulset/${STATEFULSET} does not define a tls volume mount for container ${CONTAINER}" >&2
   exit 1
 fi
 
@@ -149,16 +155,16 @@ while true; do
 
     if summary_json="$(
       kubectl -n "${NAMESPACE}" exec "${pod}" -c "${CONTAINER}" -- \
-        env NIFI_HOST="${host}" NIFI_USERNAME="${username}" NIFI_PASSWORD="${password}" sh -ec '
+        env NIFI_HOST="${host}" NIFI_USERNAME="${username}" NIFI_PASSWORD="${password}" TLS_CA_PATH="${tls_mount_path}/ca.crt" sh -ec '
           TOKEN=$(curl --silent --show-error --fail \
-            --cacert /opt/nifi/tls/ca.crt \
+            --cacert "${TLS_CA_PATH}" \
             -H "Content-Type: application/x-www-form-urlencoded; charset=UTF-8" \
             --data-urlencode "username=${NIFI_USERNAME}" \
             --data-urlencode "password=${NIFI_PASSWORD}" \
             "https://${NIFI_HOST}:8443/nifi-api/access/token")
 
           curl --silent --show-error --fail \
-            --cacert /opt/nifi/tls/ca.crt \
+            --cacert "${TLS_CA_PATH}" \
             -H "Authorization: Bearer ${TOKEN}" \
             "https://${NIFI_HOST}:8443/nifi-api/flow/cluster/summary"
         ' 2>/dev/null

@@ -20,6 +20,11 @@ spec:
         imagePullPolicy: Never
         args:
         - --leader-elect
+        ports:
+        - name: metrics
+          containerPort: 8080
+        - name: probes
+          containerPort: 8081
         resources:
           requests:
             cpu: 100m

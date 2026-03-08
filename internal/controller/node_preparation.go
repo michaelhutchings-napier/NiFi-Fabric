@@ -51,12 +51,39 @@ func clearNodeOperationIfPodMissing(cluster *platformv1alpha1.NiFiCluster, pods 
 	}
 
 	for i := range pods {
-		if pods[i].Name == cluster.Status.NodeOperation.PodName {
+		if pods[i].Name != cluster.Status.NodeOperation.PodName {
+			continue
+		}
+		if cluster.Status.NodeOperation.PodUID != "" && string(pods[i].UID) != cluster.Status.NodeOperation.PodUID {
+			cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
+			return
+		}
+		if cluster.Status.NodeOperation.PodUID == "" || string(pods[i].UID) == cluster.Status.NodeOperation.PodUID {
 			return
 		}
 	}
 
 	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
+}
+
+func findNodeOperationPod(pods []corev1.Pod, current platformv1alpha1.NodeOperationStatus, purpose platformv1alpha1.NodeOperationPurpose) (corev1.Pod, bool) {
+	if current.PodName == "" || current.Purpose != purpose {
+		return corev1.Pod{}, false
+	}
+
+	for i := range pods {
+		if pods[i].Name != current.PodName {
+			continue
+		}
+		if current.PodUID != "" && string(pods[i].UID) != current.PodUID {
+			return corev1.Pod{}, false
+		}
+		if current.PodUID == "" || string(pods[i].UID) == current.PodUID {
+			return pods[i], true
+		}
+	}
+
+	return corev1.Pod{}, false
 }
 
 func (r *NiFiClusterReconciler) markNodePreparationProgress(cluster *platformv1alpha1.NiFiCluster, purpose platformv1alpha1.NodeOperationPurpose, message string) {

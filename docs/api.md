@@ -128,6 +128,7 @@ Default for MVP:
 | `status.clusterNodes.disconnected` | integer | NiFi nodes disconnected from the cluster |
 | `status.clusterNodes.offloaded` | integer | NiFi nodes explicitly offloaded |
 | `status.hibernation.lastRunningReplicas` | integer | last non-zero running size used for restore |
+| `status.hibernation.baselineReplicas` | integer | preserved non-zero running target used if the last running size is unavailable |
 | `status.nodeOperation` | struct | persisted NiFi disconnect or offload step for restart or hibernation |
 | `status.lastOperation` | struct | current or last lifecycle action summary |
 | `status.conditions[]` | `metav1.Condition`-style list | machine-readable health and progress conditions |
@@ -258,7 +259,7 @@ The controller must know which chart-managed workload it should watch and orches
 
 ### Why Hibernation State Needs Prior Replica Memory
 
-Hibernation is not safe if restore depends on a guessed replica count. `status.hibernation.lastRunningReplicas` gives the controller a durable restore target that survives controller restarts and makes unhibernate deterministic.
+Hibernation is not safe if restore depends on a guessed replica count. `status.hibernation.lastRunningReplicas` gives the controller a durable restore target for the most recent running size, while `status.hibernation.baselineReplicas` preserves the non-zero intended shape if restore happens after status loss or an interrupted transition. The controller falls back to `1` only when both status hints are absent.
 
 The current implementation uses one explicit fallback when that field is absent:
 

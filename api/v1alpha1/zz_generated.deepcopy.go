@@ -256,6 +256,11 @@ func (in *RolloutStatus) DeepCopyInto(out *RolloutStatus) {
 		in, out := &in.StartedAt, &out.StartedAt
 		*out = (*in).DeepCopy()
 	}
+	if in.CompletedPods != nil {
+		in, out := &in.CompletedPods, &out.CompletedPods
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 }
 
 func (in *RolloutStatus) DeepCopy() *RolloutStatus {

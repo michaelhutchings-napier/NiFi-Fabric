@@ -13,6 +13,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -30,8 +32,10 @@ const rolloutPollRequeue = 5 * time.Second
 type NiFiClusterReconciler struct {
 	client.Client
 	Scheme        *runtime.Scheme
+	APIReader     client.Reader
 	HealthChecker ClusterHealthChecker
 	NodeManager   NodeManager
+	Recorder      record.EventRecorder
 }
 
 func (r *NiFiClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -122,6 +126,7 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 		return tlsResult, nil
 	}
 
+	r.startRevisionRolloutIfNeeded(cluster, target)
 	r.startConfigRolloutIfNeeded(cluster, drift)
 
 	plan := BuildRolloutPlan(target, pods, cluster.Status.Rollout)
@@ -153,6 +158,62 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 	})
 	cluster.Status.LastOperation = runningOperation("Rollout", rolloutOperationMessage(plan, drift))
 
+	if currentNodeOpPod, ok := findNodeOperationPod(pods, cluster.Status.NodeOperation, platformv1alpha1.NodeOperationPurposeRestart); ok {
+		if currentNodeOpPod.DeletionTimestamp != nil {
+			cluster.SetCondition(metav1.Condition{
+				Type:               platformv1alpha1.ConditionProgressing,
+				Status:             metav1.ConditionTrue,
+				Reason:             "WaitingForReplacementPod",
+				Message:            fmt.Sprintf("Pod %s is terminating; waiting for replacement pod readiness before continuing rollout", currentNodeOpPod.Name),
+				LastTransitionTime: metav1.Now(),
+			})
+			cluster.Status.LastOperation = runningOperation("Rollout", fmt.Sprintf("Pod %s is terminating; waiting for replacement pod readiness before continuing rollout", currentNodeOpPod.Name))
+			return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
+		}
+
+		prepared, result, err := r.preparePodForRestart(ctx, cluster, target, pods, currentNodeOpPod)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if !prepared {
+			return result, nil
+		}
+
+		if err := r.Delete(ctx, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Namespace: currentNodeOpPod.Namespace,
+			Name:      currentNodeOpPod.Name,
+		}}, client.Preconditions{
+			UID: ptrTo(currentNodeOpPod.UID),
+		}); err != nil && !apierrors.IsNotFound(err) {
+			if apierrors.IsConflict(err) {
+				cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
+				cluster.SetCondition(metav1.Condition{
+					Type:               platformv1alpha1.ConditionProgressing,
+					Status:             metav1.ConditionTrue,
+					Reason:             "RolloutStateRefreshPending",
+					Message:            fmt.Sprintf("Pod %s was already recreated while rollout state was catching up; refreshing rollout progress", currentNodeOpPod.Name),
+					LastTransitionTime: metav1.Now(),
+				})
+				return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
+			}
+			r.markRolloutFailure(cluster, fmt.Sprintf("Delete pod %s failed: %v", currentNodeOpPod.Name, err))
+			return ctrl.Result{}, fmt.Errorf("delete rollout pod %s: %w", currentNodeOpPod.Name, err)
+		}
+
+		markRolloutPodCompleted(cluster, currentNodeOpPod.Name)
+		cluster.Status.LastOperation = runningOperation("Rollout", deletedOperationMessage(currentNodeOpPod.Name, plan))
+		cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
+		cluster.SetCondition(metav1.Condition{
+			Type:               platformv1alpha1.ConditionProgressing,
+			Status:             metav1.ConditionTrue,
+			Reason:             "PodDeleted",
+			Message:            podDeletedMessage(currentNodeOpPod.Name, plan),
+			LastTransitionTime: metav1.Now(),
+		})
+
+		return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
+	}
+
 	if err := r.HealthChecker.WaitForPodsReady(ctx, target, podReadyTimeout(cluster)); err != nil {
 		r.markHealthGateBlocked(cluster, fmt.Sprintf("Waiting for target pods to become Ready before deleting the next pod: %v", err))
 		return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
@@ -164,9 +225,20 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 		r.markHealthGateBlocked(cluster, clusterHealthBlockedMessage(plan, err))
 		return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 	}
+	if podsPendingTermination(pods) {
+		cluster.SetCondition(metav1.Condition{
+			Type:               platformv1alpha1.ConditionProgressing,
+			Status:             metav1.ConditionTrue,
+			Reason:             "WaitingForReplacementPod",
+			Message:            "A rollout pod is still terminating; waiting for the replacement pod to settle before continuing",
+			LastTransitionTime: metav1.Now(),
+		})
+		cluster.Status.LastOperation = runningOperation("Rollout", "A rollout pod is still terminating; waiting for the replacement pod to settle before continuing")
+		return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
+	}
 
 	nextPod := plan.NextPodToDelete()
-	if nextPod == nil && planUsesRestartTimestamp(plan.Trigger) {
+	if nextPod == nil && rolloutManagedByPodState(plan) {
 		return r.finishSteadyState(ctx, cluster, target, drift)
 	}
 	if nextPod == nil {
@@ -192,11 +264,25 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 	if err := r.Delete(ctx, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
 		Namespace: nextPod.Namespace,
 		Name:      nextPod.Name,
-	}}); err != nil && !apierrors.IsNotFound(err) {
+	}}, client.Preconditions{
+		UID: ptrTo(nextPod.UID),
+	}); err != nil && !apierrors.IsNotFound(err) {
+		if apierrors.IsConflict(err) {
+			cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
+			cluster.SetCondition(metav1.Condition{
+				Type:               platformv1alpha1.ConditionProgressing,
+				Status:             metav1.ConditionTrue,
+				Reason:             "RolloutStateRefreshPending",
+				Message:            fmt.Sprintf("Pod %s was already recreated while rollout state was catching up; refreshing rollout progress", nextPod.Name),
+				LastTransitionTime: metav1.Now(),
+			})
+			return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
+		}
 		r.markRolloutFailure(cluster, fmt.Sprintf("Delete pod %s failed: %v", nextPod.Name, err))
 		return ctrl.Result{}, fmt.Errorf("delete rollout pod %s: %w", nextPod.Name, err)
 	}
 
+	markRolloutPodCompleted(cluster, nextPod.Name)
 	cluster.Status.LastOperation = runningOperation("Rollout", deletedOperationMessage(nextPod.Name, plan))
 	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
 	cluster.SetCondition(metav1.Condition{
@@ -225,7 +311,7 @@ func (r *NiFiClusterReconciler) finishSteadyState(ctx context.Context, cluster *
 		return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 	}
 
-	cluster.Status.ObservedStatefulSetRevision = target.Status.UpdateRevision
+	cluster.Status.ObservedStatefulSetRevision = steadyStateRevision(cluster, target)
 	r.captureSteadyStateHashes(cluster, drift)
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionTargetResolved,
@@ -282,6 +368,12 @@ func (r *NiFiClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			KubeClient: mgr.GetClient(),
 			NiFiClient: nifi.NewHTTPClient(),
 		}
+	}
+	if r.Recorder == nil {
+		r.Recorder = mgr.GetEventRecorderFor("nificluster-controller")
+	}
+	if r.APIReader == nil {
+		r.APIReader = mgr.GetAPIReader()
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
@@ -612,10 +704,14 @@ func (r *NiFiClusterReconciler) applyClusterHealth(cluster *platformv1alpha1.NiF
 }
 
 func (r *NiFiClusterReconciler) syncReplicaStatus(cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, pods []corev1.Pod) {
+	desiredReplicas := derefInt32(target.Spec.Replicas)
 	cluster.Status.Replicas = platformv1alpha1.ReplicaStatus{
-		Desired: derefInt32(target.Spec.Replicas),
+		Desired: desiredReplicas,
 		Ready:   target.Status.ReadyReplicas,
 		Updated: target.Status.UpdatedReplicas,
+	}
+	if cluster.Spec.DesiredState == platformv1alpha1.DesiredStateRunning && desiredReplicas > 0 {
+		cluster.Status.Hibernation.BaselineReplicas = desiredReplicas
 	}
 
 	if cluster.Status.ObservedStatefulSetRevision == "" && target.Status.CurrentRevision == target.Status.UpdateRevision {
@@ -734,6 +830,9 @@ func degradedMessageForSteadyState(drift WatchedResourceDrift) string {
 }
 
 func lastOperationTypeForSteadyState(cluster *platformv1alpha1.NiFiCluster) string {
+	if cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerStatefulSetRevision {
+		return "Rollout"
+	}
 	if cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
 		return "Rollout"
 	}
@@ -745,12 +844,12 @@ func lastOperationTypeForSteadyState(cluster *platformv1alpha1.NiFiCluster) stri
 
 func lastOperationMessageForSteadyState(cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, drift WatchedResourceDrift) string {
 	if drift.TLSResolvedWithoutRestart {
-		return fmt.Sprintf("TLS drift resolved without restart and revision %q is healthy", target.Status.UpdateRevision)
+		return fmt.Sprintf("TLS drift resolved without restart and revision %q is healthy", steadyStateRevision(cluster, target))
 	}
 	if cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerTLSDrift {
-		return fmt.Sprintf("TLS rollout completed and revision %q is healthy", target.Status.UpdateRevision)
+		return fmt.Sprintf("TLS rollout completed and revision %q is healthy", steadyStateRevision(cluster, target))
 	}
-	return fmt.Sprintf("Revision %q is fully rolled out and healthy", target.Status.UpdateRevision)
+	return fmt.Sprintf("Revision %q is fully rolled out and healthy", steadyStateRevision(cluster, target))
 }
 
 func configDriftMessage(drift WatchedResourceDrift) string {
@@ -770,6 +869,16 @@ func clusterTargetCertificateHash(plan RolloutPlan, drift WatchedResourceDrift) 
 		return drift.CurrentCertificateHash
 	}
 	return plan.UpdateRevision
+}
+
+func steadyStateRevision(cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet) string {
+	if cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerStatefulSetRevision && cluster.Status.Rollout.TargetRevision != "" {
+		return cluster.Status.Rollout.TargetRevision
+	}
+	if target.Status.UpdateRevision != "" {
+		return target.Status.UpdateRevision
+	}
+	return target.Status.CurrentRevision
 }
 
 func joinOrNone(values []string) string {
@@ -809,6 +918,33 @@ func (r *NiFiClusterReconciler) startConfigRolloutIfNeeded(cluster *platformv1al
 		Trigger:          platformv1alpha1.RolloutTriggerConfigDrift,
 		StartedAt:        &now,
 		TargetConfigHash: drift.CurrentConfigHash,
+	}
+}
+
+func (r *NiFiClusterReconciler) startRevisionRolloutIfNeeded(cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet) {
+	if cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerStatefulSetRevision {
+		if cluster.Status.Rollout.TargetRevision == "" && target.Status.UpdateRevision != "" {
+			cluster.Status.Rollout.TargetRevision = target.Status.UpdateRevision
+		}
+		return
+	}
+	if cluster.Status.Rollout.Trigger != "" {
+		return
+	}
+
+	targetRevision := target.Status.UpdateRevision
+	if targetRevision == "" {
+		return
+	}
+	if targetRevision == cluster.Status.ObservedStatefulSetRevision {
+		return
+	}
+
+	now := metav1.NewTime(time.Now().UTC())
+	cluster.Status.Rollout = platformv1alpha1.RolloutStatus{
+		Trigger:        platformv1alpha1.RolloutTriggerStatefulSetRevision,
+		StartedAt:      &now,
+		TargetRevision: targetRevision,
 	}
 }
 
@@ -1001,9 +1137,23 @@ func (r *NiFiClusterReconciler) patchStatus(ctx context.Context, original, updat
 		return result, nil
 	}
 
-	if err := r.Status().Patch(ctx, updated, client.MergeFrom(original)); err != nil {
-		return ctrl.Result{}, fmt.Errorf("patch NiFiCluster status: %w", err)
+	statusToPersist := updated.Status.DeepCopy()
+	key := client.ObjectKeyFromObject(updated)
+	statusReader := r.APIReader
+	if statusReader == nil {
+		statusReader = r.Client
 	}
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &platformv1alpha1.NiFiCluster{}
+		if err := statusReader.Get(ctx, key, latest); err != nil {
+			return err
+		}
+		latest.Status = *statusToPersist
+		return r.Status().Update(ctx, latest)
+	}); err != nil {
+		return ctrl.Result{}, fmt.Errorf("update NiFiCluster status: %w", err)
+	}
+	r.observeStatusTransition(original, updated)
 	return result, nil
 }
 
@@ -1063,6 +1213,18 @@ func readyPodCount(pods []corev1.Pod) int32 {
 	return count
 }
 
+func markRolloutPodCompleted(cluster *platformv1alpha1.NiFiCluster, podName string) {
+	if podName == "" {
+		return
+	}
+	for _, existing := range cluster.Status.Rollout.CompletedPods {
+		if existing == podName {
+			return
+		}
+	}
+	cluster.Status.Rollout.CompletedPods = append(cluster.Status.Rollout.CompletedPods, podName)
+}
+
 func maxInt32(value, floor int32) int32 {
 	if value < floor {
 		return floor
@@ -1075,4 +1237,8 @@ func derefInt32(value *int32) int32 {
 		return 0
 	}
 	return *value
+}
+
+func ptrTo[T any](value T) *T {
+	return &value
 }
