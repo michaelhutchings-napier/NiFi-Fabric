@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -93,33 +94,43 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 		return ctrl.Result{}, nil
 	}
 
-	plan := BuildRolloutPlan(target, pods)
-	if !plan.HasDrift() {
-		return r.finishSteadyState(ctx, cluster, target)
+	drift, err := r.computeWatchedResourceDrift(ctx, cluster, target)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("compute watched-resource drift: %w", err)
 	}
 
+	r.syncObservedHashes(cluster, drift)
+	r.reconcileCertificateDriftStatus(cluster, drift)
+	r.startConfigRolloutIfNeeded(cluster, drift)
+
+	plan := BuildRolloutPlan(target, pods, cluster.Status.Rollout)
+	if !plan.HasDrift() {
+		return r.finishSteadyState(ctx, cluster, target, drift)
+	}
+
+	progressReason, progressMessage := rolloutConditionDetails(plan, drift)
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionProgressing,
 		Status:             metav1.ConditionTrue,
-		Reason:             "RevisionDriftDetected",
-		Message:            rolloutMessage(plan),
+		Reason:             progressReason,
+		Message:            progressMessage,
 		LastTransitionTime: metav1.Now(),
 	})
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionAvailable,
 		Status:             metav1.ConditionFalse,
 		Reason:             "RolloutInProgress",
-		Message:            "Waiting for StatefulSet pods and NiFi cluster health to converge to the update revision",
+		Message:            availableRolloutMessage(plan),
 		LastTransitionTime: metav1.Now(),
 	})
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionDegraded,
 		Status:             metav1.ConditionFalse,
 		Reason:             "RolloutPending",
-		Message:            "No rollout failure is currently active",
+		Message:            degradedMessageForDrift(drift),
 		LastTransitionTime: metav1.Now(),
 	})
-	cluster.Status.LastOperation = runningOperation("Rollout", fmt.Sprintf("Reconciling revision drift from %q to %q", plan.CurrentRevision, plan.UpdateRevision))
+	cluster.Status.LastOperation = runningOperation("Rollout", rolloutOperationMessage(plan, drift))
 
 	if err := r.HealthChecker.WaitForPodsReady(ctx, target, podReadyTimeout(cluster)); err != nil {
 		r.markHealthGateBlocked(cluster, fmt.Sprintf("Waiting for target pods to become Ready before deleting the next pod: %v", err))
@@ -129,11 +140,14 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 	healthResult, err := r.HealthChecker.WaitForClusterHealthy(ctx, cluster, target, clusterHealthTimeout(cluster))
 	r.applyClusterHealth(cluster, healthResult)
 	if err != nil {
-		r.markHealthGateBlocked(cluster, fmt.Sprintf("Cluster health gate blocked rollout at revision %q: %v", plan.UpdateRevision, err))
+		r.markHealthGateBlocked(cluster, clusterHealthBlockedMessage(plan, err))
 		return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 	}
 
 	nextPod := plan.NextPodToDelete()
+	if nextPod == nil && plan.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
+		return r.finishSteadyState(ctx, cluster, target, drift)
+	}
 	if nextPod == nil {
 		cluster.Status.LastOperation = succeededOperation("Rollout", fmt.Sprintf("Waiting for StatefulSet status to converge to revision %q", plan.UpdateRevision))
 		cluster.SetCondition(metav1.Condition{
@@ -154,19 +168,19 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 		return ctrl.Result{}, fmt.Errorf("delete rollout pod %s: %w", nextPod.Name, err)
 	}
 
-	cluster.Status.LastOperation = runningOperation("Rollout", fmt.Sprintf("Deleted pod %s to advance StatefulSet revision %q", nextPod.Name, plan.UpdateRevision))
+	cluster.Status.LastOperation = runningOperation("Rollout", deletedOperationMessage(nextPod.Name, plan))
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionProgressing,
 		Status:             metav1.ConditionTrue,
 		Reason:             "PodDeleted",
-		Message:            fmt.Sprintf("Deleted pod %s; waiting for replacement pod readiness and cluster convergence", nextPod.Name),
+		Message:            podDeletedMessage(nextPod.Name, plan),
 		LastTransitionTime: metav1.Now(),
 	})
 
 	return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 }
 
-func (r *NiFiClusterReconciler) finishSteadyState(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet) (ctrl.Result, error) {
+func (r *NiFiClusterReconciler) finishSteadyState(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, drift WatchedResourceDrift) (ctrl.Result, error) {
 	healthResult, err := r.HealthChecker.WaitForClusterHealthy(ctx, cluster, target, clusterHealthTimeout(cluster))
 	r.applyClusterHealth(cluster, healthResult)
 	if err != nil {
@@ -182,6 +196,7 @@ func (r *NiFiClusterReconciler) finishSteadyState(ctx context.Context, cluster *
 	}
 
 	cluster.Status.ObservedStatefulSetRevision = target.Status.UpdateRevision
+	r.captureSteadyStateHashes(cluster, drift)
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionTargetResolved,
 		Status:             metav1.ConditionTrue,
@@ -192,22 +207,22 @@ func (r *NiFiClusterReconciler) finishSteadyState(ctx context.Context, cluster *
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionAvailable,
 		Status:             metav1.ConditionTrue,
-		Reason:             "RolloutHealthy",
-		Message:            "Target StatefulSet and NiFi cluster health are converged",
+		Reason:             availableReasonForSteadyState(drift),
+		Message:            availableMessageForSteadyState(drift),
 		LastTransitionTime: metav1.Now(),
 	})
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionProgressing,
 		Status:             metav1.ConditionFalse,
-		Reason:             "Idle",
-		Message:            "No rollout is currently in progress",
+		Reason:             progressingReasonForSteadyState(drift),
+		Message:            progressingMessageForSteadyState(drift),
 		LastTransitionTime: metav1.Now(),
 	})
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionDegraded,
 		Status:             metav1.ConditionFalse,
-		Reason:             "AsExpected",
-		Message:            "No degradation detected",
+		Reason:             degradedReasonForSteadyState(drift),
+		Message:            degradedMessageForSteadyState(drift),
 		LastTransitionTime: metav1.Now(),
 	})
 	cluster.SetCondition(metav1.Condition{
@@ -217,7 +232,8 @@ func (r *NiFiClusterReconciler) finishSteadyState(ctx context.Context, cluster *
 		Message:            "Hibernation is not active",
 		LastTransitionTime: metav1.Now(),
 	})
-	cluster.Status.LastOperation = succeededOperation("Rollout", fmt.Sprintf("Revision %q is fully rolled out and healthy", target.Status.UpdateRevision))
+	cluster.Status.LastOperation = succeededOperation(lastOperationTypeForSteadyState(cluster), lastOperationMessageForSteadyState(target, drift))
+	cluster.Status.Rollout = platformv1alpha1.RolloutStatus{}
 
 	return ctrl.Result{}, nil
 }
@@ -234,6 +250,8 @@ func (r *NiFiClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&platformv1alpha1.NiFiCluster{}).
 		Watches(&appsv1.StatefulSet{}, handler.EnqueueRequestsFromMapFunc(r.requestsForStatefulSet)).
 		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(r.requestsForPod)).
+		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.requestsForConfigMap)).
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.requestsForSecret)).
 		Complete(r)
 }
 
@@ -259,6 +277,36 @@ func (r *NiFiClusterReconciler) requestsForPod(ctx context.Context, obj client.O
 	return nil
 }
 
+func (r *NiFiClusterReconciler) requestsForConfigMap(ctx context.Context, obj client.Object) []reconcile.Request {
+	configMap, ok := obj.(*corev1.ConfigMap)
+	if !ok {
+		return nil
+	}
+	return r.requestsForWatchedResource(ctx, configMap.Namespace, configMap.Name, func(cluster platformv1alpha1.NiFiCluster) bool {
+		for _, ref := range cluster.Spec.RestartTriggers.ConfigMaps {
+			if ref.Name == configMap.Name {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+func (r *NiFiClusterReconciler) requestsForSecret(ctx context.Context, obj client.Object) []reconcile.Request {
+	secret, ok := obj.(*corev1.Secret)
+	if !ok {
+		return nil
+	}
+	return r.requestsForWatchedResource(ctx, secret.Namespace, secret.Name, func(cluster platformv1alpha1.NiFiCluster) bool {
+		for _, ref := range cluster.Spec.RestartTriggers.Secrets {
+			if ref.Name == secret.Name {
+				return true
+			}
+		}
+		return false
+	})
+}
+
 func (r *NiFiClusterReconciler) requestsForTarget(ctx context.Context, namespace, targetName string) []reconcile.Request {
 	clusterList := &platformv1alpha1.NiFiClusterList{}
 	if err := r.List(ctx, clusterList, client.InNamespace(namespace)); err != nil {
@@ -270,14 +318,34 @@ func (r *NiFiClusterReconciler) requestsForTarget(ctx context.Context, namespace
 		if cluster.Spec.TargetRef.Name != targetName {
 			continue
 		}
-		requests = append(requests, reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Namespace: cluster.Namespace,
-				Name:      cluster.Name,
-			},
-		})
+		requests = append(requests, reconcileRequestForCluster(cluster))
 	}
 	return requests
+}
+
+func (r *NiFiClusterReconciler) requestsForWatchedResource(ctx context.Context, namespace, resourceName string, matches func(platformv1alpha1.NiFiCluster) bool) []reconcile.Request {
+	clusterList := &platformv1alpha1.NiFiClusterList{}
+	if err := r.List(ctx, clusterList, client.InNamespace(namespace)); err != nil {
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(clusterList.Items))
+	for _, cluster := range clusterList.Items {
+		if !matches(cluster) {
+			continue
+		}
+		requests = append(requests, reconcileRequestForCluster(cluster))
+	}
+	return requests
+}
+
+func reconcileRequestForCluster(cluster platformv1alpha1.NiFiCluster) reconcile.Request {
+	return reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: cluster.Namespace,
+			Name:      cluster.Name,
+		},
+	}
 }
 
 func (r *NiFiClusterReconciler) markSuspended(cluster *platformv1alpha1.NiFiCluster) {
@@ -528,6 +596,199 @@ func (r *NiFiClusterReconciler) syncReplicaStatus(cluster *platformv1alpha1.NiFi
 	})
 	cluster.Status.ClusterNodes.Offloaded = 0
 	cluster.Status.Replicas.Ready = readyPodCount(pods)
+}
+
+func rolloutConditionDetails(plan RolloutPlan, drift WatchedResourceDrift) (string, string) {
+	if plan.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
+		return "ConfigDriftDetected", configDriftMessage(drift)
+	}
+	return "RevisionDriftDetected", rolloutMessage(plan)
+}
+
+func rolloutOperationMessage(plan RolloutPlan, drift WatchedResourceDrift) string {
+	if plan.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
+		return fmt.Sprintf("Reconciling config drift toward hash %q from refs %s", drift.TargetConfigHash, joinOrNone(drift.ConfigRefs))
+	}
+	return fmt.Sprintf("Reconciling revision drift from %q to %q", plan.CurrentRevision, plan.UpdateRevision)
+}
+
+func podDeletedMessage(podName string, plan RolloutPlan) string {
+	if plan.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
+		return fmt.Sprintf("Deleted pod %s to apply watched config drift; waiting for replacement pod readiness and cluster convergence", podName)
+	}
+	return fmt.Sprintf("Deleted pod %s; waiting for replacement pod readiness and cluster convergence", podName)
+}
+
+func deletedOperationMessage(podName string, plan RolloutPlan) string {
+	if plan.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
+		return fmt.Sprintf("Deleted pod %s to apply watched config drift", podName)
+	}
+	return fmt.Sprintf("Deleted pod %s to advance StatefulSet revision %q", podName, plan.UpdateRevision)
+}
+
+func availableRolloutMessage(plan RolloutPlan) string {
+	if plan.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
+		return "Waiting for watched config rollout pods and NiFi cluster health to converge"
+	}
+	return "Waiting for StatefulSet pods and NiFi cluster health to converge to the update revision"
+}
+
+func clusterHealthBlockedMessage(plan RolloutPlan, err error) string {
+	if plan.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
+		return fmt.Sprintf("Cluster health gate blocked watched config rollout: %v", err)
+	}
+	return fmt.Sprintf("Cluster health gate blocked rollout at revision %q: %v", plan.UpdateRevision, err)
+}
+
+func degradedMessageForDrift(drift WatchedResourceDrift) string {
+	if drift.CertificateDrift {
+		return "No rollout failure is currently active; certificate drift is recorded separately until restart policy handling is added"
+	}
+	return "No rollout failure is currently active"
+}
+
+func availableReasonForSteadyState(drift WatchedResourceDrift) string {
+	if drift.CertificateDrift {
+		return "CertificateDriftDetected"
+	}
+	return "RolloutHealthy"
+}
+
+func availableMessageForSteadyState(drift WatchedResourceDrift) string {
+	if drift.CertificateDrift {
+		return "Target StatefulSet and NiFi cluster health are converged; certificate drift is recorded for a later TLS policy slice"
+	}
+	return "Target StatefulSet and NiFi cluster health are converged"
+}
+
+func progressingReasonForSteadyState(drift WatchedResourceDrift) string {
+	if drift.CertificateDrift {
+		return "CertificateDriftObserved"
+	}
+	return "NoDrift"
+}
+
+func progressingMessageForSteadyState(drift WatchedResourceDrift) string {
+	if drift.CertificateDrift {
+		return "No rollout is in progress; certificate drift is recorded but restart policy is deferred"
+	}
+	return "No rollout is currently in progress and no watched drift is active"
+}
+
+func degradedReasonForSteadyState(drift WatchedResourceDrift) string {
+	if drift.CertificateDrift {
+		return "CertificateDriftPendingPolicy"
+	}
+	return "AsExpected"
+}
+
+func degradedMessageForSteadyState(drift WatchedResourceDrift) string {
+	if drift.CertificateDrift {
+		return "No degradation detected; certificate drift remains pending policy handling"
+	}
+	return "No degradation detected"
+}
+
+func lastOperationTypeForSteadyState(cluster *platformv1alpha1.NiFiCluster) string {
+	if cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
+		return "Rollout"
+	}
+	return "StatusSync"
+}
+
+func lastOperationMessageForSteadyState(target *appsv1.StatefulSet, drift WatchedResourceDrift) string {
+	if drift.CertificateDrift {
+		return fmt.Sprintf("Revision %q is healthy; certificate drift is recorded without restart", target.Status.UpdateRevision)
+	}
+	return fmt.Sprintf("Revision %q is fully rolled out and healthy", target.Status.UpdateRevision)
+}
+
+func configDriftMessage(drift WatchedResourceDrift) string {
+	return fmt.Sprintf("Watched config drift detected for %s; target hash is %q", joinOrNone(drift.ConfigRefs), drift.TargetConfigHash)
+}
+
+func certificateDriftMessage(drift WatchedResourceDrift) string {
+	return fmt.Sprintf("Watched certificate drift detected for %s; restart policy handling is deferred in this slice", joinOrNone(drift.CertificateRefs))
+}
+
+func joinOrNone(values []string) string {
+	if len(values) == 0 {
+		return "no refs"
+	}
+	return strings.Join(values, ", ")
+}
+
+func (r *NiFiClusterReconciler) syncObservedHashes(cluster *platformv1alpha1.NiFiCluster, drift WatchedResourceDrift) {
+	if cluster.Status.ObservedConfigHash == "" && !drift.ConfigDrift {
+		cluster.Status.ObservedConfigHash = drift.CurrentConfigHash
+	}
+	if cluster.Status.ObservedCertificateHash == "" && !drift.CertificateDrift {
+		cluster.Status.ObservedCertificateHash = drift.CurrentCertificateHash
+	}
+}
+
+func (r *NiFiClusterReconciler) startConfigRolloutIfNeeded(cluster *platformv1alpha1.NiFiCluster, drift WatchedResourceDrift) {
+	if !drift.ConfigDrift {
+		return
+	}
+	if cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerConfigDrift &&
+		cluster.Status.Rollout.TargetConfigHash == drift.TargetConfigHash &&
+		cluster.Status.Rollout.StartedAt != nil {
+		return
+	}
+
+	now := metav1.NewTime(time.Now().UTC())
+	cluster.Status.Rollout = platformv1alpha1.RolloutStatus{
+		Trigger:          platformv1alpha1.RolloutTriggerConfigDrift,
+		StartedAt:        &now,
+		TargetConfigHash: drift.CurrentConfigHash,
+	}
+}
+
+func (r *NiFiClusterReconciler) reconcileCertificateDriftStatus(cluster *platformv1alpha1.NiFiCluster, drift WatchedResourceDrift) {
+	if !drift.CertificateDrift || cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerConfigDrift {
+		return
+	}
+
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionAvailable,
+		Status:             metav1.ConditionTrue,
+		Reason:             "CertificateDriftDetected",
+		Message:            certificateDriftMessage(drift),
+		LastTransitionTime: metav1.Now(),
+	})
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionProgressing,
+		Status:             metav1.ConditionFalse,
+		Reason:             "CertificateDriftObserved",
+		Message:            "Certificate drift is recorded in status; restart policy is intentionally deferred in this slice",
+		LastTransitionTime: metav1.Now(),
+	})
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionDegraded,
+		Status:             metav1.ConditionFalse,
+		Reason:             "CertificateDriftPendingPolicy",
+		Message:            "No certificate restart has been triggered yet",
+		LastTransitionTime: metav1.Now(),
+	})
+	cluster.Status.LastOperation = platformv1alpha1.LastOperation{
+		Type:    "DriftDetection",
+		Phase:   platformv1alpha1.OperationPhasePending,
+		Message: certificateDriftMessage(drift),
+	}
+}
+
+func (r *NiFiClusterReconciler) captureSteadyStateHashes(cluster *platformv1alpha1.NiFiCluster, drift WatchedResourceDrift) {
+	if !drift.CertificateDrift {
+		cluster.Status.ObservedCertificateHash = drift.CurrentCertificateHash
+	}
+	if cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerConfigDrift && cluster.Status.Rollout.TargetConfigHash != "" {
+		cluster.Status.ObservedConfigHash = cluster.Status.Rollout.TargetConfigHash
+		return
+	}
+	if !drift.ConfigDrift {
+		cluster.Status.ObservedConfigHash = drift.CurrentConfigHash
+	}
 }
 
 func (r *NiFiClusterReconciler) listTargetPods(ctx context.Context, target *appsv1.StatefulSet) ([]corev1.Pod, error) {

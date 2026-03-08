@@ -26,6 +26,12 @@ The controller watches:
 
 Services are read for discovery and addressing but do not drive separate reconciliation logic.
 
+Watched input classification is intentionally simple:
+
+- every referenced ConfigMap contributes to config drift
+- a referenced Secret contributes to certificate drift only when its name matches the TLS Secret mounted by the target StatefulSet
+- every other referenced Secret contributes to config drift
+
 ## Event Triggers
 
 The main triggers are:
@@ -43,6 +49,7 @@ Idempotency rules are strict:
 - aggregate config and certificate hashes are written to status only after the controller has observed the related state transition
 - one operation is active per cluster at a time
 - pod deletion is never repeated until the expected pod and NiFi node state changes are observed
+- config-triggered rollout progress is resumed from `status.rollout.startedAt` and `status.rollout.targetConfigHash`
 - `status.hibernation.lastRunningReplicas` is captured before the first scale-down below the current running size
 - unhibernate uses recorded status rather than guessing from history or annotations
 
@@ -117,6 +124,8 @@ Current implementation notes:
 
 - managed mode is limited to `StatefulSet.updateStrategy=OnDelete`
 - the controller uses `StatefulSet.status.currentRevision`, `updateRevision`, and `currentReplicas` as the primary ordinal-planning signal
+- config-triggered rollouts persist `status.rollout.trigger=ConfigDrift`, `status.rollout.startedAt`, and `status.rollout.targetConfigHash`
+- during a config-triggered rollout, a pod counts as updated once it has been recreated after `status.rollout.startedAt`
 - if `currentRevision` lags briefly after all pods are healthy on the target revision, the controller treats the rollout as complete once the pods and health gate are converged
 - offload or disconnect sequencing is intentionally deferred to a later slice
 
@@ -125,11 +134,17 @@ Current implementation notes:
 Config and certificate handling use separate aggregate hashes:
 
 - non-TLS config drift triggers a controlled rolling restart
-- TLS Secret content drift with unchanged refs, paths, and passwords starts an autoreload-first observation window
-- TLS ref, path, or password changes trigger a controlled rolling restart immediately
-- `spec.restartPolicy.tlsDrift` can force a restart even when autoreload is expected to succeed
+- TLS Secret content drift is detected and stored separately in status
+- TLS restart policy decisions are intentionally deferred to the next slice
+- `spec.restartPolicy.tlsDrift` is not applied yet
 
-The controller updates `status.observedConfigHash` and `status.observedCertificateHash` only after the cluster reaches the expected steady state.
+Current implementation details:
+
+- `status.observedConfigHash` tracks the last config hash that has been fully applied to a healthy cluster
+- `status.observedCertificateHash` tracks the last TLS hash that the controller has accepted as steady state
+- if config drift is detected, the controller captures the desired target in `status.rollout.targetConfigHash` and advances the existing managed `OnDelete` rollout path
+- if certificate drift is detected, the controller records that drift in conditions and leaves the observed certificate hash unchanged
+- if watched inputs change again during a config rollout, the controller finishes the in-flight rollout against the recorded target hash and then detects the new drift on the next reconcile
 
 ## Hibernation And Restore
 
@@ -170,7 +185,8 @@ The controller logic should be tested for:
 
 - repeated events causing no duplicate pod deletion
 - controller restart during rollout
+- controller restart during config-triggered rollout
 - controller restart during hibernation
 - timeout during offload
-- TLS drift that should autoreload without restart
-- TLS drift that must restart because policy or health requires it
+- TLS drift detected without restart before policy handling is implemented
+- watched non-TLS Secret and ConfigMap changes triggering the same rollout path used for StatefulSet drift

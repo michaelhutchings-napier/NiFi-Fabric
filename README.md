@@ -151,13 +151,13 @@ What is runnable now:
 - the chart wires Kubernetes leader election and ConfigMap-backed cluster state settings through explicit NiFi configuration rather than hidden controller behavior
 - the chart mounts persistent repositories, config, Services, and probes suitable for a kind-focused local workflow
 - the repo includes a repeatable health-check flow that separates pod readiness, secured API reachability, and actual cluster convergence
-- the optional controller can coordinate managed `OnDelete` rollouts one pod at a time for StatefulSet template or revision drift
+- the optional controller can coordinate managed `OnDelete` rollouts one pod at a time for StatefulSet template drift, revision drift, and explicitly watched non-TLS config drift
 - the repo includes a minimal in-cluster controller deployment path for local kind verification
 
 What is still intentionally stubbed:
 
-- config-driven and cert-driven rollout triggers
 - offload or disconnect sequencing before pod deletion
+- TLS restart policy decisions after watched certificate drift
 - hibernation orchestration
 - production-grade TLS automation beyond documented Secret expectations
 - production-hardening of chart defaults, auth choices, and storage layouts
@@ -205,8 +205,41 @@ Managed rollout short version:
 9. `make apply-managed`
 10. `make kind-health`
 11. `helm upgrade --install nifi charts/nifi -n nifi -f examples/managed/values.yaml --reuse-values --set-string podAnnotations.rolloutNonce=$(date +%s)`
+12. `make kind-config-drift`
+13. `make kind-tls-drift`
 
 On one clean kind run, the controller advanced the rollout in the expected order: `nifi-2`, then `nifi-1`, then `nifi-0`.
+
+Managed watched-drift behavior:
+
+- every `spec.restartTriggers.configMaps[]` entry contributes to config drift
+- a watched Secret contributes to certificate drift only when it is the same Secret mounted as the target StatefulSet TLS volume
+- every other watched Secret contributes to config drift
+- config drift reuses the same managed `OnDelete` rollout path as StatefulSet revision drift
+- certificate drift is recorded in status and conditions but does not restart pods yet
+
+Local drift verification commands:
+
+```bash
+make kind-config-drift
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.observedConfigHash}{"\n"}{.status.rollout.trigger}{"\n"}{.status.rollout.targetConfigHash}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'
+kubectl -n nifi get pods \
+  -o custom-columns=NAME:.metadata.name,DEL:.metadata.deletionTimestamp,READY:.status.containerStatuses[0].ready \
+  --watch
+make kind-health
+```
+
+```bash
+make kind-tls-drift
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.observedCertificateHash}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'
+kubectl -n nifi get pods \
+  -o custom-columns=NAME:.metadata.name,DEL:.metadata.deletionTimestamp,READY:.status.containerStatuses[0].ready
+```
+
+Expected results:
+
+- `make kind-config-drift` should trigger a one-pod-at-a-time managed rollout and then settle back to a healthy cluster
+- `make kind-tls-drift` should change status reporting only; no pod should be deleted in this slice
 
 ## Standalone Health Gate
 
@@ -249,6 +282,8 @@ Useful local commands:
 - `make deploy-controller`
 - `make helm-install-standalone`
 - `make kind-health`
+- `make kind-config-drift`
+- `make kind-tls-drift`
 - `make helm-install-managed`
 - `make apply-managed`
 - `make run`

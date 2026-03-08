@@ -18,10 +18,15 @@ Unit tests should cover:
 
 Current unit coverage in the scaffold includes:
 
+- stable watched-resource hash calculation across input ordering
 - revision drift detection
+- config-triggered rollout planning from `status.rollout.startedAt`
 - rollout blocked while the health gate is failing
 - one-pod-at-a-time advancement
 - safe resume from current status and StatefulSet state after controller restart
+- ConfigMap drift triggering the managed `OnDelete` rollout path
+- watched non-TLS Secret drift triggering the managed `OnDelete` rollout path
+- TLS drift being recorded in status without a forced restart
 - NiFi access-token and cluster-summary request handling
 
 ## controller-runtime `envtest`
@@ -32,6 +37,8 @@ Current unit coverage in the scaffold includes:
 - rejection of missing or invalid targets
 - status updates for `TargetResolved`, `Available`, `Progressing`, `Degraded`, and `Hibernated`
 - drift detection from watched Secrets and ConfigMaps
+- persistence of `status.observedConfigHash` and `status.observedCertificateHash`
+- persistence of `status.rollout.startedAt` and `status.rollout.targetConfigHash`
 - blocked rollout when health gates fail
 - backoff and retry behavior for NiFi API failures
 - capture and restore of `status.hibernation.lastRunningReplicas`
@@ -55,8 +62,7 @@ kind-based integration should cover:
 
 - fresh multi-node NiFi cluster formation without ZooKeeper
 - ConfigMap drift triggering a health-gated sequential rollout
-- TLS Secret renewal with autoreload-first behavior
-- TLS ref or path changes forcing a controlled restart
+- TLS Secret drift being detected and recorded without restart
 - image or template upgrade through the `OnDelete` coordinator
 - hibernation to zero and restore to the prior running size
 - controller restart during rollout and during hibernation
@@ -67,8 +73,8 @@ The minimum acceptance suite should include:
 
 - no rollout begins while cluster health is failing
 - no second pod deletion occurs before the prior pod is Ready and reconnected
-- TLS content-only drift can settle without restart when policy allows
-- TLS drift forces restart when policy or health requires it
+- watched non-TLS drift uses the same restart path as StatefulSet revision drift
+- TLS drift is visible in status before restart policy handling is implemented
 - hibernation preserves PVCs and restores `status.hibernation.lastRunningReplicas`
 - rollout state resumes correctly after controller failure
 

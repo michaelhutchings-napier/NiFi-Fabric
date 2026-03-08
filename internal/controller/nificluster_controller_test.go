@@ -28,7 +28,7 @@ func TestBuildRolloutPlanSelectsHighestOrdinalOutdatedPod(t *testing.T) {
 		readyPod("nifi-2", "nifi", "nifi-old"),
 	}
 
-	plan := BuildRolloutPlan(statefulSet, pods)
+	plan := BuildRolloutPlan(statefulSet, pods, platformv1alpha1.RolloutStatus{})
 	next := plan.NextPodToDelete()
 	if next == nil {
 		t.Fatalf("expected a pod to delete")
@@ -53,9 +53,7 @@ func TestReconcileDeletesHighestOrdinalPodWhenRevisionDrifts(t *testing.T) {
 
 	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
 		podReadyResponses: []error{nil},
-		healthResponses: []healthResponse{{
-			result: healthyResult(3),
-		}},
+		healthResponses:   []healthResponse{{result: healthyResult(3)}},
 	}, cluster, statefulSet, &pods[0], &pods[1], &pods[2])
 
 	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
@@ -69,8 +67,7 @@ func TestReconcileDeletesHighestOrdinalPodWhenRevisionDrifts(t *testing.T) {
 		t.Fatalf("expected requeue after pod deletion, got %s", result.RequeueAfter)
 	}
 
-	deletedPod := &corev1.Pod{}
-	err = k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: "nifi-2"}, deletedPod)
+	err = k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: "nifi-2"}, &corev1.Pod{})
 	if err == nil {
 		t.Fatalf("expected nifi-2 to be deleted")
 	}
@@ -142,9 +139,7 @@ func TestReconcileAdvancesOnePodAtATime(t *testing.T) {
 
 	healthChecker := &fakeHealthChecker{
 		podReadyResponses: []error{nil, errors.New("waiting for replacement pod")},
-		healthResponses: []healthResponse{{
-			result: healthyResult(3),
-		}},
+		healthResponses:   []healthResponse{{result: healthyResult(3)}},
 	}
 	reconciler, k8sClient := newTestReconciler(t, healthChecker, cluster, statefulSet, &pods[0], &pods[1], &pods[2])
 
@@ -179,7 +174,7 @@ func TestReconcileAdvancesOnePodAtATime(t *testing.T) {
 	}
 }
 
-func TestReconcileResumesFromCurrentStateAfterRestart(t *testing.T) {
+func TestReconcileResumesFromCurrentStateAfterRevisionRolloutRestart(t *testing.T) {
 	ctx := context.Background()
 	cluster := managedCluster()
 	cluster.Status.ObservedStatefulSetRevision = "nifi-old"
@@ -197,9 +192,7 @@ func TestReconcileResumesFromCurrentStateAfterRestart(t *testing.T) {
 
 	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
 		podReadyResponses: []error{nil},
-		healthResponses: []healthResponse{{
-			result: healthyResult(3),
-		}},
+		healthResponses:   []healthResponse{{result: healthyResult(3)}},
 	}, cluster, statefulSet, &pods[0], &pods[1], &pods[2])
 
 	_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{
@@ -212,6 +205,179 @@ func TestReconcileResumesFromCurrentStateAfterRestart(t *testing.T) {
 
 	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: "nifi-1"}, &corev1.Pod{}); err == nil {
 		t.Fatalf("expected nifi-1 to be deleted on resume")
+	}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: "nifi-2"}, &corev1.Pod{}); err != nil {
+		t.Fatalf("expected nifi-2 to remain present: %v", err)
+	}
+}
+
+func TestReconcileTriggersRolloutForConfigMapDrift(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.RestartTriggers.ConfigMaps = []corev1.LocalObjectReference{{Name: "nifi-config"}}
+	cluster.Status.ObservedConfigHash = "old-config-hash"
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+		readyPod("nifi-2", "nifi", "nifi-rev"),
+	}
+	configMap := watchedConfigMap("nifi-config", map[string]string{"nifi.properties.overrides": "foo=bar"})
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		podReadyResponses: []error{nil},
+		healthResponses:   []healthResponse{{result: healthyResult(3)}},
+	}, cluster, statefulSet, configMap, &pods[0], &pods[1], &pods[2])
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected requeue after config rollout deletion, got %s", result.RequeueAfter)
+	}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: "nifi-2"}, &corev1.Pod{}); err == nil {
+		t.Fatalf("expected nifi-2 to be deleted for config drift")
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.Rollout.Trigger != platformv1alpha1.RolloutTriggerConfigDrift {
+		t.Fatalf("expected config drift rollout trigger, got %q", updatedCluster.Status.Rollout.Trigger)
+	}
+	if updatedCluster.Status.Rollout.TargetConfigHash == "" {
+		t.Fatalf("expected target config hash to be captured")
+	}
+	condition := updatedCluster.GetCondition(platformv1alpha1.ConditionProgressing)
+	if condition == nil || condition.Reason != "PodDeleted" {
+		t.Fatalf("expected progressing condition to reflect pod deletion, got %#v", condition)
+	}
+}
+
+func TestReconcileTriggersRolloutForNonTLSSecretDrift(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.RestartTriggers.Secrets = []corev1.LocalObjectReference{{Name: "nifi-auth"}}
+	cluster.Status.ObservedConfigHash = "old-config-hash"
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+		readyPod("nifi-2", "nifi", "nifi-rev"),
+	}
+	authSecret := watchedSecret("nifi-auth", corev1.SecretTypeOpaque, map[string][]byte{
+		"username": []byte("admin"),
+		"password": []byte("new-password"),
+	})
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		podReadyResponses: []error{nil},
+		healthResponses:   []healthResponse{{result: healthyResult(3)}},
+	}, cluster, statefulSet, authSecret, &pods[0], &pods[1], &pods[2])
+
+	_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: "nifi-2"}, &corev1.Pod{}); err == nil {
+		t.Fatalf("expected nifi-2 to be deleted for non-TLS secret drift")
+	}
+}
+
+func TestReconcileRecordsTLSDriftWithoutRestart(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.RestartTriggers.Secrets = []corev1.LocalObjectReference{{Name: "nifi-tls"}}
+	cluster.Status.ObservedCertificateHash = "old-certificate-hash"
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+		readyPod("nifi-2", "nifi", "nifi-rev"),
+	}
+	tlsSecret := watchedSecret("nifi-tls", corev1.SecretTypeOpaque, map[string][]byte{
+		"tls.p12":      []byte("keystore"),
+		"truststore":   []byte("truststore"),
+		"ca.crt":       []byte("ca"),
+		"keystorePass": []byte("changeit"),
+	})
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		healthResponses: []healthResponse{{result: healthyResult(3)}},
+	}, cluster, statefulSet, tlsSecret, &pods[0], &pods[1], &pods[2])
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != 0 {
+		t.Fatalf("expected no requeue for observe-only TLS drift, got %s", result.RequeueAfter)
+	}
+	for _, podName := range []string{"nifi-0", "nifi-1", "nifi-2"} {
+		pod := &corev1.Pod{}
+		if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: podName}, pod); err != nil {
+			t.Fatalf("expected pod %s to remain present: %v", podName, err)
+		}
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.ObservedCertificateHash != "old-certificate-hash" {
+		t.Fatalf("expected observed certificate hash to stay unchanged until TLS policy is implemented")
+	}
+	if updatedCluster.Status.Rollout.Trigger != "" {
+		t.Fatalf("expected no rollout trigger for TLS drift, got %q", updatedCluster.Status.Rollout.Trigger)
+	}
+	progressing := updatedCluster.GetCondition(platformv1alpha1.ConditionProgressing)
+	if progressing == nil || progressing.Reason != "CertificateDriftObserved" {
+		t.Fatalf("expected certificate drift progressing reason, got %#v", progressing)
+	}
+}
+
+func TestReconcileResumesConfigDriftRolloutAfterRestart(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.RestartTriggers.ConfigMaps = []corev1.LocalObjectReference{{Name: "nifi-config"}}
+	cluster.Status.ObservedConfigHash = "old-config-hash"
+	startedAt := metav1.NewTime(time.Now().Add(-5 * time.Minute).UTC())
+	cluster.Status.Rollout = platformv1alpha1.RolloutStatus{
+		Trigger:          platformv1alpha1.RolloutTriggerConfigDrift,
+		StartedAt:        &startedAt,
+		TargetConfigHash: "new-config-hash",
+	}
+	cluster.Status.LastOperation = runningOperation("Rollout", "Deleted pod nifi-2 to apply watched config drift")
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	pods := []corev1.Pod{
+		readyPodAt("nifi-0", "nifi", "nifi-rev", startedAt.Time.Add(-2*time.Minute)),
+		readyPodAt("nifi-1", "nifi", "nifi-rev", startedAt.Time.Add(-2*time.Minute)),
+		readyPodAt("nifi-2", "nifi", "nifi-rev", startedAt.Time.Add(2*time.Minute)),
+	}
+	configMap := watchedConfigMap("nifi-config", map[string]string{"nifi.properties.overrides": "foo=baz"})
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		podReadyResponses: []error{nil},
+		healthResponses:   []healthResponse{{result: healthyResult(3)}},
+	}, cluster, statefulSet, configMap, &pods[0], &pods[1], &pods[2])
+
+	_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: "nifi-1"}, &corev1.Pod{}); err == nil {
+		t.Fatalf("expected nifi-1 to be deleted on config rollout resume")
 	}
 	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: "nifi-2"}, &corev1.Pod{}); err != nil {
 		t.Fatalf("expected nifi-2 to remain present: %v", err)
@@ -254,6 +420,9 @@ func managedCluster() *platformv1alpha1.NiFiCluster {
 			TargetRef: platformv1alpha1.TargetRef{
 				Name: "nifi",
 			},
+			RestartPolicy: platformv1alpha1.RestartPolicy{
+				TLSDrift: platformv1alpha1.TLSDiffPolicyAutoreloadThenRestartOnFailure,
+			},
 			Rollout: platformv1alpha1.RolloutPolicy{
 				PodReadyTimeout:      metav1.Duration{Duration: time.Second},
 				ClusterHealthTimeout: metav1.Duration{Duration: time.Second},
@@ -266,6 +435,11 @@ func managedCluster() *platformv1alpha1.NiFiCluster {
 }
 
 func managedStatefulSet(name string, replicas int32, currentRevision, updateRevision string) *appsv1.StatefulSet {
+	updatedReplicas := int32(0)
+	if currentRevision == updateRevision {
+		updatedReplicas = replicas
+	}
+
 	return &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -288,6 +462,16 @@ func managedStatefulSet(name string, replicas int32, currentRevision, updateRevi
 						"app": name,
 					},
 				},
+				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{{
+						Name: "tls",
+						VolumeSource: corev1.VolumeSource{
+							Secret: &corev1.SecretVolumeSource{
+								SecretName: "nifi-tls",
+							},
+						},
+					}},
+				},
 			},
 		},
 		Status: appsv1.StatefulSetStatus{
@@ -295,16 +479,21 @@ func managedStatefulSet(name string, replicas int32, currentRevision, updateRevi
 			UpdateRevision:  updateRevision,
 			CurrentReplicas: replicas,
 			ReadyReplicas:   replicas,
-			UpdatedReplicas: 0,
+			UpdatedReplicas: updatedReplicas,
 		},
 	}
 }
 
 func readyPod(name, app, revision string) corev1.Pod {
+	return readyPodAt(name, app, revision, time.Now().UTC())
+}
+
+func readyPodAt(name, app, revision string, createdAt time.Time) corev1.Pod {
 	return corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: "nifi",
+			Name:              name,
+			Namespace:         "nifi",
+			CreationTimestamp: metav1.NewTime(createdAt),
 			Labels: map[string]string{
 				"app":                       app,
 				controllerRevisionHashLabel: revision,
@@ -321,6 +510,27 @@ func readyPod(name, app, revision string) corev1.Pod {
 				Status: corev1.ConditionTrue,
 			}},
 		},
+	}
+}
+
+func watchedConfigMap(name string, data map[string]string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "nifi",
+		},
+		Data: data,
+	}
+}
+
+func watchedSecret(name string, secretType corev1.SecretType, data map[string][]byte) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "nifi",
+		},
+		Type: secretType,
+		Data: data,
 	}
 }
 

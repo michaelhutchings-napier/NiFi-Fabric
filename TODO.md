@@ -10,17 +10,17 @@ Completed in the scaffold:
 4. Managed-mode controller that watches the target `StatefulSet` and Pods, evaluates the documented per-pod NiFi health gate, and coordinates `OnDelete` rollout sequencing.
 5. Standalone-first Helm chart with real NiFi 2 pod wiring, repository PVCs, TLS secrets, and kind workflow.
 6. Minimal controller image and deployment path for local kind verification.
-7. Example manifests, Makefile targets, kind config, and CI skeleton.
+7. Watched ConfigMap and Secret hash aggregation with persisted `observedConfigHash`, `observedCertificateHash`, and managed config-drift rollout triggers.
+8. Example manifests, Makefile targets, kind config, and CI skeleton.
 
 ## Next Steps
 
-1. Add watched Secret and ConfigMap drift detection so managed rollouts can start from config and cert changes instead of only StatefulSet template drift.
+1. Implement policy-driven TLS drift handling on top of the existing rollout coordinator.
 2. Add offload or disconnect sequencing before pod deletion.
-3. Implement policy-driven TLS drift handling on top of the existing rollout coordinator.
-4. Implement hibernation and restore tracking without changing the rollout safety model.
-5. Replace the hand-written CRD and deepcopy scaffolding with generated artifacts once controller-tools are introduced.
-6. Replace the local-development TLS Secret workflow with an optional cert-manager-backed chart path once the secret contract is stable.
-7. Expand CI to include envtest assets and kind-based smoke coverage.
+3. Implement hibernation and restore tracking without changing the rollout safety model.
+4. Replace the hand-written CRD and deepcopy scaffolding with generated artifacts once controller-tools are introduced.
+5. Replace the local-development TLS Secret workflow with an optional cert-manager-backed chart path once the secret contract is stable.
+6. Expand CI to include envtest assets and kind-based smoke coverage.
 
 ## Current Managed Rollout Behavior
 
@@ -32,20 +32,29 @@ Current controller-owned mutations in managed mode:
 Current rollout algorithm:
 
 1. detect revision or template drift from the target `StatefulSet`
-2. wait for all target pods to become `Ready`
-3. wait for the documented per-pod NiFi health gate to pass for multiple consecutive polls
-4. choose the highest remaining ordinal in the current revision set
-5. delete that pod
-6. wait for replacement readiness and full cluster convergence
-7. continue until the target revision is fully rolled out
+2. detect watched non-TLS drift from `spec.restartTriggers.configMaps[]` and non-TLS `spec.restartTriggers.secrets[]`
+3. persist `status.observedConfigHash` and `status.observedCertificateHash`
+4. wait for all target pods to become `Ready`
+5. wait for the documented per-pod NiFi health gate to pass for multiple consecutive polls
+6. choose the highest remaining ordinal in the current revision set
+7. delete that pod
+8. wait for replacement readiness and full cluster convergence
+9. continue until the target revision or watched config target hash is fully rolled out
 
-What is still intentionally deferred before config or cert drift handling:
+What is still intentionally deferred:
 
-- watched Secret and ConfigMap hash aggregation
 - TLS drift policy and restart decision logic
 - NiFi offload or disconnect sequencing
 - hibernation
 - controller metrics and events beyond the minimal runtime defaults
+
+Current watched-drift assumptions:
+
+- all watched ConfigMaps contribute to config drift
+- the watched Secret that matches the target StatefulSet TLS mount contributes to certificate drift
+- all other watched Secrets contribute to config drift
+- config drift persists `status.rollout.startedAt` and `status.rollout.targetConfigHash` so controller restarts resume cleanly
+- certificate drift leaves `status.observedCertificateHash` unchanged until a later TLS policy slice decides whether restart is required
 
 ## Controller Health Gate Assumptions
 

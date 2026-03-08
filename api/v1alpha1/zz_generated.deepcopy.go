@@ -142,6 +142,7 @@ func (in *NiFiClusterSpec) DeepCopy() *NiFiClusterSpec {
 
 func (in *NiFiClusterStatus) DeepCopyInto(out *NiFiClusterStatus) {
 	*out = *in
+	in.Rollout.DeepCopyInto(&out.Rollout)
 	out.Replicas = in.Replicas
 	out.ClusterNodes = in.ClusterNodes
 	out.Hibernation = in.Hibernation
@@ -209,6 +210,23 @@ func (in *RestartTriggers) DeepCopy() *RestartTriggers {
 		return nil
 	}
 	out := new(RestartTriggers)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *RolloutStatus) DeepCopyInto(out *RolloutStatus) {
+	*out = *in
+	if in.StartedAt != nil {
+		in, out := &in.StartedAt, &out.StartedAt
+		*out = (*in).DeepCopy()
+	}
+}
+
+func (in *RolloutStatus) DeepCopy() *RolloutStatus {
+	if in == nil {
+		return nil
+	}
+	out := new(RolloutStatus)
 	in.DeepCopyInto(out)
 	return out
 }

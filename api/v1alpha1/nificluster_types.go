@@ -94,11 +94,25 @@ type LastOperation struct {
 	Message     string         `json:"message,omitempty"`
 }
 
+type RolloutTrigger string
+
+const (
+	RolloutTriggerStatefulSetRevision RolloutTrigger = "StatefulSetRevision"
+	RolloutTriggerConfigDrift         RolloutTrigger = "ConfigDrift"
+)
+
+type RolloutStatus struct {
+	Trigger          RolloutTrigger `json:"trigger,omitempty"`
+	StartedAt        *metav1.Time   `json:"startedAt,omitempty"`
+	TargetConfigHash string         `json:"targetConfigHash,omitempty"`
+}
+
 type NiFiClusterStatus struct {
 	ObservedGeneration          int64              `json:"observedGeneration,omitempty"`
 	ObservedStatefulSetRevision string             `json:"observedStatefulSetRevision,omitempty"`
 	ObservedConfigHash          string             `json:"observedConfigHash,omitempty"`
 	ObservedCertificateHash     string             `json:"observedCertificateHash,omitempty"`
+	Rollout                     RolloutStatus      `json:"rollout,omitempty"`
 	Replicas                    ReplicaStatus      `json:"replicas,omitempty"`
 	ClusterNodes                ClusterNodesStatus `json:"clusterNodes,omitempty"`
 	Hibernation                 HibernationStatus  `json:"hibernation,omitempty"`

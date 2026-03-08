@@ -11,7 +11,7 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 ENVTEST_K8S_VERSION ?= 1.31.0
 CONTROLLER_IMAGE ?= nifi2-platform-controller:dev
 
-.PHONY: fmt test test-unit test-envtest helm-lint run setup-envtest envtest-use kind-up kind-down kind-secrets kind-health docker-build-controller kind-load-controller deploy-controller undeploy-controller install-crd helm-install-standalone helm-install-managed apply-managed
+.PHONY: fmt test test-unit test-envtest helm-lint run setup-envtest envtest-use kind-up kind-down kind-secrets kind-health kind-config-drift kind-tls-drift docker-build-controller kind-load-controller deploy-controller undeploy-controller install-crd helm-install-standalone helm-install-managed apply-managed
 
 fmt:
 	$(GO) fmt ./...
@@ -50,6 +50,12 @@ kind-secrets:
 
 kind-health:
 	bash hack/check-nifi-health.sh --namespace $(NAMESPACE) --statefulset $(HELM_RELEASE) --auth-secret nifi-auth
+
+kind-config-drift:
+	bash hack/trigger-config-drift.sh --namespace $(NAMESPACE) --configmap $(HELM_RELEASE)-config
+
+kind-tls-drift:
+	bash hack/trigger-tls-drift.sh --namespace $(NAMESPACE) --secret nifi-tls
 
 docker-build-controller:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -o bin/manager ./main.go

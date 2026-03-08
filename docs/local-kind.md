@@ -4,6 +4,7 @@ This repository now includes concrete local workflows for:
 
 - a standalone NiFi 2 chart install
 - a managed-mode install with the thin `OnDelete` rollout controller
+- watched config and TLS drift verification against that managed controller
 
 ## What This Flow Does
 
@@ -174,17 +175,71 @@ make kind-health
 kubectl -n nifi get nificluster nifi -o jsonpath='{.status.lastOperation.phase}{"\n"}{.status.lastOperation.message}{"\n"}'
 ```
 
+## Managed Config Drift Verification
+
+The managed example CR watches:
+
+- `ConfigMap/nifi-config` as config input
+- `Secret/nifi-tls` as certificate input
+
+Config drift is currently the only watched-input drift that triggers a managed rollout.
+
+Exact commands:
+
+```bash
+make kind-config-drift
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.observedConfigHash}{"\n"}{.status.rollout.trigger}{"\n"}{.status.rollout.targetConfigHash}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'
+kubectl -n nifi get pods \
+  -o custom-columns=NAME:.metadata.name,CREATED:.metadata.creationTimestamp,READY:.status.containerStatuses[0].ready \
+  --watch
+```
+
+Expected behavior:
+
+- `ConditionProgressing=True` while the controller applies watched config drift
+- `status.rollout.trigger=ConfigDrift`
+- pods are deleted highest ordinal first, one at a time
+- `status.observedConfigHash` updates only after the cluster is healthy again
+
+Final verification:
+
+```bash
+make kind-health
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.observedConfigHash}{"\n"}{.status.lastOperation.phase}{"\n"}{.status.lastOperation.message}{"\n"}'
+```
+
+## Managed TLS Drift Verification
+
+TLS drift is detected separately from general config drift. In this slice it is recorded in status but does not trigger a restart yet.
+
+Exact commands:
+
+```bash
+make kind-tls-drift
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.observedCertificateHash}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'
+kubectl -n nifi get pods \
+  -o custom-columns=NAME:.metadata.name,DEL:.metadata.deletionTimestamp,READY:.status.containerStatuses[0].ready
+```
+
+Expected behavior:
+
+- `ConditionAvailable=True` with a certificate-drift reason
+- `ConditionProgressing=False` because no TLS restart policy is active yet
+- `status.observedCertificateHash` stays on the prior value until a later TLS policy slice decides whether to restart
+- no pod should have a deletion timestamp
+
 ## Managed Rollout Behavior
 
 The current managed slice does exactly this:
 
 1. detect StatefulSet template or revision drift in managed `OnDelete` mode
-2. wait for all target pods to be `Ready`
-3. wait for the documented per-pod NiFi health gate to pass for multiple consecutive polls
-4. delete the highest remaining ordinal in the current revision set
-5. wait for the replacement pod to become `Ready`
-6. wait for the full cluster to converge again
-7. repeat until all ordinals have been replaced
+2. detect watched non-TLS config drift from `spec.restartTriggers`
+3. wait for all target pods to be `Ready`
+4. wait for the documented per-pod NiFi health gate to pass for multiple consecutive polls
+5. delete the highest remaining ordinal in the current revision set
+6. wait for the replacement pod to become `Ready`
+7. wait for the full cluster to converge again
+8. repeat until all ordinals have been replaced
 
 On one clean kind run, the observed delete order was:
 
@@ -226,5 +281,6 @@ The auth Secret contains:
 - The health checker executes `curl` inside each NiFi pod so the TLS hostname and NiFi node identity stay aligned.
 - The kind-focused standalone example leaves `nifi.security.autoreload.enabled=false` for now; cert rotation policy is still a later slice.
 - The checker uses the exported `ca.crt` rather than `curl -k`.
-- Managed mode currently coordinates only template or revision drift rollouts.
-- Config drift triggers, cert drift triggers, offload or disconnect sequencing, and hibernation are still intentionally deferred.
+- Managed mode currently coordinates template, revision, and watched non-TLS config drift rollouts through the same `OnDelete` path.
+- TLS drift is detected and recorded but does not restart pods yet.
+- Offload or disconnect sequencing and hibernation are still intentionally deferred.

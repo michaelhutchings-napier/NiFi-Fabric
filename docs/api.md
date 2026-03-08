@@ -41,6 +41,10 @@ status:
   observedStatefulSetRevision: nifi-67c9c7c966
   observedConfigHash: sha256:...
   observedCertificateHash: sha256:...
+  rollout:
+    trigger: ConfigDrift
+    startedAt: "2026-03-08T10:15:00Z"
+    targetConfigHash: sha256:...
   replicas:
     desired: 3
     ready: 3
@@ -96,6 +100,9 @@ Default for MVP:
 | `status.observedStatefulSetRevision` | string | last observed desired workload revision |
 | `status.observedConfigHash` | string | aggregate hash for watched config state |
 | `status.observedCertificateHash` | string | aggregate hash for watched TLS state |
+| `status.rollout.trigger` | enum | rollout source currently in progress |
+| `status.rollout.startedAt` | timestamp | durable marker used to resume a config-triggered rollout |
+| `status.rollout.targetConfigHash` | string | config hash the current rollout is applying |
 | `status.replicas.desired` | integer | current desired replicas on the target workload |
 | `status.replicas.ready` | integer | current ready pods |
 | `status.replicas.updated` | integer | pods at the desired revision |
@@ -237,6 +244,16 @@ Hibernation is not safe if restore depends on a guessed replica count. `status.h
 ### Why Rollout And Safety Knobs Are Small And Typed
 
 The controller needs a few operational settings, but not an entire values tree. Small typed fields are easier to validate, document, and test than a generic values blob.
+
+### How Watched Inputs Are Classified
+
+The watched-input model stays intentionally small:
+
+- every `spec.restartTriggers.configMaps[]` entry contributes to config drift
+- a watched Secret contributes to certificate drift only when it matches the TLS Secret mounted by the target StatefulSet
+- every other watched Secret contributes to config drift
+
+This keeps the API thin while still separating general restart-trigger inputs from TLS-specific policy handling.
 
 ## Intentionally Omitted Fields
 

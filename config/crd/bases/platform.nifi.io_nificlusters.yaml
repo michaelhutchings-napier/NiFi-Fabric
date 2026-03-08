@@ -113,6 +113,19 @@ spec:
                 type: string
               observedCertificateHash:
                 type: string
+              rollout:
+                type: object
+                properties:
+                  trigger:
+                    type: string
+                    enum:
+                    - StatefulSetRevision
+                    - ConfigDrift
+                  startedAt:
+                    format: date-time
+                    type: string
+                  targetConfigHash:
+                    type: string
               replicas:
                 type: object
                 properties:
@@ -189,4 +202,3 @@ spec:
                       type: string
                     message:
                       type: string
-
