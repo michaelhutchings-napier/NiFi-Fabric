@@ -10,8 +10,8 @@ The controller stays small by splitting behavior into a few narrow, idempotent l
 | --- | --- | --- |
 | Target resolution and validation | `NiFiCluster`, target `StatefulSet` | resolve `spec.targetRef.name`, verify same-namespace `StatefulSet`, set `TargetResolved` |
 | Watched-resource hash aggregation | referenced Secrets and ConfigMaps, target pod template | compute aggregate config and certificate hashes, compare with status |
-| Rollout coordinator | `StatefulSet` revision drift, hash drift, pod readiness, NiFi node state | gate rollout, delete pods one at a time, and wait for stable health before continuing |
-| Hibernation coordinator | desired state, current replicas, cluster health | capture prior replica count, scale to zero in managed mode, restore later |
+| Rollout coordinator | `StatefulSet` revision drift, hash drift, pod readiness, NiFi node state | gate rollout, disconnect and offload the target node, delete pods one at a time, and wait for stable health before continuing |
+| Hibernation coordinator | desired state, current replicas, cluster health, NiFi node state | capture prior replica count, disconnect and offload highest ordinal first, reduce replicas, restore later |
 | Status and condition sync | all observed objects and controller operations | update conditions, replica counts, node counts, last operation, hashes |
 
 ## Watched Resources
@@ -52,6 +52,7 @@ Idempotency rules are strict:
 - config-triggered rollout progress is resumed from `status.rollout.startedAt` and `status.rollout.targetConfigHash`
 - TLS observation progress is resumed from `status.tls.observationStartedAt`, `status.tls.targetCertificateHash`, and `status.tls.targetTLSConfigurationHash`
 - `status.hibernation.lastRunningReplicas` is captured before the first scale-down below the current running size
+- `status.nodeOperation` records the pod, NiFi node ID, purpose, stage, and stage start time for in-flight disconnect or offload work
 - unhibernate uses recorded status rather than guessing from history or annotations
 
 ## Failure Handling
@@ -113,11 +114,14 @@ Managed restart behavior is:
 1. detect revision or restart-trigger drift
 2. confirm the cluster is healthy if `spec.safety.requireClusterHealthy=true`
 3. choose the next highest ordinal remaining in the current revision set
-4. delete the pod
-5. wait for the replacement pod to become Ready
-6. wait for the replacement pod's secured NiFi API to become reachable
-7. wait for full-cluster convergence and stable health polls
-8. record progress and continue
+4. identify the corresponding NiFi node and persist `status.nodeOperation`
+5. request `DISCONNECTING` and wait for `DISCONNECTED`
+6. request `OFFLOADING` and wait for `OFFLOADED`
+7. delete the pod
+8. wait for the replacement pod to become Ready
+9. wait for the replacement pod's secured NiFi API to become reachable
+10. wait for full-cluster convergence and stable health polls
+11. record progress and continue
 
 The controller owns the sequencing. NiFi owns the cluster behavior that follows each deletion.
 
@@ -130,7 +134,7 @@ Current implementation notes:
 - during a config-triggered rollout, a pod counts as updated once it has been recreated after `status.rollout.startedAt`
 - during a TLS-triggered rollout, a pod counts as updated once it has been recreated after `status.rollout.startedAt`
 - if `currentRevision` lags briefly after all pods are healthy on the target revision, the controller treats the rollout as complete once the pods and health gate are converged
-- offload or disconnect sequencing is intentionally deferred to a later slice
+- if disconnect or offload stays incomplete beyond `spec.hibernation.offloadTimeout`, the controller marks `Degraded=True`, preserves `status.nodeOperation`, and blocks the destructive step until the node eventually reaches the expected state
 
 ## Cert Hash And Config Hash Logic
 
@@ -161,9 +165,13 @@ Hibernation behavior is:
 1. `spec.desiredState=Hibernated`
 2. record `status.hibernation.lastRunningReplicas`
 3. if `spec.safety.requireClusterHealthy=true`, wait for the documented per-pod health gate before scaling down
-4. set `StatefulSet.spec.replicas=0`
-5. wait until pods are fully gone
-6. set `Hibernated=True`
+4. choose the highest ordinal remaining pod
+5. persist `status.nodeOperation` for hibernation
+6. request `DISCONNECTING` and wait for `DISCONNECTED`
+7. request `OFFLOADING` and wait for `OFFLOADED`
+8. reduce `StatefulSet.spec.replicas` by one
+9. repeat until pods are fully gone
+10. set `Hibernated=True`
 
 Restore behavior is:
 
@@ -178,8 +186,7 @@ If `status.hibernation.lastRunningReplicas` is absent, the current implementatio
 Current implementation notes:
 
 - hibernation and restore reuse the same documented per-pod health gate that managed rollouts use
-- the controller persists enough state to resume from `spec.desiredState`, `status.hibernation.lastRunningReplicas`, and the `Hibernated` condition
-- offload or disconnect sequencing before scale-down is intentionally deferred to a later slice
+- the controller persists enough state to resume from `spec.desiredState`, `status.hibernation.lastRunningReplicas`, `status.nodeOperation`, and the `Hibernated` condition
 
 ## Conditions And State Transitions
 

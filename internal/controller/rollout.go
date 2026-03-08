@@ -99,6 +99,25 @@ func (p RolloutPlan) NextPodToDelete() *corev1.Pod {
 	return &next
 }
 
+func highestOrdinalPod(pods []corev1.Pod) (corev1.Pod, bool) {
+	if len(pods) == 0 {
+		return corev1.Pod{}, false
+	}
+
+	ordered := append([]corev1.Pod(nil), pods...)
+	sortPodsByOrdinal(ordered)
+	return ordered[len(ordered)-1], true
+}
+
+func podsPendingTermination(pods []corev1.Pod) bool {
+	for i := range pods {
+		if pods[i].DeletionTimestamp != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func rolloutStatusDrift(sts *appsv1.StatefulSet) bool {
 	expected := derefInt32(sts.Spec.Replicas)
 	if sts.Status.CurrentRevision != sts.Status.UpdateRevision {

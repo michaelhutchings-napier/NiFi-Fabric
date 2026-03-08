@@ -66,6 +66,71 @@ func TestHTTPClientGetClusterSummary(t *testing.T) {
 	}
 }
 
+func TestHTTPClientNodeOperations(t *testing.T) {
+	caCertPEM, serverTLS := newTestTLSConfig(t)
+
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/nifi-api/access/token":
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte("token-123"))
+		case "/nifi-api/controller/cluster":
+			if got := r.Header.Get("Authorization"); got != "Bearer token-123" {
+				t.Fatalf("unexpected authorization header %q", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"cluster":{"nodes":[{"nodeId":"node-1","address":"nifi-0.nifi-headless.nifi.svc.cluster.local","apiPort":8443,"status":"CONNECTED"}]}}`))
+		case "/nifi-api/controller/cluster/nodes/node-1":
+			if got := r.Header.Get("Authorization"); got != "Bearer token-123" {
+				t.Fatalf("unexpected authorization header %q", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if r.Method == http.MethodPut {
+				_, _ = w.Write([]byte(`{"node":{"nodeId":"node-1","address":"nifi-0.nifi-headless.nifi.svc.cluster.local","apiPort":8443,"status":"OFFLOADING"}}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"node":{"nodeId":"node-1","address":"nifi-0.nifi-headless.nifi.svc.cluster.local","apiPort":8443,"status":"DISCONNECTED"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	server.TLS = serverTLS
+	server.StartTLS()
+	defer server.Close()
+
+	client := NewHTTPClient()
+	req := APIRequest{
+		BaseURL:   server.URL,
+		Username:  "admin",
+		Password:  "secret",
+		CACertPEM: caCertPEM,
+	}
+
+	nodes, err := client.GetNodes(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetNodes returned error: %v", err)
+	}
+	if len(nodes) != 1 || nodes[0].NodeID != "node-1" || nodes[0].Status != NodeStatusConnected {
+		t.Fatalf("unexpected cluster nodes: %+v", nodes)
+	}
+
+	node, err := client.GetNode(context.Background(), req, "node-1")
+	if err != nil {
+		t.Fatalf("GetNode returned error: %v", err)
+	}
+	if node.Status != NodeStatusDisconnected {
+		t.Fatalf("expected disconnected node status, got %+v", node)
+	}
+
+	updatedNode, err := client.UpdateNodeStatus(context.Background(), req, "node-1", NodeStatusOffloading)
+	if err != nil {
+		t.Fatalf("UpdateNodeStatus returned error: %v", err)
+	}
+	if updatedNode.Status != NodeStatusOffloading {
+		t.Fatalf("expected offloading node status, got %+v", updatedNode)
+	}
+}
+
 func newTestTLSConfig(t *testing.T) ([]byte, *tls.Config) {
 	t.Helper()
 

@@ -173,6 +173,26 @@ spec:
                   lastRunningReplicas:
                     format: int32
                     type: integer
+              nodeOperation:
+                type: object
+                properties:
+                  purpose:
+                    type: string
+                    enum:
+                    - Restart
+                    - Hibernation
+                  podName:
+                    type: string
+                  nodeId:
+                    type: string
+                  stage:
+                    type: string
+                    enum:
+                    - Disconnecting
+                    - Offloading
+                  startedAt:
+                    format: date-time
+                    type: string
               lastOperation:
                 type: object
                 properties:

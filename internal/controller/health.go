@@ -232,6 +232,10 @@ func (c *LiveClusterHealthChecker) checkOnce(ctx context.Context, sts *appsv1.St
 }
 
 func (c *LiveClusterHealthChecker) resolveAuthConfig(ctx context.Context, sts *appsv1.StatefulSet) (authConfig, error) {
+	return resolveAuthConfig(ctx, c.KubeClient, sts)
+}
+
+func resolveAuthConfig(ctx context.Context, kubeClient client.Client, sts *appsv1.StatefulSet) (authConfig, error) {
 	container, err := findContainer(sts.Spec.Template.Spec.Containers, nifiContainerName)
 	if err != nil {
 		return authConfig{}, err
@@ -247,13 +251,13 @@ func (c *LiveClusterHealthChecker) resolveAuthConfig(ctx context.Context, sts *a
 	}
 
 	usernameSecret := &corev1.Secret{}
-	if err := c.KubeClient.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: usernameRef.Name}, usernameSecret); err != nil {
+	if err := kubeClient.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: usernameRef.Name}, usernameSecret); err != nil {
 		return authConfig{}, fmt.Errorf("get username secret %q: %w", usernameRef.Name, err)
 	}
 	passwordSecret := usernameSecret
 	if usernameRef.Name != passwordRef.Name {
 		passwordSecret = &corev1.Secret{}
-		if err := c.KubeClient.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: passwordRef.Name}, passwordSecret); err != nil {
+		if err := kubeClient.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: passwordRef.Name}, passwordSecret); err != nil {
 			return authConfig{}, fmt.Errorf("get password secret %q: %w", passwordRef.Name, err)
 		}
 	}
@@ -268,13 +272,17 @@ func (c *LiveClusterHealthChecker) resolveAuthConfig(ctx context.Context, sts *a
 }
 
 func (c *LiveClusterHealthChecker) resolveCACert(ctx context.Context, sts *appsv1.StatefulSet) ([]byte, error) {
+	return resolveCACert(ctx, c.KubeClient, sts)
+}
+
+func resolveCACert(ctx context.Context, kubeClient client.Client, sts *appsv1.StatefulSet) ([]byte, error) {
 	secretName, err := findTLSSecretName(sts.Spec.Template.Spec.Volumes)
 	if err != nil {
 		return nil, err
 	}
 
 	secret := &corev1.Secret{}
-	if err := c.KubeClient.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: secretName}, secret); err != nil {
+	if err := kubeClient.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: secretName}, secret); err != nil {
 		return nil, fmt.Errorf("get TLS secret %q: %w", secretName, err)
 	}
 

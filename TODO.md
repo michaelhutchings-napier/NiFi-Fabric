@@ -17,10 +17,9 @@ Completed in the scaffold:
 
 ## Next Steps
 
-1. Add offload or disconnect sequencing before pod deletion or managed scale-down.
-2. Replace the hand-written CRD and deepcopy scaffolding with generated artifacts once controller-tools are introduced.
-3. Replace the local-development TLS Secret workflow with an optional cert-manager-backed chart path once the secret contract is stable.
-4. Expand CI to include envtest assets and kind-based smoke coverage.
+1. Replace the hand-written CRD and deepcopy scaffolding with generated artifacts once controller-tools are introduced.
+2. Replace the local-development TLS Secret workflow with an optional cert-manager-backed chart path once the secret contract is stable.
+3. Expand CI to include envtest assets and kind-based smoke coverage.
 
 ## Current Managed Rollout Behavior
 
@@ -29,6 +28,7 @@ Current controller-owned mutations in managed mode:
 - update `NiFiCluster.status`
 - delete pods to advance a managed `OnDelete` rollout
 - update `StatefulSet.spec.replicas` for hibernation and restore only
+- call the NiFi API to disconnect and offload the node that is about to be deleted or scaled away
 
 Current rollout algorithm:
 
@@ -40,13 +40,13 @@ Current rollout algorithm:
 6. wait for all target pods to become `Ready`
 7. wait for the documented per-pod NiFi health gate to pass for multiple consecutive polls
 8. choose the highest remaining ordinal in the current revision set
-9. delete that pod
-10. wait for replacement readiness and full cluster convergence
-11. continue until the target revision or watched target hash is fully rolled out
+9. persist `status.nodeOperation` and ask NiFi to disconnect and offload that node
+10. delete that pod only after NiFi reports the node as safe to remove
+11. wait for replacement readiness and full cluster convergence
+12. continue until the target revision or watched target hash is fully rolled out
 
 What is still intentionally deferred:
 
-- NiFi offload or disconnect sequencing
 - controller metrics and events beyond the minimal runtime defaults
 - richer restore target memory than `status.hibernation.lastRunningReplicas` with a `1` replica fallback
 
@@ -84,16 +84,17 @@ Current hibernation algorithm:
 
 1. `spec.desiredState=Hibernated` captures `status.hibernation.lastRunningReplicas` if it is still empty.
 2. If `spec.safety.requireClusterHealthy=true`, the controller waits for the documented per-pod health gate before scaling down.
-3. The controller patches `StatefulSet.spec.replicas=0`.
-4. The controller waits until the pods are fully gone.
-5. The controller sets `ConditionHibernated=True` and keeps PVCs intact.
-6. `spec.desiredState=Running` restores `StatefulSet.spec.replicas` from `status.hibernation.lastRunningReplicas`.
-7. If that field is absent, the controller restores to `1` replica.
-8. Restore success is blocked until pod readiness and the stable per-pod NiFi convergence gate return.
+3. The controller chooses the highest ordinal remaining pod.
+4. The controller persists `status.nodeOperation` and asks NiFi to disconnect that node.
+5. Once NiFi reports `DISCONNECTED`, the controller asks NiFi to offload that node.
+6. Once NiFi reports `OFFLOADED`, the controller reduces `StatefulSet.spec.replicas` by one.
+7. The controller repeats the sequence until the cluster reaches zero replicas, then sets `ConditionHibernated=True`.
+8. `spec.desiredState=Running` restores `StatefulSet.spec.replicas` from `status.hibernation.lastRunningReplicas`.
+9. If that field is absent, the controller restores to `1` replica.
+10. Restore success is blocked until pod readiness and the stable per-pod NiFi convergence gate return.
 
 ## Why This Order
 
 - The rollout coordinator is now the core reusable primitive for upgrades, config drift, cert drift, and hibernation restore gating.
 - Config and cert drift should layer onto the existing restart path instead of introducing parallel orchestration logic.
-- Offload or disconnect sequencing is the next real safety improvement because it applies to both restart and hibernation paths.
 - Generated API artifacts should replace hand-maintained scaffolding before the status schema grows further.

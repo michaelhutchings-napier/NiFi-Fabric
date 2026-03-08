@@ -38,6 +38,14 @@ func (r *NiFiClusterReconciler) reconcileHibernation(ctx context.Context, cluste
 			cluster.Status.Hibernation.LastRunningReplicas = currentReplicas
 		}
 
+		clearNodeOperationIfPodMissing(cluster, pods)
+
+		if podsPendingTermination(pods) || int32(len(pods)) != currentReplicas {
+			cluster.Status.LastOperation = runningOperation("Hibernation", fmt.Sprintf("Waiting for the previous hibernation scale-down step to settle before removing the next node; current pods: %s", podNames(pods)))
+			r.setHibernationProgressConditions(cluster, "WaitingForScaleDown", fmt.Sprintf("Waiting for the previous hibernation scale-down step to settle before removing the next node; current pods: %s", podNames(pods)))
+			return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
+		}
+
 		if cluster.Spec.Safety.RequireClusterHealthy {
 			if err := r.HealthChecker.WaitForPodsReady(ctx, target, podReadyTimeout(cluster)); err != nil {
 				r.markHibernationHealthBlocked(cluster, fmt.Sprintf("Waiting for target pods to become Ready before scaling to zero: %v", err))
@@ -52,14 +60,31 @@ func (r *NiFiClusterReconciler) reconcileHibernation(ctx context.Context, cluste
 			}
 		}
 
-		if err := r.patchTargetReplicas(ctx, target, 0); err != nil {
-			r.markHibernationFailure(cluster, fmt.Sprintf("Scale target StatefulSet %q to zero failed: %v", target.Name, err))
-			return ctrl.Result{}, fmt.Errorf("scale StatefulSet %s/%s to zero: %w", target.Namespace, target.Name, err)
+		targetPod, ok := highestOrdinalPod(pods)
+		if !ok {
+			cluster.Status.LastOperation = runningOperation("Hibernation", "Waiting for the highest ordinal pod to appear before hibernation can continue")
+			r.setHibernationProgressConditions(cluster, "WaitingForScaleDown", "Waiting for the highest ordinal pod to appear before hibernation can continue")
+			return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 		}
 
-		cluster.Status.Replicas.Desired = 0
-		cluster.Status.LastOperation = runningOperation("Hibernation", fmt.Sprintf("Scaled StatefulSet %q to 0 replicas; waiting for pods to terminate", target.Name))
-		r.setHibernationProgressConditions(cluster, "ScalingDown", "Managed hibernation scaled the target StatefulSet to 0 replicas and is waiting for the remaining pods to terminate")
+		prepared, result, err := r.preparePodForHibernation(ctx, cluster, target, pods, targetPod)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if !prepared {
+			return result, nil
+		}
+
+		nextReplicas := currentReplicas - 1
+		if err := r.patchTargetReplicas(ctx, target, nextReplicas); err != nil {
+			r.markHibernationFailure(cluster, fmt.Sprintf("Scale target StatefulSet %q to %d replicas failed: %v", target.Name, nextReplicas, err))
+			return ctrl.Result{}, fmt.Errorf("scale StatefulSet %s/%s to %d replicas: %w", target.Namespace, target.Name, nextReplicas, err)
+		}
+
+		cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
+		cluster.Status.Replicas.Desired = nextReplicas
+		cluster.Status.LastOperation = runningOperation("Hibernation", fmt.Sprintf("Scaled StatefulSet %q down to %d replicas after preparing pod %s for hibernation", target.Name, nextReplicas, targetPod.Name))
+		r.setHibernationProgressConditions(cluster, "ScalingDown", fmt.Sprintf("Prepared pod %s for hibernation and reduced StatefulSet replicas to %d", targetPod.Name, nextReplicas))
 		return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 	}
 
@@ -72,6 +97,7 @@ func (r *NiFiClusterReconciler) reconcileHibernation(ctx context.Context, cluste
 	cluster.Status.Replicas = platformv1alpha1.ReplicaStatus{}
 	cluster.Status.ClusterNodes = platformv1alpha1.ClusterNodesStatus{}
 	cluster.Status.Rollout = platformv1alpha1.RolloutStatus{}
+	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
 	clearTLSObservation(cluster)
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionAvailable,
@@ -165,6 +191,7 @@ func (r *NiFiClusterReconciler) reconcileRestore(ctx context.Context, cluster *p
 		Message:            "Hibernation is not active",
 		LastTransitionTime: metav1.Now(),
 	})
+	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
 	cluster.Status.LastOperation = succeededOperation("Hibernation", fmt.Sprintf("Restored cluster from hibernation to %d replicas and regained stable health", restoreReplicas))
 	return ctrl.Result{}, nil
 }
@@ -180,7 +207,7 @@ func (r *NiFiClusterReconciler) setHibernationProgressConditions(cluster *platfo
 		Type:               platformv1alpha1.ConditionAvailable,
 		Status:             metav1.ConditionFalse,
 		Reason:             "Hibernating",
-		Message:            "Cluster is intentionally scaling down to zero replicas",
+		Message:            "Cluster is intentionally scaling down one ordinal at a time toward zero replicas",
 		LastTransitionTime: metav1.Now(),
 	})
 	cluster.SetCondition(metav1.Condition{

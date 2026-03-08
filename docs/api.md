@@ -61,6 +61,12 @@ status:
     offloaded: 0
   hibernation:
     lastRunningReplicas: 3
+  nodeOperation:
+    purpose: Restart
+    podName: nifi-2
+    nodeId: 7f9d2f38-f07d-4c95-8d84-0ef5872667e4
+    stage: Offloading
+    startedAt: "2026-03-08T10:18:00Z"
   lastOperation:
     type: Rollout
     phase: Succeeded
@@ -122,6 +128,7 @@ Default for MVP:
 | `status.clusterNodes.disconnected` | integer | NiFi nodes disconnected from the cluster |
 | `status.clusterNodes.offloaded` | integer | NiFi nodes explicitly offloaded |
 | `status.hibernation.lastRunningReplicas` | integer | last non-zero running size used for restore |
+| `status.nodeOperation` | struct | persisted NiFi disconnect or offload step for restart or hibernation |
 | `status.lastOperation` | struct | current or last lifecycle action summary |
 | `status.conditions[]` | `metav1.Condition`-style list | machine-readable health and progress conditions |
 
@@ -258,6 +265,10 @@ The current implementation uses one explicit fallback when that field is absent:
 - restore to `1` replica
 
 That fallback is intentionally simple. It is only there to recover cleanly from older status or manual state, not to replace explicit prior replica tracking.
+
+### Why `status.nodeOperation` Exists
+
+Disconnect and offload are live NiFi operations, not template drift. The controller needs one durable place to remember which pod and NiFi node it is currently preparing so a restart does not skip the safety step or repeat the wrong destructive action.
 
 ### Why Rollout And Safety Knobs Are Small And Typed
 

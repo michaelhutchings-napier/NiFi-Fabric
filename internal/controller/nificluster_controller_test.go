@@ -698,8 +698,8 @@ func TestReconcileHibernatesManagedClusterAndCapturesLastRunningReplicas(t *test
 	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), updatedStatefulSet); err != nil {
 		t.Fatalf("get updated statefulset: %v", err)
 	}
-	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != 0 {
-		t.Fatalf("expected target replicas to scale to 0, got %d", got)
+	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != 2 {
+		t.Fatalf("expected target replicas to scale down by one step to 2, got %d", got)
 	}
 
 	updatedCluster := &platformv1alpha1.NiFiCluster{}
@@ -927,6 +927,258 @@ func TestReconcileRestoreWaitsForStableHealthBeforeSuccess(t *testing.T) {
 	}
 }
 
+func TestReconcileWaitsForNiFiPreparationBeforeDeletingRolloutPod(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Status.ObservedStatefulSetRevision = "nifi-old"
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-old", "nifi-new")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-old"),
+		readyPod("nifi-1", "nifi", "nifi-old"),
+		readyPod("nifi-2", "nifi", "nifi-old"),
+	}
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		podReadyResponses: []error{nil, nil},
+		healthResponses:   []healthResponse{{result: healthyResult(3)}, {result: healthyResult(3)}},
+	}, cluster, statefulSet, &pods[0], &pods[1], &pods[2])
+	nodeManager := &fakeNodeManager{
+		responses: []nodePreparationResponse{
+			{
+				result: NodePreparationResult{
+					Message: "Requested NiFi disconnect for node node-2",
+					Operation: platformv1alpha1.NodeOperationStatus{
+						Purpose: platformv1alpha1.NodeOperationPurposeRestart,
+						PodName: "nifi-2",
+						NodeID:  "node-2",
+						Stage:   platformv1alpha1.NodeOperationStageDisconnecting,
+						StartedAt: func() *metav1.Time {
+							now := metav1.Now()
+							return &now
+						}(),
+					},
+				},
+			},
+			{result: NodePreparationResult{Ready: true, Message: "NiFi node node-2 is OFFLOADED and ready for restart"}},
+		},
+	}
+	reconciler.NodeManager = nodeManager
+
+	firstResult, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("first reconcile returned error: %v", err)
+	}
+	if firstResult.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected requeue while preparing node, got %s", firstResult.RequeueAfter)
+	}
+	for _, podName := range []string{"nifi-0", "nifi-1", "nifi-2"} {
+		pod := &corev1.Pod{}
+		if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: podName}, pod); err != nil {
+			t.Fatalf("expected pod %s to remain present while NiFi preparation is in progress: %v", podName, err)
+		}
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster after first reconcile: %v", err)
+	}
+	if updatedCluster.Status.NodeOperation.PodName != "nifi-2" {
+		t.Fatalf("expected node operation to persist target pod, got %+v", updatedCluster.Status.NodeOperation)
+	}
+	progressing := updatedCluster.GetCondition(platformv1alpha1.ConditionProgressing)
+	if progressing == nil || progressing.Reason != "PreparingNodeForRestart" {
+		t.Fatalf("expected PreparingNodeForRestart reason, got %#v", progressing)
+	}
+
+	secondResult, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("second reconcile returned error: %v", err)
+	}
+	if secondResult.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected requeue after deleting prepared pod, got %s", secondResult.RequeueAfter)
+	}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: "nifi-2"}, &corev1.Pod{}); err == nil {
+		t.Fatalf("expected nifi-2 to be deleted only after NiFi preparation completed")
+	}
+}
+
+func TestReconcileHibernationScalesDownHighestOrdinalOneStepAtATime(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.DesiredState = platformv1alpha1.DesiredStateHibernated
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+		readyPod("nifi-2", "nifi", "nifi-rev"),
+	}
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		podReadyResponses: []error{nil, nil},
+		healthResponses:   []healthResponse{{result: healthyResult(3)}, {result: healthyResult(2)}},
+	}, cluster, statefulSet, &pods[0], &pods[1], &pods[2])
+	nodeManager := &fakeNodeManager{
+		responses: []nodePreparationResponse{
+			{result: NodePreparationResult{Ready: true, Message: "NiFi node node-2 is OFFLOADED and ready for hibernation"}},
+			{result: NodePreparationResult{Ready: true, Message: "NiFi node node-1 is OFFLOADED and ready for hibernation"}},
+		},
+	}
+	reconciler.NodeManager = nodeManager
+
+	firstResult, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("first reconcile returned error: %v", err)
+	}
+	if firstResult.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected requeue after first hibernation step, got %s", firstResult.RequeueAfter)
+	}
+	if len(nodeManager.pods) != 1 || nodeManager.pods[0] != "nifi-2" {
+		t.Fatalf("expected first hibernation target to be highest ordinal pod nifi-2, got %v", nodeManager.pods)
+	}
+
+	updatedStatefulSet := &appsv1.StatefulSet{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), updatedStatefulSet); err != nil {
+		t.Fatalf("get updated statefulset after first hibernation step: %v", err)
+	}
+	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != 2 {
+		t.Fatalf("expected hibernation to reduce replicas to 2 after first step, got %d", got)
+	}
+
+	if err := k8sClient.Delete(ctx, &pods[2]); err != nil {
+		t.Fatalf("delete highest ordinal pod to simulate settled scale-down: %v", err)
+	}
+	updatedStatefulSet.Spec.Replicas = int32ptr(2)
+	updatedStatefulSet.Status.CurrentReplicas = 2
+	updatedStatefulSet.Status.ReadyReplicas = 2
+	updatedStatefulSet.Status.UpdatedReplicas = 2
+	if err := k8sClient.Update(ctx, updatedStatefulSet); err != nil {
+		t.Fatalf("update statefulset spec after first scale-down: %v", err)
+	}
+	if err := k8sClient.Status().Update(ctx, updatedStatefulSet); err != nil {
+		t.Fatalf("update statefulset status after first scale-down: %v", err)
+	}
+
+	secondResult, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("second reconcile returned error: %v", err)
+	}
+	if secondResult.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected requeue after second hibernation step, got %s", secondResult.RequeueAfter)
+	}
+	if len(nodeManager.pods) != 2 || nodeManager.pods[1] != "nifi-1" {
+		t.Fatalf("expected second hibernation target to be next highest ordinal pod nifi-1, got %v", nodeManager.pods)
+	}
+}
+
+func TestReconcileBlocksRolloutWhenNodePreparationTimesOut(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Status.ObservedStatefulSetRevision = "nifi-old"
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-old", "nifi-new")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-old"),
+		readyPod("nifi-1", "nifi", "nifi-old"),
+		readyPod("nifi-2", "nifi", "nifi-old"),
+	}
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		podReadyResponses: []error{nil},
+		healthResponses:   []healthResponse{{result: healthyResult(3)}},
+	}, cluster, statefulSet, &pods[0], &pods[1], &pods[2])
+	startedAt := metav1.NewTime(time.Now().Add(-10 * time.Minute).UTC())
+	reconciler.NodeManager = &fakeNodeManager{
+		responses: []nodePreparationResponse{{
+			result: NodePreparationResult{
+				TimedOut: true,
+				Message:  "Waiting for NiFi node node-2 to reach OFFLOADED before proceeding",
+				Operation: platformv1alpha1.NodeOperationStatus{
+					Purpose:   platformv1alpha1.NodeOperationPurposeRestart,
+					PodName:   "nifi-2",
+					NodeID:    "node-2",
+					Stage:     platformv1alpha1.NodeOperationStageOffloading,
+					StartedAt: &startedAt,
+				},
+			},
+		}},
+	}
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected requeue while node preparation is timed out, got %s", result.RequeueAfter)
+	}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: "nifi-2"}, &corev1.Pod{}); err != nil {
+		t.Fatalf("expected pod to remain present when node preparation timed out: %v", err)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.NodeOperation.Stage != platformv1alpha1.NodeOperationStageOffloading {
+		t.Fatalf("expected node operation stage to remain persisted, got %+v", updatedCluster.Status.NodeOperation)
+	}
+	degraded := updatedCluster.GetCondition(platformv1alpha1.ConditionDegraded)
+	if degraded == nil || degraded.Reason != "NodePreparationTimedOut" || degraded.Status != metav1.ConditionTrue {
+		t.Fatalf("expected degraded timeout condition, got %#v", degraded)
+	}
+}
+
+func TestReconcileResumesRolloutAfterControllerRestartDuringNodePreparation(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Status.ObservedStatefulSetRevision = "nifi-old"
+	startedAt := metav1.NewTime(time.Now().Add(-2 * time.Minute).UTC())
+	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{
+		Purpose:   platformv1alpha1.NodeOperationPurposeRestart,
+		PodName:   "nifi-2",
+		NodeID:    "node-2",
+		Stage:     platformv1alpha1.NodeOperationStageOffloading,
+		StartedAt: &startedAt,
+	}
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-old", "nifi-new")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-old"),
+		readyPod("nifi-1", "nifi", "nifi-old"),
+		readyPod("nifi-2", "nifi", "nifi-old"),
+	}
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		podReadyResponses: []error{nil},
+		healthResponses:   []healthResponse{{result: healthyResult(3)}},
+	}, cluster, statefulSet, &pods[0], &pods[1], &pods[2])
+	nodeManager := &fakeNodeManager{
+		responses: []nodePreparationResponse{
+			{result: NodePreparationResult{Ready: true, Message: "NiFi node node-2 is OFFLOADED and ready for restart"}},
+		},
+	}
+	reconciler.NodeManager = nodeManager
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected requeue after deleting resumed pod, got %s", result.RequeueAfter)
+	}
+	if len(nodeManager.currentStates) != 1 || nodeManager.currentStates[0].Stage != platformv1alpha1.NodeOperationStageOffloading {
+		t.Fatalf("expected persisted node operation to be passed back to node manager, got %v", nodeManager.currentStates)
+	}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: "nifi-2"}, &corev1.Pod{}); err == nil {
+		t.Fatalf("expected nifi-2 to be deleted after resumed node preparation")
+	}
+}
+
 func newTestReconciler(t *testing.T, healthChecker ClusterHealthChecker, objects ...client.Object) (*NiFiClusterReconciler, client.Client) {
 	t.Helper()
 
@@ -948,6 +1200,7 @@ func newTestReconciler(t *testing.T, healthChecker ClusterHealthChecker, objects
 		Client:        k8sClient,
 		Scheme:        scheme,
 		HealthChecker: healthChecker,
+		NodeManager:   &fakeNodeManager{readyImmediately: true},
 	}, k8sClient
 }
 
@@ -1184,5 +1437,40 @@ func (f *fakeHealthChecker) CheckClusterHealth(_ context.Context, _ *platformv1a
 		index = len(f.checkResponses) - 1
 	}
 	response := f.checkResponses[index]
+	return response.result, response.err
+}
+
+type nodePreparationResponse struct {
+	result NodePreparationResult
+	err    error
+}
+
+type fakeNodeManager struct {
+	readyImmediately bool
+	responses        []nodePreparationResponse
+	calls            int
+	pods             []string
+	purposes         []platformv1alpha1.NodeOperationPurpose
+	currentStates    []platformv1alpha1.NodeOperationStatus
+}
+
+func (f *fakeNodeManager) PreparePodForOperation(_ context.Context, _ *platformv1alpha1.NiFiCluster, _ *appsv1.StatefulSet, _ []corev1.Pod, pod corev1.Pod, purpose platformv1alpha1.NodeOperationPurpose, current platformv1alpha1.NodeOperationStatus, _ time.Duration) (NodePreparationResult, error) {
+	f.calls++
+	f.pods = append(f.pods, pod.Name)
+	f.purposes = append(f.purposes, purpose)
+	f.currentStates = append(f.currentStates, current)
+
+	if len(f.responses) == 0 {
+		if f.readyImmediately {
+			return NodePreparationResult{Ready: true, Message: "node prepared"}, nil
+		}
+		return NodePreparationResult{}, nil
+	}
+
+	index := f.calls - 1
+	if index >= len(f.responses) {
+		index = len(f.responses) - 1
+	}
+	response := f.responses[index]
 	return response.result, response.err
 }

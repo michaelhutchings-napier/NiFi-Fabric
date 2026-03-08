@@ -75,6 +75,7 @@ The controller owns:
 - computing aggregate hashes for watched Secrets and ConfigMaps
 - setting and updating `NiFiCluster.status`
 - coordinating health-gated rolling restarts
+- coordinating NiFi disconnect and offload sequencing before managed pod deletion or scale-down
 - coordinating hibernation and restore from hibernation
 - enforcing rollout safety checks
 - recording events and exposing controller metrics
@@ -90,7 +91,7 @@ NiFi native behavior owns:
 - cluster join and rejoin behavior
 - TLS autoreload capability
 
-Future controller slices may call the NiFi API to request offload or disconnect actions, but the semantics of cluster membership and node state remain NiFi behavior.
+The controller may call the NiFi API to request offload or disconnect actions, but the semantics of cluster membership and node state remain NiFi behavior.
 
 ## Controller-Owned Mutations In Managed Mode
 
@@ -99,7 +100,7 @@ Managed mode is explicit. When `controllerManaged.enabled=true` in the chart and
 - writes to `NiFiCluster.status`
 - pod deletions used to advance a controlled `OnDelete` rollout
 - updates to `StatefulSet.spec.replicas` for hibernation and unhibernate only
-- future NiFi API calls that request node offload and disconnect before restart or scale-down
+- NiFi API calls that request node offload and disconnect before restart or scale-down
 
 Everything else remains Helm-owned or NiFi-owned.
 
@@ -123,7 +124,7 @@ For GitOps users, the important implication is narrow and documented:
 2. Helm or GitOps updates the desired pod template.
 3. The controller detects template or watched-resource drift.
 4. The controller waits for cluster health gates.
-5. The controller deletes one pod and waits for the new pod to become Ready and rejoin before continuing.
+5. The controller disconnects and offloads the target NiFi node, then deletes one pod and waits for the new pod to become Ready and rejoin before continuing.
 
 ### Cert Rotation
 
@@ -157,7 +158,7 @@ For GitOps users, the important implication is narrow and documented:
 
 Current implementation note:
 
-- per-pod offload or disconnect sequencing before restart or scale-down is intentionally deferred; the hibernation slice uses direct scale-to-zero and health-gated restore
+- the current hibernation slice reduces replicas one ordinal at a time after NiFi reports the target node as offloaded
 
 ## Why This Is Not NiFiKop
 

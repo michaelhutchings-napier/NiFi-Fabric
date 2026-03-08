@@ -31,6 +31,7 @@ type NiFiClusterReconciler struct {
 	client.Client
 	Scheme        *runtime.Scheme
 	HealthChecker ClusterHealthChecker
+	NodeManager   NodeManager
 }
 
 func (r *NiFiClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -43,6 +44,12 @@ func (r *NiFiClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if r.HealthChecker == nil {
 		r.HealthChecker = &LiveClusterHealthChecker{
+			KubeClient: r.Client,
+			NiFiClient: nifi.NewHTTPClient(),
+		}
+	}
+	if r.NodeManager == nil {
+		r.NodeManager = &LiveNodeManager{
 			KubeClient: r.Client,
 			NiFiClient: nifi.NewHTTPClient(),
 		}
@@ -174,6 +181,14 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 		return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 	}
 
+	prepared, result, err := r.preparePodForRestart(ctx, cluster, target, pods, *nextPod)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !prepared {
+		return result, nil
+	}
+
 	if err := r.Delete(ctx, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
 		Namespace: nextPod.Namespace,
 		Name:      nextPod.Name,
@@ -183,6 +198,7 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 	}
 
 	cluster.Status.LastOperation = runningOperation("Rollout", deletedOperationMessage(nextPod.Name, plan))
+	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionProgressing,
 		Status:             metav1.ConditionTrue,
@@ -248,6 +264,7 @@ func (r *NiFiClusterReconciler) finishSteadyState(ctx context.Context, cluster *
 	})
 	cluster.Status.LastOperation = succeededOperation(lastOperationTypeForSteadyState(cluster), lastOperationMessageForSteadyState(cluster, target, drift))
 	cluster.Status.Rollout = platformv1alpha1.RolloutStatus{}
+	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
 	clearTLSObservation(cluster)
 
 	return ctrl.Result{}, nil
@@ -256,6 +273,12 @@ func (r *NiFiClusterReconciler) finishSteadyState(ctx context.Context, cluster *
 func (r *NiFiClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.HealthChecker == nil {
 		r.HealthChecker = &LiveClusterHealthChecker{
+			KubeClient: mgr.GetClient(),
+			NiFiClient: nifi.NewHTTPClient(),
+		}
+	}
+	if r.NodeManager == nil {
+		r.NodeManager = &LiveNodeManager{
 			KubeClient: mgr.GetClient(),
 			NiFiClient: nifi.NewHTTPClient(),
 		}
@@ -364,6 +387,7 @@ func reconcileRequestForCluster(cluster platformv1alpha1.NiFiCluster) reconcile.
 }
 
 func (r *NiFiClusterReconciler) markSuspended(cluster *platformv1alpha1.NiFiCluster) {
+	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionTargetResolved,
 		Status:             metav1.ConditionUnknown,
@@ -407,6 +431,7 @@ func (r *NiFiClusterReconciler) markSuspended(cluster *platformv1alpha1.NiFiClus
 }
 
 func (r *NiFiClusterReconciler) markTargetMissing(cluster *platformv1alpha1.NiFiCluster, targetName string) {
+	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionTargetResolved,
 		Status:             metav1.ConditionFalse,
@@ -447,6 +472,7 @@ func (r *NiFiClusterReconciler) markTargetMissing(cluster *platformv1alpha1.NiFi
 
 func (r *NiFiClusterReconciler) markUnmanagedTarget(cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet) {
 	cluster.Status.ObservedStatefulSetRevision = target.Status.UpdateRevision
+	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionTargetResolved,
 		Status:             metav1.ConditionTrue,
@@ -486,6 +512,7 @@ func (r *NiFiClusterReconciler) markUnmanagedTarget(cluster *platformv1alpha1.Ni
 }
 
 func (r *NiFiClusterReconciler) markUnsupportedDesiredState(cluster *platformv1alpha1.NiFiCluster) {
+	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionTargetResolved,
 		Status:             metav1.ConditionTrue,

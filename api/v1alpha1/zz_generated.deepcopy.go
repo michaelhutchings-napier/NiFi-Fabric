@@ -68,6 +68,23 @@ func (in *LastOperation) DeepCopy() *LastOperation {
 	return out
 }
 
+func (in *NodeOperationStatus) DeepCopyInto(out *NodeOperationStatus) {
+	*out = *in
+	if in.StartedAt != nil {
+		in, out := &in.StartedAt, &out.StartedAt
+		*out = (*in).DeepCopy()
+	}
+}
+
+func (in *NodeOperationStatus) DeepCopy() *NodeOperationStatus {
+	if in == nil {
+		return nil
+	}
+	out := new(NodeOperationStatus)
+	in.DeepCopyInto(out)
+	return out
+}
+
 func (in *NiFiCluster) DeepCopyInto(out *NiFiCluster) {
 	*out = *in
 	out.TypeMeta = in.TypeMeta
@@ -147,6 +164,7 @@ func (in *NiFiClusterStatus) DeepCopyInto(out *NiFiClusterStatus) {
 	out.Replicas = in.Replicas
 	out.ClusterNodes = in.ClusterNodes
 	out.Hibernation = in.Hibernation
+	in.NodeOperation.DeepCopyInto(&out.NodeOperation)
 	in.LastOperation.DeepCopyInto(&out.LastOperation)
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions

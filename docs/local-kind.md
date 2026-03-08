@@ -280,10 +280,11 @@ The current managed slice does exactly this:
 3. detect watched TLS drift and decide whether to observe autoreload or require rollout
 4. wait for all target pods to be `Ready`
 5. wait for the documented per-pod NiFi health gate to pass for multiple consecutive polls
-6. delete the highest remaining ordinal in the current revision set
-7. wait for the replacement pod to become `Ready`
-8. wait for the full cluster to converge again
-9. repeat until all ordinals have been replaced
+6. prepare the highest remaining ordinal through NiFi `DISCONNECTING -> DISCONNECTED -> OFFLOADING -> OFFLOADED`
+7. delete the highest remaining ordinal in the current revision set
+8. wait for the replacement pod to become `Ready`
+9. wait for the full cluster to converge again
+10. repeat until all ordinals have been replaced
 
 On one clean kind run, the observed delete order was:
 
@@ -296,6 +297,7 @@ Implementation notes from that run:
 - the pod replacement sequence was correct and reproducible
 - StatefulSet `currentRevision` lagged briefly after the pods had already converged
 - the controller now treats the rollout as complete once all pods are on the target revision and the health gate is satisfied, even if that status field lags for a short period
+- `status.nodeOperation` is populated while the controller waits for NiFi to prepare the target node
 
 ## Expected Secrets
 
@@ -328,15 +330,16 @@ The auth Secret contains:
 - Managed mode currently coordinates template, revision, and watched non-TLS config drift rollouts through the same `OnDelete` path.
 - Stable TLS content drift observes autoreload first and can reconcile without restart.
 - Material TLS configuration changes and restart-required TLS policy decisions use the same managed `OnDelete` path.
-- Managed hibernation is implemented as a direct scale-to-zero and restore flow.
-- Offload or disconnect sequencing before restart or scale-down is still intentionally deferred.
+- Managed rollout and hibernation now use NiFi disconnect and offload sequencing before pod deletion or replica reduction.
 
 ## Managed Hibernation And Restore Verification
 
 The current hibernation slice is intentionally small:
 
 - it captures `status.hibernation.lastRunningReplicas` before the first scale-down below the running size
-- it scales the target `StatefulSet` directly to `0`
+- it prepares the highest ordinal node through NiFi `DISCONNECTING -> DISCONNECTED -> OFFLOADING -> OFFLOADED`
+- it reduces the target `StatefulSet` by one replica after that node is prepared
+- it repeats until the cluster reaches zero replicas
 - it does not delete PVCs
 - it restores back to `status.hibernation.lastRunningReplicas`
 - if that status field is absent, it falls back to `1` replica
@@ -354,7 +357,8 @@ kubectl -n nifi get pods
 Expected behavior:
 
 - `status.hibernation.lastRunningReplicas` captures the pre-hibernation running size
-- the target `StatefulSet.spec.replicas` becomes `0`
+- `status.nodeOperation` is populated while NiFi prepares the next highest ordinal node
+- the target `StatefulSet.spec.replicas` decreases one step at a time
 - PVCs remain present
 - `ConditionHibernated=True` appears only after pods are fully gone
 

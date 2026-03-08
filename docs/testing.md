@@ -35,6 +35,9 @@ Current unit coverage in the scaffold includes:
 - fallback restore to `1` replica when no prior running size was recorded
 - safe resume while hibernation is already waiting for pods to terminate
 - restore remaining `Progressing=True` until stable health returns
+- rollout waits for NiFi disconnect and offload before deleting the target pod
+- hibernation removes the highest ordinal node only after NiFi disconnect and offload complete
+- node-preparation timeout keeps `status.nodeOperation` persisted and blocks destructive progress
 - NiFi access-token and cluster-summary request handling
 
 ## controller-runtime `envtest`

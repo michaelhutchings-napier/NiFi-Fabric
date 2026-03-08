@@ -152,14 +152,15 @@ What is runnable now:
 - the chart mounts persistent repositories, config, Services, and probes suitable for a kind-focused local workflow
 - the repo includes a repeatable health-check flow that separates pod readiness, secured API reachability, and actual cluster convergence
 - the optional controller can coordinate managed `OnDelete` rollouts one pod at a time for StatefulSet template drift, revision drift, explicitly watched non-TLS config drift, and TLS drift that policy marks restart-required
-- the optional controller can hibernate a managed cluster by capturing the last running replica count, scaling the target StatefulSet to zero, and restoring back to the recorded size
+- the optional controller now coordinates NiFi disconnect and offload before managed pod deletion or replica reduction
+- the optional controller can hibernate a managed cluster by capturing the last running replica count, stepping replicas down highest ordinal first, and restoring back to the recorded size
 - the repo includes a minimal in-cluster controller deployment path for local kind verification
 
 What is still intentionally stubbed:
 
-- offload or disconnect sequencing before pod deletion
 - production-grade TLS automation beyond documented Secret expectations
 - production-hardening of chart defaults, auth choices, and storage layouts
+- richer restore target memory than `status.hibernation.lastRunningReplicas` plus the current `1` replica fallback
 
 Implementation note for this slice:
 
@@ -224,7 +225,9 @@ Managed watched-drift behavior:
 
 Managed hibernation behavior:
 
-- `spec.desiredState=Hibernated` captures `status.hibernation.lastRunningReplicas` and then scales the target StatefulSet directly to `0`
+- managed restart and hibernation now persist `status.nodeOperation` while NiFi prepares the target node for removal
+- the controller asks NiFi to disconnect the target node, waits for `DISCONNECTED`, then asks NiFi to offload it and waits for `OFFLOADED`
+- `spec.desiredState=Hibernated` captures `status.hibernation.lastRunningReplicas` and then steps the target StatefulSet down one replica at a time, highest ordinal first
 - PVCs are preserved because the controller only changes `StatefulSet.spec.replicas`
 - `spec.desiredState=Running` restores the prior size from `status.hibernation.lastRunningReplicas`
 - if `status.hibernation.lastRunningReplicas` is absent, the controller falls back to `1` replica
@@ -262,7 +265,8 @@ Expected results:
 - `make kind-config-drift` should trigger a one-pod-at-a-time managed rollout and then settle back to a healthy cluster
 - `make kind-tls-drift` should enter a TLS autoreload observation window and, if health stays good, reconcile without pod deletion
 - `make kind-tls-config-drift` should trigger a one-pod-at-a-time managed TLS rollout because the TLS mount path changed
-- `make kind-hibernate` should scale the managed StatefulSet to `0` while preserving PVCs and setting `Hibernated=True`
+- managed rollout should show `PreparingNodeForRestart` before the controller deletes the next pod
+- `make kind-hibernate` should step the managed StatefulSet toward `0` one ordinal at a time while preserving PVCs and setting `Hibernated=True` only at completion
 - `make kind-restore` should restore the prior replica count from status and wait for the same per-pod health gate before reporting success
 
 ## Standalone Health Gate
