@@ -1,24 +1,32 @@
 # TODO
 
-## Prioritized Backlog
+## Current State
 
-1. Write and review the design pack.
-2. Scaffold the standalone Helm chart for NiFi 2.x.
-3. Add managed-mode chart switches for `OnDelete`, controller integration, and documented GitOps ownership boundaries.
-4. Define the `NiFiCluster` CRD, samples, and condition model.
-5. Implement target resolution and status-only reconciliation.
-6. Implement health-gated `OnDelete` rollout orchestration.
-7. Implement watched Secret and ConfigMap hash detection.
-8. Implement policy-driven cert rotation handling.
-9. Implement hibernation and restore tracking with `status.hibernation.lastRunningReplicas`.
-10. Add unit, Helm, `envtest`, and kind coverage.
-11. Add AKS validation guidance.
-12. Add OpenShift-friendly notes and validation guidance.
+Completed in the scaffold:
+
+1. Design pack and ADRs.
+2. Go controller-runtime project skeleton.
+3. `NiFiCluster` API types, CRD YAML, samples, and status helpers.
+4. Status-only controller that resolves the target `StatefulSet`.
+5. Minimal standalone Helm chart and managed-mode chart switch.
+6. Example manifests, Makefile targets, kind config, and CI skeleton.
+
+## Next Steps
+
+1. Watch target `StatefulSet` and Pod changes instead of only reconciling on `NiFiCluster` events.
+2. Replace the hand-written CRD and deepcopy scaffolding with generated artifacts once controller-tools are introduced.
+3. Expand the Helm chart from a renderable scaffold into a working NiFi 2 deployment with finalized TLS and repository wiring.
+4. Implement explicit condition transitions for rollout, cert drift, and hibernation progress.
+5. Add the first real reconciliation loop for health-gated `OnDelete` rollout sequencing.
+6. Add watched Secret and ConfigMap hash aggregation and status persistence.
+7. Introduce a real NiFi API client and the offload or disconnect orchestration seam.
+8. Implement policy-driven TLS drift handling and hibernation restore tracking.
+9. Add controller deployment manifests and an image build workflow once the reconciler does real work.
+10. Expand CI to include envtest assets and kind-based smoke coverage.
 
 ## Why This Order
 
-- The chart must exist before the controller can safely target a real workload shape.
-- The CRD and status model must exist before lifecycle orchestration can be tested.
-- Restart orchestration comes before hibernation because it is the simpler reusable primitive.
-- Hibernation depends on the same safety checks and NiFi API sequencing as restart logic.
-- Platform validation should follow after the core behavior is stable and testable.
+- The controller needs a real watch model before more lifecycle logic can be trusted.
+- Generated API artifacts should replace hand-maintained scaffolding before the schema grows.
+- Rollout orchestration is the core reusable primitive for both upgrades and hibernation.
+- TLS and hibernation logic should land only after restart sequencing is stable and test-covered.

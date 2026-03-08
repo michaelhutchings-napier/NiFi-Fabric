@@ -143,6 +143,24 @@ After the design pack, the repository should grow into:
 9. Add `envtest`, Helm, and kind coverage.
 10. Validate AKS first and document OpenShift-specific adjustments.
 
+## Scaffold Status
+
+The initial scaffold is intentionally incomplete and honest about it:
+
+- the controller is status-only and resolves the target `StatefulSet`
+- advanced rollout, cert drift, and hibernation orchestration are not implemented yet
+- the Helm chart renders the expected Kubernetes shapes, but its NiFi runtime configuration is still intentionally minimal
+
+Useful local commands:
+
+- `make fmt`
+- `make test`
+- `make helm-lint`
+- `make kind-up`
+- `make helm-install-standalone`
+- `make helm-install-managed`
+- `make run`
+
 ## References
 
 - Apache NiFi Administration Guide: https://nifi.apache.org/documentation/nifi-latest/html/administration-guide.html

@@ -1,0 +1,15 @@
+replicaCount: 1
+
+image:
+  repository: apache/nifi
+  tag: "2.0.0"
+
+controllerManaged:
+  enabled: false
+
+tls:
+  existingSecret: nifi-tls
+
+serviceMonitor:
+  enabled: false
+

@@ -1,0 +1,192 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: nificlusters.platform.nifi.io
+spec:
+  group: platform.nifi.io
+  names:
+    kind: NiFiCluster
+    listKind: NiFiClusterList
+    plural: nificlusters
+    singular: nificluster
+    shortNames:
+    - nifi
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    subresources:
+      status: {}
+    additionalPrinterColumns:
+    - jsonPath: .spec.desiredState
+      name: State
+      type: string
+    - jsonPath: .status.replicas.ready
+      name: Ready
+      type: integer
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            type: object
+            required:
+            - desiredState
+            - targetRef
+            properties:
+              desiredState:
+                type: string
+                enum:
+                - Running
+                - Hibernated
+              suspend:
+                type: boolean
+              targetRef:
+                type: object
+                required:
+                - name
+                properties:
+                  name:
+                    type: string
+              restartTriggers:
+                type: object
+                properties:
+                  configMaps:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                  secrets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+              restartPolicy:
+                type: object
+                properties:
+                  tlsDrift:
+                    type: string
+                    enum:
+                    - AutoreloadThenRestartOnFailure
+                    - AlwaysRestart
+                    - ObserveOnly
+              rollout:
+                type: object
+                properties:
+                  minReadySeconds:
+                    format: int32
+                    type: integer
+                  podReadyTimeout:
+                    type: string
+                  clusterHealthTimeout:
+                    type: string
+              hibernation:
+                type: object
+                properties:
+                  offloadTimeout:
+                    type: string
+              safety:
+                type: object
+                properties:
+                  requireClusterHealthy:
+                    type: boolean
+          status:
+            type: object
+            properties:
+              observedGeneration:
+                format: int64
+                type: integer
+              observedStatefulSetRevision:
+                type: string
+              observedConfigHash:
+                type: string
+              observedCertificateHash:
+                type: string
+              replicas:
+                type: object
+                properties:
+                  desired:
+                    format: int32
+                    type: integer
+                  ready:
+                    format: int32
+                    type: integer
+                  updated:
+                    format: int32
+                    type: integer
+              clusterNodes:
+                type: object
+                properties:
+                  connected:
+                    format: int32
+                    type: integer
+                  disconnected:
+                    format: int32
+                    type: integer
+                  offloaded:
+                    format: int32
+                    type: integer
+              hibernation:
+                type: object
+                properties:
+                  lastRunningReplicas:
+                    format: int32
+                    type: integer
+              lastOperation:
+                type: object
+                properties:
+                  type:
+                    type: string
+                  phase:
+                    type: string
+                    enum:
+                    - Pending
+                    - Running
+                    - Succeeded
+                    - Failed
+                  startedAt:
+                    format: date-time
+                    type: string
+                  completedAt:
+                    format: date-time
+                    type: string
+                  message:
+                    type: string
+              conditions:
+                type: array
+                items:
+                  x-kubernetes-map-type: atomic
+                  type: object
+                  required:
+                  - type
+                  - status
+                  - reason
+                  - message
+                  - lastTransitionTime
+                  properties:
+                    type:
+                      type: string
+                    status:
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      type: integer
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    reason:
+                      type: string
+                    message:
+                      type: string
+

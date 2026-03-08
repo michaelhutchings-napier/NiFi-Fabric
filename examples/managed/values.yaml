@@ -1,0 +1,11 @@
+replicaCount: 3
+
+controllerManaged:
+  enabled: true
+
+tls:
+  existingSecret: nifi-tls
+
+serviceMonitor:
+  enabled: true
+

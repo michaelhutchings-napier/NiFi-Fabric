@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "nifi.fullname" . }}
+  labels:
+    {{- include "nifi.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "nifi.fullname" . }}-headless
+  replicas: {{ .Values.replicaCount }}
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: {{ ternary "OnDelete" "RollingUpdate" .Values.controllerManaged.enabled }}
+  selector:
+    matchLabels:
+      {{- include "nifi.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nifi.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "nifi.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: nifi
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
+        ports:
+        - name: https
+          containerPort: {{ .Values.ports.https }}
+        - name: cluster
+          containerPort: {{ .Values.ports.cluster }}
+        readinessProbe:
+          tcpSocket:
+            port: https
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: https
+          initialDelaySeconds: 60
+          periodSeconds: 20
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        volumeMounts:
+        - name: config
+          mountPath: /opt/nifi/nifi-current/conf/nifi.properties
+          subPath: nifi.properties
+        - name: data
+          mountPath: /opt/nifi/nifi-current/data
+        {{- if .Values.tls.existingSecret }}
+        - name: tls
+          mountPath: {{ .Values.tls.mountPath }}
+          readOnly: true
+        {{- end }}
+      volumes:
+      - name: config
+        configMap:
+          name: {{ include "nifi.fullname" . }}-config
+      {{- if .Values.tls.existingSecret }}
+      - name: tls
+        secret:
+          secretName: {{ .Values.tls.existingSecret }}
+      {{- end }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+      labels:
+        {{- include "nifi.labels" . | nindent 8 }}
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: {{ .Values.persistence.size }}
+      {{- if .Values.persistence.storageClassName }}
+      storageClassName: {{ .Values.persistence.storageClassName }}
+      {{- end }}
+

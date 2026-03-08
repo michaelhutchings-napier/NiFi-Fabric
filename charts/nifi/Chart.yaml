@@ -1,0 +1,7 @@
+apiVersion: v2
+name: nifi
+description: Minimal standalone NiFi 2.x chart scaffold for nifi2-platform
+type: application
+version: 0.1.0
+appVersion: "2.0.0"
+
