@@ -63,6 +63,41 @@ Failure handling is explicit:
 - requeue immediately after a pod deletion until the replacement pod reaches the expected state
 - do not start a new rollout while health gates fail
 
+## Cluster Health Gate
+
+The controller should use the same convergence gate that the standalone verification flow uses.
+
+Kubernetes signals:
+
+- target `StatefulSet.spec.replicas` matches the expected running size
+- every target pod reports `Ready=True`
+
+NiFi signals:
+
+- each pod can mint a local token against its own HTTPS endpoint
+- each pod's own `flow/cluster/summary` reports:
+  - `clustered=true`
+  - `connectedToCluster=true`
+  - `connectedNodeCount == expected replicas`
+  - `totalNodeCount == expected replicas`
+
+Stability rule:
+
+- the NiFi convergence result must hold for multiple consecutive polls before the controller advances restart, upgrade, or hibernation work
+
+Important constraints:
+
+- do not use the ClusterIP Service as the authoritative convergence view because it hides which node answered
+- do not assume a token minted on one node is reusable against another node
+- `Ready=True` alone is not sufficient for destructive orchestration
+
+Observation window behavior:
+
+- a fresh cluster can reach `Ready=True` before NiFi reports full membership
+- each pod's secured API can become reachable before `Ready=True`
+- during that gap, the controller should requeue and keep `Progressing=True`
+- if pods are ready and the secured API is reachable but `flow/cluster/summary` is still lagging, treat that only as a fallback diagnostic signal
+
 ## Safe Restart Orchestration
 
 Managed restart behavior is:

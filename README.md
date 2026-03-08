@@ -150,6 +150,7 @@ What is runnable now:
 - the standalone Helm chart can render and deploy a minimal real NiFi 2 cluster on kind
 - the chart wires Kubernetes leader election and ConfigMap-backed cluster state settings through explicit NiFi configuration rather than hidden controller behavior
 - the chart mounts persistent repositories, config, Services, and probes suitable for a kind-focused local workflow
+- the repo includes a repeatable health-check flow that separates pod readiness, secured API reachability, and actual cluster convergence
 - the controller remains status-only and optional
 
 What is still intentionally stubbed:
@@ -171,9 +172,48 @@ The short version is:
 1. `make kind-up`
 2. `make kind-secrets`
 3. `make helm-install-standalone`
-4. `kubectl -n nifi rollout status statefulset/nifi --timeout=20m`
-5. `kubectl -n nifi get pods`
-6. `kubectl -n nifi exec nifi-0 -c nifi -- sh -ec 'TOKEN=$(curl --silent --show-error --fail --cacert /opt/nifi/tls/ca.crt -H "Content-Type: application/x-www-form-urlencoded; charset=UTF-8" --data-urlencode "username=admin" --data-urlencode "password=ChangeMeChangeMe1!" https://nifi-0.nifi-headless.nifi.svc.cluster.local:8443/nifi-api/access/token) && curl --silent --show-error --fail --cacert /opt/nifi/tls/ca.crt -H "Authorization: Bearer ${TOKEN}" https://nifi-0.nifi-headless.nifi.svc.cluster.local:8443/nifi-api/flow/cluster/summary'`
+4. `make kind-health`
+
+`make kind-health` is the authoritative local verification flow for this repository. It reports three distinct stages:
+
+- Kubernetes pod readiness
+- secured NiFi API reachability on every pod
+- NiFi cluster convergence from every pod's local `flow/cluster/summary` view
+
+The script exits successfully only after the convergence signal stays healthy for three consecutive polls. On a fresh 3-node kind install with the current standalone example, one measured run reached:
+
+- all pods `Ready` at about `+116s`
+- secured API reachability on all pods at about `+116s`
+- full NiFi convergence at about `+134s`
+- three consecutive healthy convergence polls at about `+160s`
+
+Treat those numbers as an observed baseline, not a hard SLA.
+
+## Standalone Health Gate
+
+The future controller should reuse the same health gate that the standalone verification flow uses today.
+
+Authoritative signal:
+
+- the target `StatefulSet` has the expected number of `Ready` pods
+- each pod can mint a local token against its own HTTPS endpoint
+- each pod's own `https://<pod>.<headless-service>.<namespace>.svc.cluster.local:8443/nifi-api/flow/cluster/summary` reports:
+  - `clustered=true`
+  - `connectedToCluster=true`
+  - `connectedNodeCount == expected replicas`
+  - `totalNodeCount == expected replicas`
+- the cluster summary condition holds across three consecutive polls
+
+Important constraints:
+
+- do not use the ClusterIP Service as the authoritative convergence check because it hides which pod view you are reading
+- do not assume a token minted on one pod is reusable on another pod
+- do not treat `Ready=True` alone as cluster convergence
+
+Fallback diagnostic signal:
+
+- if all pods are `Ready` and each pod's secured API is reachable but the cluster summary is still lagging, report that as `startup in progress`
+- future managed rollout logic should requeue on that condition rather than advancing a restart or hibernation step
 
 The kind helper stores `ca.crt` in the TLS Secret and also creates a PKCS12 truststore, using local `keytool` when available or a disposable `apache/nifi:2.0.0` container when it is not.
 
@@ -185,6 +225,7 @@ Useful local commands:
 - `make kind-up`
 - `make kind-secrets`
 - `make helm-install-standalone`
+- `make kind-health`
 - `make helm-install-managed`
 - `make run`
 
