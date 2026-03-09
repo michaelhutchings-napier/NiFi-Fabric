@@ -1117,12 +1117,16 @@ func (r *NiFiClusterReconciler) markTLSObservationDegraded(cluster *platformv1al
 }
 
 func (r *NiFiClusterReconciler) listTargetPods(ctx context.Context, target *appsv1.StatefulSet) ([]corev1.Pod, error) {
+	return listTargetPodsWithReader(ctx, r.Client, target)
+}
+
+func listTargetPodsWithReader(ctx context.Context, reader client.Reader, target *appsv1.StatefulSet) ([]corev1.Pod, error) {
 	if target.Spec.Selector == nil {
 		return nil, fmt.Errorf("target StatefulSet %q does not define a selector", target.Name)
 	}
 
 	podList := &corev1.PodList{}
-	if err := r.List(ctx, podList,
+	if err := reader.List(ctx, podList,
 		client.InNamespace(target.Namespace),
 		client.MatchingLabels(target.Spec.Selector.MatchLabels),
 	); err != nil {

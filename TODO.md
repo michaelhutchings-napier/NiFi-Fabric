@@ -18,7 +18,7 @@ Completed in the scaffold:
 ## Next Steps
 
 1. Finish the managed `OnDelete` alpha hardening work so `make kind-alpha-e2e` passes on a fresh kind cluster.
-2. Fix the remaining repeated-ordinal rollout bug after the first healthy replacement during managed revision rollout.
+2. Fix the remaining restart-required TLS config-drift progression bug so `make kind-alpha-e2e` can complete past the TLS rollout phases and reach the already-fixed hibernation/restore path.
 3. Replace the hand-written CRD and deepcopy scaffolding with generated artifacts once controller-tools are introduced.
 4. Replace the local-development TLS Secret workflow with an optional cert-manager-backed chart path once the secret contract is stable.
 5. Expand CI to include envtest assets and kind-based smoke coverage.
@@ -54,8 +54,9 @@ What is still intentionally deferred:
 
 Current alpha blocker:
 
-- `make kind-alpha-e2e` is now the single private-alpha workflow, but managed revision rollout still re-targets an already replaced ordinal after the first healthy replacement
-- the blocker is in rollout progression hardening, not in the standalone chart or the per-pod health gate itself
+- managed revision rollout, ConfigDrift rollout, and the hibernation settle state machine are no longer the first blockers
+- the current fresh-kind blocker is the restart-required TLS drift path, which can stall in `PreparingNodeForRestart` while the target node is already disconnected and the controller has not yet advanced the final TLS rollout step
+- because that failure happens before hibernation in the full alpha workflow, `make kind-alpha-e2e` is still not fully green even though the hibernation progression tests are now green
 
 Current watched-drift assumptions:
 
@@ -95,10 +96,11 @@ Current hibernation algorithm:
 4. The controller persists `status.nodeOperation` and asks NiFi to disconnect that node.
 5. Once NiFi reports `DISCONNECTED`, the controller asks NiFi to offload that node.
 6. Once NiFi reports `OFFLOADED`, the controller reduces `StatefulSet.spec.replicas` by one.
-7. The controller repeats the sequence until the cluster reaches zero replicas, then sets `ConditionHibernated=True`.
-8. `spec.desiredState=Running` restores `StatefulSet.spec.replicas` from `status.hibernation.lastRunningReplicas`.
-9. If that field is absent, the controller restores to `1` replica.
-10. Restore success is blocked until pod readiness and the stable per-pod NiFi convergence gate return.
+7. After each scale-down, the controller treats the new `StatefulSet.spec.replicas` value as the next intermediate target, waits for live pods and health to settle against that new count, clears completed `status.nodeOperation`, and then selects the next highest ordinal from live state.
+8. The controller repeats the sequence until the cluster reaches zero replicas, then sets `ConditionHibernated=True`.
+9. `spec.desiredState=Running` restores `StatefulSet.spec.replicas` from `status.hibernation.lastRunningReplicas`.
+10. If that field is absent, the controller restores to `1` replica.
+11. Restore success is blocked until pod readiness and the stable per-pod NiFi convergence gate return.
 
 ## Why This Order
 

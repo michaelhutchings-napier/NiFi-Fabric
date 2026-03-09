@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	platformv1alpha1 "github.com/michaelhutchings-napier/nifi-made-simple/api/v1alpha1"
+	"github.com/michaelhutchings-napier/nifi-made-simple/internal/nifi"
 )
 
 func TestBuildRolloutPlanSelectsHighestOrdinalOutdatedPod(t *testing.T) {
@@ -1026,6 +1028,106 @@ func TestReconcileResumesTLSRolloutAfterRestart(t *testing.T) {
 	}
 }
 
+func TestReconcileResumesFinalOrdinalTLSRolloutWhenConflictRefreshReportsNotConnected(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.RestartTriggers.Secrets = []corev1.LocalObjectReference{{Name: "nifi-tls"}}
+	startedAt := metav1.NewTime(time.Now().Add(-5 * time.Minute).UTC())
+	cluster.Status.ObservedCertificateHash = "old-certificate-hash"
+	cluster.Status.ObservedTLSConfigurationHash = "old-tls-config-hash"
+	cluster.Status.Rollout = platformv1alpha1.RolloutStatus{
+		Trigger:                    platformv1alpha1.RolloutTriggerTLSDrift,
+		StartedAt:                  &startedAt,
+		TargetCertificateHash:      "new-certificate-hash",
+		TargetTLSConfigurationHash: "new-tls-config-hash",
+		CompletedPods:              []string{"nifi-2", "nifi-1"},
+	}
+	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{
+		Purpose:   platformv1alpha1.NodeOperationPurposeRestart,
+		PodName:   "nifi-0",
+		PodUID:    string(types.UID("nifi-0-uid")),
+		NodeID:    "node-0",
+		Stage:     platformv1alpha1.NodeOperationStageOffloading,
+		StartedAt: &startedAt,
+	}
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	statefulSet.Spec.Template.Spec.Containers[0].Env = []corev1.EnvVar{
+		{
+			Name: "SINGLE_USER_CREDENTIALS_USERNAME",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "nifi-auth"},
+					Key:                  "username",
+				},
+			},
+		},
+		{
+			Name: "SINGLE_USER_CREDENTIALS_PASSWORD",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "nifi-auth"},
+					Key:                  "password",
+				},
+			},
+		},
+	}
+
+	tlsSecret := watchedSecret("nifi-tls", corev1.SecretTypeOpaque, map[string][]byte{
+		"tls.p12":             []byte("keystore"),
+		"truststore.p12":      []byte("truststore"),
+		"ca.crt":              []byte("ca"),
+		"keystorePassword":    []byte("changeit"),
+		"truststorePassword":  []byte("changeit"),
+		"sensitivePropsKey":   []byte("sensitive"),
+	})
+	authSecret := watchedSecret("nifi-auth", corev1.SecretTypeOpaque, map[string][]byte{
+		"username": []byte("admin"),
+		"password": []byte("ChangeMeChangeMe1!"),
+	})
+	pods := []corev1.Pod{
+		readyPodAt("nifi-0", "nifi", "nifi-rev", startedAt.Time.Add(-2*time.Minute)),
+		readyPodAt("nifi-1", "nifi", "nifi-rev", startedAt.Time.Add(2*time.Minute)),
+		readyPodAt("nifi-2", "nifi", "nifi-rev", startedAt.Time.Add(3*time.Minute)),
+	}
+
+	healthChecker := &fakeHealthChecker{
+		podReadyResponses: []error{fmt.Errorf("global health gate should not run while TLS node preparation is resuming")},
+		healthResponses:   []healthResponse{{err: fmt.Errorf("global health gate should not run while TLS node preparation is resuming")}},
+	}
+	reconciler, k8sClient := newTestReconciler(t, healthChecker, cluster, statefulSet, tlsSecret, authSecret, &pods[0], &pods[1], &pods[2])
+	reconciler.NodeManager = &LiveNodeManager{
+		KubeClient: k8sClient,
+		NiFiClient: &fakeNiFiClient{
+			getNodesResponses: [][]nifi.ClusterNode{{
+				{NodeID: "node-0", Address: "nifi-0.nifi-headless.nifi.svc.cluster.local", Status: nifi.NodeStatusDisconnected},
+				{NodeID: "node-1", Address: "nifi-1.nifi-headless.nifi.svc.cluster.local", Status: nifi.NodeStatusConnected},
+				{NodeID: "node-2", Address: "nifi-2.nifi-headless.nifi.svc.cluster.local", Status: nifi.NodeStatusConnected},
+			}},
+			getNodesErrs: []error{
+				nil,
+				&nifi.APIError{StatusCode: 409, Message: "Cannot replicate request to Node nifi-0.nifi-headless.nifi.svc.cluster.local:8443 because the node is not connected"},
+			},
+			updateErr: &nifi.APIError{StatusCode: 409, Message: "node is not connected"},
+		},
+	}
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected requeue after deleting final TLS rollout pod, got %s", result.RequeueAfter)
+	}
+	if healthChecker.podReadyCalls != 0 || healthChecker.healthCalls != 0 {
+		t.Fatalf("expected no global health gate calls while TLS node preparation is resuming, got podReady=%d health=%d", healthChecker.podReadyCalls, healthChecker.healthCalls)
+	}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: "nifi-0"}, &corev1.Pod{}); err == nil {
+		t.Fatalf("expected nifi-0 to be deleted after final TLS node preparation advanced")
+	}
+}
+
 func TestReconcileResumesConfigDriftRolloutAfterRestart(t *testing.T) {
 	ctx := context.Background()
 	cluster := managedCluster()
@@ -1666,14 +1768,55 @@ func TestReconcileHibernationScalesDownHighestOrdinalOneStepAtATime(t *testing.T
 		readyPod("nifi-2", "nifi", "nifi-rev"),
 	}
 
-	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
-		podReadyResponses: []error{nil, nil},
-		healthResponses:   []healthResponse{{result: healthyResult(3)}, {result: healthyResult(2)}},
-	}, cluster, statefulSet, &pods[0], &pods[1], &pods[2])
+	healthChecker := &fakeHealthChecker{
+		podReadyResponses: []error{nil, nil, nil},
+		checkResponses: []healthResponse{
+			{
+				result: ClusterHealthResult{
+					ExpectedReplicas: 3,
+					ReadyPods:        3,
+					ReachablePods:    3,
+					ConvergedPods:    3,
+					Pods: []PodHealth{
+						{PodName: "nifi-0", Ready: true, APIReachable: true, Clustered: true, ConnectedToCluster: true, ConnectedNodeCount: 3, TotalNodeCount: 3},
+						{PodName: "nifi-1", Ready: true, APIReachable: true, Clustered: true, ConnectedToCluster: true, ConnectedNodeCount: 3, TotalNodeCount: 3},
+						{PodName: "nifi-2", Ready: true, APIReachable: true, Clustered: true, ConnectedToCluster: true, ConnectedNodeCount: 3, TotalNodeCount: 3},
+					},
+				},
+			},
+			{
+				result: ClusterHealthResult{
+					ExpectedReplicas: 2,
+					ReadyPods:        2,
+					ReachablePods:    2,
+					ConvergedPods:    0,
+					Pods: []PodHealth{
+						{PodName: "nifi-0", Ready: true, APIReachable: true, Clustered: true, ConnectedToCluster: true, ConnectedNodeCount: 2, TotalNodeCount: 3},
+						{PodName: "nifi-1", Ready: true, APIReachable: true, Clustered: true, ConnectedToCluster: true, ConnectedNodeCount: 2, TotalNodeCount: 3},
+					},
+				},
+				err: errors.New("strict health gate still sees a disconnected former node"),
+			},
+			{
+				result: ClusterHealthResult{
+					ExpectedReplicas: 1,
+					ReadyPods:        1,
+					ReachablePods:    1,
+					ConvergedPods:    0,
+					Pods: []PodHealth{
+						{PodName: "nifi-0", Ready: true, APIReachable: true, Clustered: true, ConnectedToCluster: true, ConnectedNodeCount: 1, TotalNodeCount: 3},
+					},
+				},
+				err: errors.New("strict health gate still sees disconnected former nodes"),
+			},
+		},
+	}
+	reconciler, k8sClient := newTestReconciler(t, healthChecker, cluster, statefulSet, &pods[0], &pods[1], &pods[2])
 	nodeManager := &fakeNodeManager{
 		responses: []nodePreparationResponse{
 			{result: NodePreparationResult{Ready: true, Message: "NiFi node node-2 is OFFLOADED and ready for hibernation"}},
 			{result: NodePreparationResult{Ready: true, Message: "NiFi node node-1 is OFFLOADED and ready for hibernation"}},
+			{result: NodePreparationResult{Ready: true, Message: "NiFi node node-0 is OFFLOADED and ready for hibernation"}},
 		},
 	}
 	reconciler.NodeManager = nodeManager
@@ -1720,6 +1863,65 @@ func TestReconcileHibernationScalesDownHighestOrdinalOneStepAtATime(t *testing.T
 	}
 	if len(nodeManager.pods) != 2 || nodeManager.pods[1] != "nifi-1" {
 		t.Fatalf("expected second hibernation target to be next highest ordinal pod nifi-1, got %v", nodeManager.pods)
+	}
+
+	if err := k8sClient.Delete(ctx, &pods[1]); err != nil {
+		t.Fatalf("delete next highest ordinal pod to simulate settled scale-down: %v", err)
+	}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), updatedStatefulSet); err != nil {
+		t.Fatalf("get updated statefulset before second scale-down settle: %v", err)
+	}
+	updatedStatefulSet.Spec.Replicas = int32ptr(1)
+	updatedStatefulSet.Status.CurrentReplicas = 1
+	updatedStatefulSet.Status.ReadyReplicas = 1
+	updatedStatefulSet.Status.UpdatedReplicas = 1
+	if err := k8sClient.Update(ctx, updatedStatefulSet); err != nil {
+		t.Fatalf("update statefulset spec after second scale-down: %v", err)
+	}
+	if err := k8sClient.Status().Update(ctx, updatedStatefulSet); err != nil {
+		t.Fatalf("update statefulset status after second scale-down: %v", err)
+	}
+
+	thirdResult, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("third reconcile returned error: %v", err)
+	}
+	if thirdResult.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected requeue after third hibernation step, got %s", thirdResult.RequeueAfter)
+	}
+	if len(nodeManager.pods) != 3 || nodeManager.pods[2] != "nifi-0" {
+		t.Fatalf("expected third hibernation target to be final pod nifi-0, got %v", nodeManager.pods)
+	}
+
+	if err := k8sClient.Delete(ctx, &pods[0]); err != nil {
+		t.Fatalf("delete final pod to simulate settled scale-down: %v", err)
+	}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), updatedStatefulSet); err != nil {
+		t.Fatalf("get updated statefulset before final scale-down settle: %v", err)
+	}
+	updatedStatefulSet.Spec.Replicas = int32ptr(0)
+	updatedStatefulSet.Status.CurrentReplicas = 0
+	updatedStatefulSet.Status.ReadyReplicas = 0
+	updatedStatefulSet.Status.UpdatedReplicas = 0
+	if err := k8sClient.Update(ctx, updatedStatefulSet); err != nil {
+		t.Fatalf("update statefulset spec after third scale-down: %v", err)
+	}
+	if err := k8sClient.Status().Update(ctx, updatedStatefulSet); err != nil {
+		t.Fatalf("update statefulset status after third scale-down: %v", err)
+	}
+
+	finalResult, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("final reconcile returned error: %v", err)
+	}
+	if finalResult.RequeueAfter != 0 {
+		t.Fatalf("expected hibernation completion without requeue, got %s", finalResult.RequeueAfter)
+	}
+	if got := healthChecker.checkReplicas; !reflect.DeepEqual(got, []int32{3, 3, 3, 2, 2, 2, 1, 1, 1}) {
+		t.Fatalf("expected hibernation health gate replica targets [3 3 3 2 2 2 1 1 1], got %v", got)
+	}
+	if got := healthChecker.podReadyReplicas; !reflect.DeepEqual(got, []int32{3, 2, 1}) {
+		t.Fatalf("expected pod-ready replica targets [3 2 1], got %v", got)
 	}
 }
 
@@ -2142,6 +2344,22 @@ func healthyResult(expectedReplicas int32) ClusterHealthResult {
 	}
 }
 
+func healthyResultWithPods(stsName string, expectedReplicas int32) ClusterHealthResult {
+	result := healthyResult(expectedReplicas)
+	for ordinal := int32(0); ordinal < expectedReplicas; ordinal++ {
+		result.Pods = append(result.Pods, PodHealth{
+			PodName:            fmt.Sprintf("%s-%d", stsName, ordinal),
+			Ready:              true,
+			APIReachable:       true,
+			Clustered:          true,
+			ConnectedToCluster: true,
+			ConnectedNodeCount: expectedReplicas,
+			TotalNodeCount:     expectedReplicas,
+		})
+	}
+	return result
+}
+
 type healthResponse struct {
 	result ClusterHealthResult
 	err    error
@@ -2154,10 +2372,14 @@ type fakeHealthChecker struct {
 	podReadyCalls     int
 	checkCalls        int
 	healthCalls       int
+	podReadyReplicas  []int32
+	checkReplicas     []int32
+	healthReplicas    []int32
 }
 
-func (f *fakeHealthChecker) WaitForPodsReady(_ context.Context, _ *appsv1.StatefulSet, _ time.Duration) error {
+func (f *fakeHealthChecker) WaitForPodsReady(_ context.Context, sts *appsv1.StatefulSet, _ time.Duration) error {
 	f.podReadyCalls++
+	f.podReadyReplicas = append(f.podReadyReplicas, derefInt32(sts.Spec.Replicas))
 	if len(f.podReadyResponses) == 0 {
 		return nil
 	}
@@ -2168,8 +2390,9 @@ func (f *fakeHealthChecker) WaitForPodsReady(_ context.Context, _ *appsv1.Statef
 	return f.podReadyResponses[index]
 }
 
-func (f *fakeHealthChecker) WaitForClusterHealthy(_ context.Context, _ *platformv1alpha1.NiFiCluster, _ *appsv1.StatefulSet, _ time.Duration) (ClusterHealthResult, error) {
+func (f *fakeHealthChecker) WaitForClusterHealthy(_ context.Context, _ *platformv1alpha1.NiFiCluster, sts *appsv1.StatefulSet, _ time.Duration) (ClusterHealthResult, error) {
 	f.healthCalls++
+	f.healthReplicas = append(f.healthReplicas, derefInt32(sts.Spec.Replicas))
 	if len(f.healthResponses) == 0 {
 		return healthyResult(3), nil
 	}
@@ -2181,10 +2404,11 @@ func (f *fakeHealthChecker) WaitForClusterHealthy(_ context.Context, _ *platform
 	return response.result, response.err
 }
 
-func (f *fakeHealthChecker) CheckClusterHealth(_ context.Context, _ *platformv1alpha1.NiFiCluster, _ *appsv1.StatefulSet) (ClusterHealthResult, error) {
+func (f *fakeHealthChecker) CheckClusterHealth(_ context.Context, _ *platformv1alpha1.NiFiCluster, sts *appsv1.StatefulSet) (ClusterHealthResult, error) {
 	f.checkCalls++
+	f.checkReplicas = append(f.checkReplicas, derefInt32(sts.Spec.Replicas))
 	if len(f.checkResponses) == 0 {
-		return healthyResult(3), nil
+		return healthyResultWithPods(sts.Name, derefInt32(sts.Spec.Replicas)), nil
 	}
 	index := f.checkCalls - 1
 	if index >= len(f.checkResponses) {

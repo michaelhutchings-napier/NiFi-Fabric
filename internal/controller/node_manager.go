@@ -126,6 +126,9 @@ func (m *LiveNodeManager) progressDisconnecting(ctx context.Context, apiRequest 
 			if result, handled, conflictErr := m.nodePreparationConflictResult(ctx, apiRequest, operation, err, timeout); handled {
 				return result, conflictErr
 			}
+			if result, handled, advanceErr := m.nodePreparationAdvanceFromRefresh(ctx, apiRequest, operation, err, timeout); handled {
+				return result, advanceErr
+			}
 			return NodePreparationResult{}, err
 		}
 		return m.observeDisconnectProgress(ctx, apiRequest, operation, timeout)
@@ -149,6 +152,9 @@ func (m *LiveNodeManager) progressOffloading(ctx context.Context, apiRequest nif
 		if _, err := m.NiFiClient.UpdateNodeStatus(ctx, apiRequest, node.NodeID, nifi.NodeStatusOffloading); err != nil {
 			if result, handled, conflictErr := m.nodePreparationConflictResult(ctx, apiRequest, operation, err, timeout); handled {
 				return result, conflictErr
+			}
+			if result, handled, advanceErr := m.nodePreparationAdvanceFromRefresh(ctx, apiRequest, operation, err, timeout); handled {
+				return result, advanceErr
 			}
 			return NodePreparationResult{}, err
 		}
@@ -177,11 +183,15 @@ func (m *LiveNodeManager) nodePreparationConflictResult(ctx context.Context, api
 
 	refreshedNode, refreshErr := m.nodeFromControlPlane(ctx, apiRequest, operation.NodeID, nil)
 	if refreshErr != nil {
-		return NodePreparationResult{
-			RequeueNow: true,
-			Message:    fmt.Sprintf("Retrying NiFi node preparation for node %s after a conflict: %v", operation.NodeID, refreshErr),
-			Operation:  operation,
-		}, true, nil
+		if disconnectedNode, ok := disconnectedNodeFromError(refreshErr, operation.NodeID); ok {
+			refreshedNode = disconnectedNode
+		} else {
+			return NodePreparationResult{
+				RequeueNow: true,
+				Message:    fmt.Sprintf("Retrying NiFi node preparation for node %s after a conflict: %v", operation.NodeID, refreshErr),
+				Operation:  operation,
+			}, true, nil
+		}
 	}
 
 	switch operation.Stage {
@@ -246,6 +256,67 @@ func (m *LiveNodeManager) nodePreparationConflictResult(ctx context.Context, api
 			Operation: operation,
 		}, true, nil
 	}
+}
+
+func (m *LiveNodeManager) nodePreparationAdvanceFromRefresh(ctx context.Context, apiRequest nifi.APIRequest, operation platformv1alpha1.NodeOperationStatus, err error, timeout time.Duration) (NodePreparationResult, bool, error) {
+	if !retryNodePreparationAfterRefresh(err) {
+		return NodePreparationResult{}, false, nil
+	}
+
+	refreshedNode, refreshErr := m.nodeFromControlPlane(ctx, apiRequest, operation.NodeID, nil)
+	if refreshErr != nil {
+		if disconnectedNode, ok := disconnectedNodeFromError(refreshErr, operation.NodeID); ok {
+			refreshedNode = disconnectedNode
+		} else {
+			return NodePreparationResult{
+				RequeueNow: true,
+				Message:    fmt.Sprintf("Retrying NiFi node preparation for node %s after a lifecycle error: %v", operation.NodeID, refreshErr),
+				Operation:  operation,
+			}, true, nil
+		}
+	}
+
+	switch operation.Stage {
+	case platformv1alpha1.NodeOperationStageDisconnecting:
+		if refreshedNode.Status == nifi.NodeStatusDisconnected || refreshedNode.Status == nifi.NodeStatusOffloading || refreshedNode.Status == nifi.NodeStatusOffloaded || refreshedNode.Status == nifi.NodeStatusRemoved {
+			now := metav1Now()
+			operation.Stage = platformv1alpha1.NodeOperationStageOffloading
+			operation.StartedAt = &now
+			result, progressErr := m.progressOffloading(ctx, apiRequest, refreshedNode, operation, timeout)
+			return result, true, progressErr
+		}
+	case platformv1alpha1.NodeOperationStageOffloading:
+		if refreshedNode.Status == nifi.NodeStatusDisconnected || refreshedNode.Status == nifi.NodeStatusOffloaded || refreshedNode.Status == nifi.NodeStatusRemoved {
+			return NodePreparationResult{
+				Ready:   true,
+				Message: fmt.Sprintf("NiFi lifecycle request for node %s returned a retryable error, but refreshed state %s is already sufficient for %s", refreshedNode.NodeID, refreshedNode.Status, strings.ToLower(string(operation.Purpose))),
+			}, true, nil
+		}
+	}
+
+	return NodePreparationResult{
+		RequeueNow: true,
+		Message:    fmt.Sprintf("Retrying NiFi node preparation for node %s after a lifecycle error: %v", operation.NodeID, err),
+		Operation:  operation,
+	}, true, nil
+}
+
+func retryNodePreparationAfterRefresh(err error) bool {
+	var apiErr *nifi.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	if apiErr.StatusCode == http.StatusConflict {
+		return true
+	}
+	if apiErr.StatusCode != http.StatusInternalServerError {
+		return false
+	}
+
+	message := strings.ToLower(apiErr.Message)
+	return strings.Contains(message, "request execution failed") ||
+		strings.Contains(message, "cannot replicate") ||
+		strings.Contains(message, "not connected")
 }
 
 func (m *LiveNodeManager) observeDisconnectProgress(ctx context.Context, apiRequest nifi.APIRequest, operation platformv1alpha1.NodeOperationStatus, timeout time.Duration) (NodePreparationResult, error) {

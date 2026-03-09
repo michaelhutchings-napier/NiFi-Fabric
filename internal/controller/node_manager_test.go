@@ -66,6 +66,40 @@ func TestProgressDisconnectingRefreshesNodeStateAfterConflict(t *testing.T) {
 	}
 }
 
+func TestProgressDisconnectingTreatsReplicationFailureForDisconnectedNodeAsReady(t *testing.T) {
+	manager := &LiveNodeManager{
+		NiFiClient: &fakeNiFiClient{
+			updateErr: &nifi.APIError{
+				StatusCode: 500,
+				Message:    "org.apache.nifi.web.client.api.WebClientServiceException: Request execution failed HTTP Method [PUT] URI [https://nifi-1.nifi-headless.nifi.svc.cluster.local:8443/nifi-api/controller/cluster/nodes/node-1]",
+			},
+			getNodesResponses: [][]nifi.ClusterNode{{
+				{NodeID: "node-1", Status: nifi.NodeStatusDisconnected},
+			}},
+		},
+	}
+	startedAt := metav1Time(time.Now().Add(-time.Minute))
+	operation := platformv1alpha1.NodeOperationStatus{
+		Purpose:   platformv1alpha1.NodeOperationPurposeHibernation,
+		PodName:   "nifi-1",
+		NodeID:    "node-1",
+		Stage:     platformv1alpha1.NodeOperationStageDisconnecting,
+		StartedAt: &startedAt,
+	}
+
+	result, err := manager.progressDisconnecting(context.Background(), nifi.APIRequest{}, nifi.ClusterNode{
+		NodeID:  "node-1",
+		Address: "nifi-1.nifi-headless.nifi.svc.cluster.local",
+		Status:  nifi.NodeStatusConnected,
+	}, operation, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("progressDisconnecting returned error: %v", err)
+	}
+	if !result.Ready {
+		t.Fatalf("expected replication failure with refreshed disconnected state to be treated as ready, got %+v", result)
+	}
+}
+
 func TestProgressDisconnectingRequestsImmediateRequeueAfterDisconnectRequest(t *testing.T) {
 	manager := &LiveNodeManager{
 		NiFiClient: &fakeNiFiClient{
@@ -337,11 +371,75 @@ func TestProgressOffloadingKeepsOperationWhenConflictRefreshFails(t *testing.T) 
 	}
 }
 
+func TestProgressOffloadingTreatsConflictRefreshNotConnectedAsReady(t *testing.T) {
+	manager := &LiveNodeManager{
+		NiFiClient: &fakeNiFiClient{
+			updateErr:   &nifi.APIError{StatusCode: 409, Message: "node is not connected"},
+			getNodesErr: &nifi.APIError{StatusCode: 409, Message: "Cannot replicate request to Node nifi-0.nifi-headless.nifi.svc.cluster.local:8443 because the node is not connected"},
+		},
+	}
+	startedAt := metav1Time(time.Now().Add(-time.Minute))
+	operation := platformv1alpha1.NodeOperationStatus{
+		Purpose:   platformv1alpha1.NodeOperationPurposeRestart,
+		PodName:   "nifi-0",
+		NodeID:    "node-0",
+		Stage:     platformv1alpha1.NodeOperationStageOffloading,
+		StartedAt: &startedAt,
+	}
+
+	result, err := manager.progressOffloading(context.Background(), nifi.APIRequest{}, nifi.ClusterNode{
+		NodeID:  "node-0",
+		Address: "nifi-0.nifi-headless.nifi.svc.cluster.local",
+		Status:  nifi.NodeStatusDisconnected,
+	}, operation, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("progressOffloading returned error: %v", err)
+	}
+	if !result.Ready {
+		t.Fatalf("expected conflict refresh with not-connected response to be treated as ready, got %+v", result)
+	}
+}
+
+func TestProgressOffloadingTreatsReplicationFailureForDisconnectedNodeAsReady(t *testing.T) {
+	manager := &LiveNodeManager{
+		NiFiClient: &fakeNiFiClient{
+			updateErr: &nifi.APIError{
+				StatusCode: 500,
+				Message:    "org.apache.nifi.web.client.api.WebClientServiceException: Request execution failed HTTP Method [PUT] URI [https://nifi-1.nifi-headless.nifi.svc.cluster.local:8443/nifi-api/controller/cluster/nodes/node-1]",
+			},
+			getNodesResponses: [][]nifi.ClusterNode{{
+				{NodeID: "node-1", Status: nifi.NodeStatusDisconnected},
+			}},
+		},
+	}
+	startedAt := metav1Time(time.Now().Add(-time.Minute))
+	operation := platformv1alpha1.NodeOperationStatus{
+		Purpose:   platformv1alpha1.NodeOperationPurposeHibernation,
+		PodName:   "nifi-1",
+		NodeID:    "node-1",
+		Stage:     platformv1alpha1.NodeOperationStageOffloading,
+		StartedAt: &startedAt,
+	}
+
+	result, err := manager.progressOffloading(context.Background(), nifi.APIRequest{}, nifi.ClusterNode{
+		NodeID:  "node-1",
+		Address: "nifi-1.nifi-headless.nifi.svc.cluster.local",
+		Status:  nifi.NodeStatusDisconnected,
+	}, operation, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("progressOffloading returned error: %v", err)
+	}
+	if !result.Ready {
+		t.Fatalf("expected replication failure with refreshed disconnected state to be treated as ready, got %+v", result)
+	}
+}
+
 type fakeNiFiClient struct {
 	getNodesResponses [][]nifi.ClusterNode
 	getNodesCalls     int
 	getNodesBaseURLs  []string
 	getNodesErr       error
+	getNodesErrs      []error
 	getNodeResponses  []nifi.ClusterNode
 	getNodeCalls      int
 	getNodeBaseURLs   []string
@@ -357,6 +455,16 @@ func (f *fakeNiFiClient) GetClusterSummary(context.Context, nifi.ClusterSummaryR
 
 func (f *fakeNiFiClient) GetNodes(_ context.Context, req nifi.APIRequest) ([]nifi.ClusterNode, error) {
 	f.getNodesBaseURLs = append(f.getNodesBaseURLs, req.BaseURL)
+	if len(f.getNodesErrs) > 0 {
+		index := f.getNodesCalls
+		if index >= len(f.getNodesErrs) {
+			index = len(f.getNodesErrs) - 1
+		}
+		if f.getNodesErrs[index] != nil {
+			f.getNodesCalls++
+			return nil, f.getNodesErrs[index]
+		}
+	}
 	if f.getNodesErr != nil {
 		return nil, f.getNodesErr
 	}

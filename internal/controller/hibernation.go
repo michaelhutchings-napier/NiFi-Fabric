@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -31,6 +32,13 @@ func (r *NiFiClusterReconciler) reconcileHibernation(ctx context.Context, cluste
 		r.markHibernationWaitingForRollout(cluster)
 		return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 	}
+
+	liveTarget, livePods, err := r.liveHibernationTargetState(ctx, target)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	target = liveTarget
+	pods = livePods
 
 	currentReplicas := derefInt32(target.Spec.Replicas)
 	if currentReplicas > 0 {
@@ -62,24 +70,12 @@ func (r *NiFiClusterReconciler) reconcileHibernation(ctx context.Context, cluste
 			return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 		}
 
-		if podsPendingTermination(pods) || int32(len(pods)) != currentReplicas {
-			cluster.Status.LastOperation = runningOperation("Hibernation", fmt.Sprintf("Waiting for the previous hibernation scale-down step to settle before removing the next node; current pods: %s", podNames(pods)))
-			r.setHibernationProgressConditions(cluster, "WaitingForScaleDown", fmt.Sprintf("Waiting for the previous hibernation scale-down step to settle before removing the next node; current pods: %s", podNames(pods)))
-			return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
+		settled, result, err := r.waitForHibernationStepToSettle(ctx, cluster, target, pods)
+		if err != nil {
+			return ctrl.Result{}, err
 		}
-
-		if cluster.Spec.Safety.RequireClusterHealthy {
-			if err := r.HealthChecker.WaitForPodsReady(ctx, target, podReadyTimeout(cluster)); err != nil {
-				r.markHibernationHealthBlocked(cluster, fmt.Sprintf("Waiting for target pods to become Ready before scaling to zero: %v", err))
-				return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
-			}
-
-			healthResult, err := r.HealthChecker.WaitForClusterHealthy(ctx, cluster, target, clusterHealthTimeout(cluster))
-			r.applyClusterHealth(cluster, healthResult)
-			if err != nil {
-				r.markHibernationHealthBlocked(cluster, fmt.Sprintf("Cluster health gate blocked hibernation: %v", err))
-				return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
-			}
+		if !settled {
+			return result, nil
 		}
 
 		targetPod, ok := highestOrdinalPod(pods)
@@ -151,6 +147,164 @@ func (r *NiFiClusterReconciler) reconcileHibernation(ctx context.Context, cluste
 	})
 	cluster.Status.LastOperation = succeededOperation("Hibernation", fmt.Sprintf("Cluster is hibernated with PVCs preserved; restore target is %d replicas", restoreReplicaFallback(cluster)))
 	return ctrl.Result{}, nil
+}
+
+func (r *NiFiClusterReconciler) liveHibernationTargetState(ctx context.Context, target *appsv1.StatefulSet) (*appsv1.StatefulSet, []corev1.Pod, error) {
+	reader := r.APIReader
+	if reader == nil {
+		reader = r.Client
+	}
+
+	freshTarget := &appsv1.StatefulSet{}
+	if err := reader.Get(ctx, client.ObjectKeyFromObject(target), freshTarget); err != nil {
+		return nil, nil, fmt.Errorf("refresh StatefulSet %s/%s for hibernation: %w", target.Namespace, target.Name, err)
+	}
+
+	pods, err := listTargetPodsWithReader(ctx, reader, freshTarget)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return freshTarget, pods, nil
+}
+
+func (r *NiFiClusterReconciler) waitForHibernationStepToSettle(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, pods []corev1.Pod) (bool, ctrl.Result, error) {
+	expectedReplicas := derefInt32(target.Spec.Replicas)
+	cluster.Status.Replicas.Desired = expectedReplicas
+
+	if podsPendingTermination(pods) || int32(len(pods)) != expectedReplicas {
+		message := fmt.Sprintf("Waiting for the previous hibernation scale-down step to settle at %d replicas before removing the next node; current pods: %s", expectedReplicas, podNames(pods))
+		cluster.Status.LastOperation = runningOperation("Hibernation", message)
+		r.setHibernationProgressConditions(cluster, "WaitingForScaleDown", message)
+		return false, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
+	}
+
+	if cluster.Spec.Safety.RequireClusterHealthy {
+		if err := r.HealthChecker.WaitForPodsReady(ctx, target, podReadyTimeout(cluster)); err != nil {
+			r.markHibernationHealthBlocked(cluster, fmt.Sprintf("Waiting for %d target pods to become Ready before the next hibernation step: %v", expectedReplicas, err))
+			return false, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
+		}
+
+		healthResult, err := r.waitForHibernationClusterHealthy(ctx, cluster, target, clusterHealthTimeout(cluster))
+		r.applyClusterHealth(cluster, healthResult)
+		if err != nil {
+			r.markHibernationHealthBlocked(cluster, fmt.Sprintf("Cluster health gate blocked hibernation at %d replicas: %v", expectedReplicas, err))
+			return false, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
+		}
+	}
+
+	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
+	return true, ctrl.Result{}, nil
+}
+
+func (r *NiFiClusterReconciler) waitForHibernationClusterHealthy(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, timeout time.Duration) (ClusterHealthResult, error) {
+	if timeout <= 0 {
+		timeout = defaultClusterHealthTimeout
+	}
+
+	deadlineCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	requiredStablePolls := hibernationStablePollCount(r.HealthChecker)
+	pollInterval := hibernationPollInterval(r.HealthChecker, timeout, requiredStablePolls)
+	stablePolls := 0
+	lastResult := ClusterHealthResult{ExpectedReplicas: derefInt32(target.Spec.Replicas)}
+
+	for {
+		result, err := r.HealthChecker.CheckClusterHealth(deadlineCtx, cluster, target)
+		result = normalizeHibernationClusterHealth(result)
+		lastResult = result
+
+		if hibernationClusterHealthy(result) {
+			stablePolls++
+			lastResult.StablePolls = stablePolls
+			if stablePolls >= requiredStablePolls {
+				return lastResult, nil
+			}
+		} else {
+			stablePolls = 0
+			lastResult.StablePolls = 0
+			if err == nil && result.ExpectedReplicas > 0 {
+				err = fmt.Errorf("cluster health gate not yet satisfied: %s", lastResult.Summary())
+			}
+		}
+
+		if deadlineCtx.Err() != nil {
+			return lastResult, fmt.Errorf("timed out waiting for stable hibernation cluster health: %s", lastResult.Summary())
+		}
+		if err := sleepWithContext(deadlineCtx, pollInterval); err != nil {
+			return lastResult, fmt.Errorf("timed out waiting for stable hibernation cluster health: %s", lastResult.Summary())
+		}
+	}
+}
+
+func hibernationStablePollCount(checker ClusterHealthChecker) int {
+	if liveChecker, ok := checker.(*LiveClusterHealthChecker); ok {
+		return liveChecker.requiredStablePolls()
+	}
+	return defaultStableHealthPollCount
+}
+
+func hibernationPollInterval(checker ClusterHealthChecker, timeout time.Duration, stablePolls int) time.Duration {
+	if liveChecker, ok := checker.(*LiveClusterHealthChecker); ok {
+		return liveChecker.pollInterval()
+	}
+	if stablePolls <= 0 {
+		stablePolls = defaultStableHealthPollCount
+	}
+	if timeout <= 0 {
+		return defaultHealthPollInterval
+	}
+
+	interval := timeout / time.Duration(stablePolls+1)
+	if interval <= 0 {
+		return time.Millisecond
+	}
+	if interval > defaultHealthPollInterval {
+		return defaultHealthPollInterval
+	}
+	return interval
+}
+
+func normalizeHibernationClusterHealth(result ClusterHealthResult) ClusterHealthResult {
+	if result.ExpectedReplicas <= 0 {
+		return result
+	}
+
+	converged := int32(0)
+	for _, pod := range result.Pods {
+		if hibernationPodHealthy(result.ExpectedReplicas, pod) {
+			converged++
+		}
+	}
+	result.ConvergedPods = converged
+	return result
+}
+
+func hibernationClusterHealthy(result ClusterHealthResult) bool {
+	if result.ExpectedReplicas <= 0 {
+		return true
+	}
+	if result.ReadyPods != result.ExpectedReplicas || result.ReachablePods != result.ExpectedReplicas || int32(len(result.Pods)) != result.ExpectedReplicas {
+		return false
+	}
+
+	for _, pod := range result.Pods {
+		if !hibernationPodHealthy(result.ExpectedReplicas, pod) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func hibernationPodHealthy(expectedReplicas int32, pod PodHealth) bool {
+	return pod.Ready &&
+		pod.APIReachable &&
+		pod.Clustered &&
+		pod.ConnectedToCluster &&
+		pod.ConnectedNodeCount == expectedReplicas &&
+		pod.TotalNodeCount >= expectedReplicas
 }
 
 func (r *NiFiClusterReconciler) reconcileRestore(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet) (ctrl.Result, error) {

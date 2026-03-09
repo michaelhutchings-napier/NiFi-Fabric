@@ -39,6 +39,16 @@ dump_diagnostics() {
   kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi2-platform-controller-manager --tail=200 || true
 }
 
+dump_tls_restart_diagnostics() {
+  set +e
+  echo
+  echo "==> TLS restart diagnostics at +$(elapsed)s"
+  kubectl -n "${NAMESPACE}" get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,REV:.metadata.labels.controller-revision-hash,UID:.metadata.uid,DEL:.metadata.deletionTimestamp || true
+  kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o jsonpath='{.status.rollout.trigger}{"\n"}{.status.lastOperation.phase}{"\n"}{.status.lastOperation.message}{"\n"}{.status.nodeOperation.podName}{" "}{.status.nodeOperation.stage}{" "}{.status.nodeOperation.nodeID}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}' || true
+  kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 80 || true
+  kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi2-platform-controller-manager --tail=300 || true
+}
+
 fail() {
   echo "FAIL: $*" >&2
   dump_diagnostics
@@ -258,7 +268,10 @@ wait_for "TLS configuration hash to advance" 900 bash -ec '
   current="$(kubectl -n "'"${NAMESPACE}"'" get nificluster "'"${HELM_RELEASE}"'" -o jsonpath="{.status.observedTLSConfigurationHash}")"
   [[ -n "${current}" && "${current}" != "'"${tls_config_hash_before}"'" ]]
 '
-wait_for_rollout_clear || fail "TLS restart-required rollout did not finish"
+if ! wait_for_rollout_clear; then
+  dump_tls_restart_diagnostics
+  fail "TLS restart-required rollout did not finish"
+fi
 run_make kind-health
 assert_all_pods_changed "${tls_restart_uids_before}" "TLS restart-required rollout"
 
