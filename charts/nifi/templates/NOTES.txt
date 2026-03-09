@@ -2,6 +2,7 @@ This chart now deploys a minimal real NiFi 2.x cluster shape for kind and other 
 
 - Standalone mode is the default.
 - Set controllerManaged.enabled=true only when using the optional controller.
-- The chart expects a PKCS12-based TLS Secret and a single-user credentials Secret.
+- `tls.mode=externalSecret` expects an existing PKCS12-based TLS Secret and a single-user credentials Secret.
+- `tls.mode=certManager` makes Helm render a cert-manager `Certificate` and still expects stable PKCS12 password refs plus a sensitive props key source.
 - For kind, use hack/create-kind-secrets.sh before installing the chart.
 - This chart is still not production complete. Advanced controller-driven rollout logic remains stubbed.

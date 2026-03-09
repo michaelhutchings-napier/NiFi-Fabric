@@ -21,6 +21,7 @@ Recommended example files:
 
 - standalone Helm values: [examples/standalone/values.yaml](/home/michael/Work/nifi2-platform/examples/standalone/values.yaml)
 - managed Helm values: [examples/managed/values.yaml](/home/michael/Work/nifi2-platform/examples/managed/values.yaml)
+- optional cert-manager TLS overlay: [examples/cert-manager-values.yaml](/home/michael/Work/nifi2-platform/examples/cert-manager-values.yaml)
 - managed `NiFiCluster`: [examples/managed/nificluster.yaml](/home/michael/Work/nifi2-platform/examples/managed/nificluster.yaml)
 - rollout trigger overlay: [examples/managed/rollout-trigger-values.yaml](/home/michael/Work/nifi2-platform/examples/managed/rollout-trigger-values.yaml)
 - hibernation example: [examples/managed/nificluster-hibernated.yaml](/home/michael/Work/nifi2-platform/examples/managed/nificluster-hibernated.yaml)
@@ -260,8 +261,92 @@ If `ARTIFACT_DIR` is set, those diagnostics are also written to files for CI upl
 ## Known Limitations
 
 - The workflow is a private-alpha confidence gate, not a production certification suite.
-- Local runs still assume pre-created TLS and auth Secrets.
+- The default alpha path still assumes pre-created TLS and auth Secrets.
+- cert-manager installation and renewal are not part of `make kind-alpha-e2e`.
 - `make kind-load-nifi-image` is part of the supported alpha path; if the chart image tag changes, update that helper to match.
+
+## Optional Cert-Manager TLS Mode
+
+The chart now supports:
+
+- `tls.mode=externalSecret`
+  - default
+  - the existing `Secret/nifi-tls` contract stays unchanged
+- `tls.mode=certManager`
+  - Helm renders a cert-manager `Certificate`
+  - cert-manager owns the TLS Secret contents
+  - the controller still owns only TLS drift observation and restart decisions
+
+This is intentionally not part of the automated alpha gate. Use it when cert-manager is already installed and you want the chart to manage `Certificate` resources without changing the controller model.
+
+Manual prerequisites:
+
+- cert-manager already installed
+- an `Issuer` or `ClusterIssuer` that publishes `ca.crt`
+- a stable Secret for the PKCS12 password and `nifi.sensitive.props.key`
+
+Example parameter Secret:
+
+```bash
+kubectl create namespace nifi --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n nifi create secret generic nifi-tls-params \
+  --from-literal=pkcs12Password=ChangeMeChangeMe1! \
+  --from-literal=sensitivePropsKey=changeit-change-me \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n nifi create secret generic nifi-auth \
+  --from-literal=username=admin \
+  --from-literal=password=ChangeMeChangeMe1! \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Standalone install:
+
+```bash
+helm upgrade --install nifi charts/nifi \
+  -n nifi \
+  --create-namespace \
+  -f examples/standalone/values.yaml \
+  -f examples/cert-manager-values.yaml
+```
+
+Managed install:
+
+```bash
+make install-crd
+make docker-build-controller
+make kind-load-controller
+make deploy-controller
+kubectl -n nifi-system rollout status deployment/nifi2-platform-controller-manager --timeout=5m
+helm upgrade --install nifi charts/nifi \
+  -n nifi \
+  --create-namespace \
+  -f examples/managed/values.yaml \
+  -f examples/cert-manager-values.yaml
+kubectl apply -f examples/managed/nificluster.yaml
+make kind-health
+```
+
+Expected behavior:
+
+- cert-manager renews the same TLS Secret name in place
+- NiFi reads the same mount path and PKCS12 filenames
+- stable Secret-content renewal is treated as ordinary TLS drift and enters the autoreload observation window
+- the controller restarts only when policy or a material TLS wiring change requires it
+
+Manual renewal verification:
+
+```bash
+cmctl renew -n nifi nifi
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.observedCertificateHash}{"\n"}{.status.tls.observationStartedAt}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'
+kubectl -n nifi get pods -o custom-columns=NAME:.metadata.name,DEL:.metadata.deletionTimestamp,READY:.status.containerStatuses[0].ready
+make kind-health
+```
+
+For ordinary renewal with unchanged Secret name, mount path, and PKCS12 password refs, expect:
+
+- `ConditionProgressing=True` with a TLS observation reason during the observation window
+- no pod deletion timestamps
+- `status.observedCertificateHash` to advance only after the controller accepts the renewed TLS material as steady state
 
 ## Managed Config Drift Verification
 

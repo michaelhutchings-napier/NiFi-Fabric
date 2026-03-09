@@ -1,0 +1,18 @@
+# Optional overlay for either standalone or managed installs when cert-manager owns the TLS Secret.
+tls:
+  mode: certManager
+  certManager:
+    enabled: true
+    issuerRef:
+      name: nifi-ca
+      kind: ClusterIssuer
+      group: cert-manager.io
+    secretName: nifi-tls
+    pkcs12:
+      passwordSecretRef:
+        name: nifi-tls-params
+        key: pkcs12Password
+  sensitiveProps:
+    secretRef:
+      name: nifi-tls-params
+      key: sensitivePropsKey

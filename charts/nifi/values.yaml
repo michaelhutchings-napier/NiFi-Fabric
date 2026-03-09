@@ -25,6 +25,7 @@ ports:
   loadBalance: 6342
 
 tls:
+  mode: externalSecret
   existingSecret: nifi-tls
   mountPath: /opt/nifi/tls
   caCertKey: ca.crt
@@ -33,9 +34,39 @@ tls:
   keystorePasswordKey: keystorePassword
   truststorePasswordKey: truststorePassword
   sensitivePropsKeyKey: sensitivePropsKey
+  sensitiveProps:
+    value: ""
+    secretRef:
+      name: ""
+      key: ""
   autoReload:
     enabled: false
     interval: 10 secs
+  certManager:
+    enabled: false
+    issuerRef:
+      name: ""
+      kind: ClusterIssuer
+      group: cert-manager.io
+    secretName: nifi-tls
+    duration: 2160h
+    renewBefore: 360h
+    commonName: ""
+    dnsNames: []
+    usages:
+    - server auth
+    - client auth
+    privateKey:
+      algorithm: RSA
+      size: 2048
+      rotationPolicy: Always
+    pkcs12:
+      create: true
+      profile: Modern2023
+      password: ""
+      passwordSecretRef:
+        name: ""
+        key: ""
 
 auth:
   singleUser:
@@ -126,5 +157,5 @@ probes:
 
 config:
   # This chart writes a baseline nifi.properties and lets the official image patch pod-specific values at startup.
-  # cert-manager is expected to populate the same Secret shape out of band if used.
+  # In certManager mode the chart renders Certificate resources and still expects stable password refs.
   extraProperties: {}

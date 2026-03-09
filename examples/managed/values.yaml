@@ -9,6 +9,7 @@ auth:
     existingSecret: nifi-auth
 
 tls:
+  mode: externalSecret
   existingSecret: nifi-tls
   autoReload:
     enabled: true

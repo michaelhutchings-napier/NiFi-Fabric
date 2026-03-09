@@ -59,20 +59,46 @@ spec:
         - name: NIFI_POD_FQDN
           value: "$(POD_NAME).{{ include "nifi.fullname" . }}-headless.$(POD_NAMESPACE).svc.cluster.local"
         - name: KEYSTORE_PASSWORD
+          {{- if eq (include "nifi.tlsMode" .) "certManager" }}
+          {{- if .Values.tls.certManager.pkcs12.password }}
+          value: {{ .Values.tls.certManager.pkcs12.password | quote }}
+          {{- else }}
           valueFrom:
             secretKeyRef:
-              name: {{ required "tls.existingSecret is required" .Values.tls.existingSecret | quote }}
+              name: {{ include "nifi.certManagerPKCS12PasswordSecretName" . | quote }}
+              key: {{ include "nifi.certManagerPKCS12PasswordSecretKey" . | quote }}
+          {{- end }}
+          {{- else }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "nifi.tlsSecretName" . | quote }}
               key: {{ .Values.tls.keystorePasswordKey | quote }}
+          {{- end }}
         - name: TRUSTSTORE_PASSWORD
+          {{- if eq (include "nifi.tlsMode" .) "certManager" }}
+          {{- if .Values.tls.certManager.pkcs12.password }}
+          value: {{ .Values.tls.certManager.pkcs12.password | quote }}
+          {{- else }}
           valueFrom:
             secretKeyRef:
-              name: {{ required "tls.existingSecret is required" .Values.tls.existingSecret | quote }}
+              name: {{ include "nifi.certManagerPKCS12PasswordSecretName" . | quote }}
+              key: {{ include "nifi.certManagerPKCS12PasswordSecretKey" . | quote }}
+          {{- end }}
+          {{- else }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "nifi.tlsSecretName" . | quote }}
               key: {{ .Values.tls.truststorePasswordKey | quote }}
+          {{- end }}
         - name: NIFI_SENSITIVE_PROPS_KEY
+          {{- if .Values.tls.sensitiveProps.value }}
+          value: {{ .Values.tls.sensitiveProps.value | quote }}
+          {{- else }}
           valueFrom:
             secretKeyRef:
-              name: {{ required "tls.existingSecret is required" .Values.tls.existingSecret | quote }}
-              key: {{ .Values.tls.sensitivePropsKeyKey | quote }}
+              name: {{ include "nifi.sensitivePropsSecretName" . | quote }}
+              key: {{ include "nifi.sensitivePropsSecretKey" . | quote }}
+          {{- end }}
         - name: SINGLE_USER_CREDENTIALS_USERNAME
           valueFrom:
             secretKeyRef:
@@ -236,7 +262,7 @@ spec:
         emptyDir: {}
       - name: tls
         secret:
-          secretName: {{ required "tls.existingSecret is required" .Values.tls.existingSecret }}
+          secretName: {{ include "nifi.tlsSecretName" . }}
       {{- if not .Values.persistence.enabled }}
       - name: database-repository
         emptyDir: {}

@@ -2,6 +2,13 @@
 
 These are the four evaluator-facing examples for the current private alpha.
 
+There is also one optional TLS-source overlay:
+
+- [examples/cert-manager-values.yaml](/home/michael/Work/nifi2-platform/examples/cert-manager-values.yaml)
+  - Switches the chart from `tls.mode=externalSecret` to `tls.mode=certManager`.
+  - Use it on top of either the standalone or managed Helm values when cert-manager is already installed.
+  - Still requires a separate Secret for the PKCS12 password and `nifi.sensitive.props.key`.
+
 ## Standalone
 
 - [examples/standalone/values.yaml](/home/michael/Work/nifi2-platform/examples/standalone/values.yaml)

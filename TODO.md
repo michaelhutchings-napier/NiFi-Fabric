@@ -19,11 +19,11 @@ Completed in the scaffold:
 
 1. Keep `make kind-alpha-e2e` green as the private-alpha gate before broadening scope.
 2. Replace the hand-written CRD and deepcopy scaffolding with generated artifacts once controller-tools are introduced.
-3. Replace the local-development TLS Secret workflow with an optional cert-manager-backed chart path once the secret contract is stable.
+3. Keep the new cert-manager chart path aligned with the existing external Secret contract and TLS policy docs without adding a second lifecycle path.
 4. Expand CI only around the existing alpha gate and phase targets, not by adding new lifecycle scope.
 5. Keep `make kind-load-nifi-image` aligned with the chart NiFi image tag so fresh-kind alpha runs stay repeatable.
 6. Decide on the final repo and module naming before the first non-alpha tag.
-7. Keep README quickstarts, [examples/README.md](/home/michael/Work/nifi2-platform/examples/README.md), and `docs/local-kind.md` aligned with the exact alpha gate commands.
+7. Keep README quickstarts, [examples/README.md](/home/michael/Work/nifi2-platform/examples/README.md), `docs/local-kind.md`, and the cert-manager overlay docs aligned with the exact alpha gate and manual cert-manager commands.
 
 ## Current Managed Rollout Behavior
 

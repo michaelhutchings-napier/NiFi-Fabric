@@ -14,6 +14,7 @@ auth:
     existingSecret: nifi-auth
 
 tls:
+  mode: externalSecret
   existingSecret: nifi-tls
 
 serviceMonitor:

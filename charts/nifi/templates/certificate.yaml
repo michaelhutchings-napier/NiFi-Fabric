@@ -1,0 +1,50 @@
+{{- if eq (include "nifi.tlsMode" .) "certManager" }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "nifi.fullname" . }}
+  labels:
+    {{- include "nifi.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "nifi.tlsSecretName" . }}
+  issuerRef:
+    name: {{ required "tls.certManager.issuerRef.name is required when tls.mode=certManager" .Values.tls.certManager.issuerRef.name | quote }}
+    kind: {{ default "ClusterIssuer" .Values.tls.certManager.issuerRef.kind | quote }}
+    group: {{ default "cert-manager.io" .Values.tls.certManager.issuerRef.group | quote }}
+  duration: {{ .Values.tls.certManager.duration | quote }}
+  renewBefore: {{ .Values.tls.certManager.renewBefore | quote }}
+  {{- if .Values.tls.certManager.commonName }}
+  commonName: {{ .Values.tls.certManager.commonName | quote }}
+  {{- end }}
+  dnsNames:
+    - {{ include "nifi.fullname" . | quote }}
+    - {{ printf "%s.%s.svc" (include "nifi.fullname" .) .Release.Namespace | quote }}
+    - {{ printf "%s.%s.svc.cluster.local" (include "nifi.fullname" .) .Release.Namespace | quote }}
+    - {{ printf "%s-headless" (include "nifi.fullname" .) | quote }}
+    - {{ printf "%s-headless.%s.svc" (include "nifi.fullname" .) .Release.Namespace | quote }}
+    - {{ printf "%s-headless.%s.svc.cluster.local" (include "nifi.fullname" .) .Release.Namespace | quote }}
+    - {{ printf "*.%s-headless.%s.svc" (include "nifi.fullname" .) .Release.Namespace | quote }}
+    - {{ printf "*.%s-headless.%s.svc.cluster.local" (include "nifi.fullname" .) .Release.Namespace | quote }}
+    {{- range .Values.tls.certManager.dnsNames }}
+    - {{ . | quote }}
+    {{- end }}
+  usages:
+    {{- range .Values.tls.certManager.usages }}
+    - {{ . | quote }}
+    {{- end }}
+  privateKey:
+    algorithm: {{ default "RSA" .Values.tls.certManager.privateKey.algorithm | quote }}
+    size: {{ default 2048 .Values.tls.certManager.privateKey.size }}
+    rotationPolicy: {{ default "Always" .Values.tls.certManager.privateKey.rotationPolicy | quote }}
+  keystores:
+    pkcs12:
+      create: {{ ternary "true" "false" .Values.tls.certManager.pkcs12.create }}
+      profile: {{ default "Modern2023" .Values.tls.certManager.pkcs12.profile | quote }}
+      {{- if .Values.tls.certManager.pkcs12.password }}
+      password: {{ .Values.tls.certManager.pkcs12.password | quote }}
+      {{- else }}
+      passwordSecretRef:
+        name: {{ include "nifi.certManagerPKCS12PasswordSecretName" . | quote }}
+        key: {{ include "nifi.certManagerPKCS12PasswordSecretKey" . | quote }}
+      {{- end }}
+{{- end }}

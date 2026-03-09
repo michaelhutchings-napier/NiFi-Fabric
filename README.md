@@ -269,7 +269,7 @@ What is runnable now:
 
 What is still intentionally stubbed:
 
-- production-grade TLS automation beyond documented Secret expectations
+- cert-manager renewal is documented and templated, but not yet part of the automated alpha gate
 - production-hardening of chart defaults, auth choices, and storage layouts
 - richer restore target memory than `status.hibernation.lastRunningReplicas` plus the current `1` replica fallback
 
@@ -284,6 +284,88 @@ Implementation note for this slice:
 
 - the chart default still keeps NiFi TLS autoreload configurable and off by default for the minimal standalone path
 - the managed example enables NiFi TLS autoreload so the local TLS policy flow exercises the intended autoreload-first design
+- `tls.mode=externalSecret` remains the default and stays compatible with the existing `nifi-tls` Secret contract
+- `tls.mode=certManager` is now an optional chart-managed TLS source that still keeps Secret names, mount paths, and controller TLS policy behavior stable
+
+## TLS Source Modes
+
+The chart now supports two TLS source modes:
+
+| Mode | Helm owns | You still provide | Best for |
+| --- | --- | --- | --- |
+| `tls.mode=externalSecret` | workload wiring only | a prebuilt PKCS12 TLS Secret | the current private-alpha quickstart and simple GitOps |
+| `tls.mode=certManager` | workload wiring plus `Certificate` | a cert-manager issuer, a stable PKCS12 password source, and a `nifi.sensitive.props.key` source | clusters already using cert-manager |
+
+Both modes keep the same mounted Secret name and TLS file paths in the pod:
+
+- the chart mounts exactly one TLS Secret and the controller does not rename it
+- the `StatefulSet` still mounts one TLS Secret at `/opt/nifi/tls`
+- NiFi still uses `keystore.p12`, `truststore.p12`, and `ca.crt` from that path
+- the controller still treats ordinary TLS material renewal as watched certificate drift and applies the existing autoreload-first policy
+
+The controller does not create or mutate `Certificate` resources. Helm owns that resource; the controller only watches the resulting Secret material and decides whether TLS drift resolves through autoreload or requires a managed restart.
+
+## Optional Cert-Manager Quickstart
+
+This path is not part of `make kind-alpha-e2e`, but the chart can now render and install cert-manager-managed TLS when cert-manager is already present in the cluster.
+
+Prerequisites beyond the normal managed quickstart:
+
+- cert-manager already installed
+- a working `Issuer` or `ClusterIssuer` that publishes `ca.crt`
+- a stable Secret for the PKCS12 password and `nifi.sensitive.props.key`
+
+Example overlay:
+
+- [examples/cert-manager-values.yaml](/home/michael/Work/nifi2-platform/examples/cert-manager-values.yaml)
+
+Example parameter Secret:
+
+```bash
+kubectl create namespace nifi --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n nifi create secret generic nifi-tls-params \
+  --from-literal=pkcs12Password=ChangeMeChangeMe1! \
+  --from-literal=sensitivePropsKey=changeit-change-me \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n nifi create secret generic nifi-auth \
+  --from-literal=username=admin \
+  --from-literal=password=ChangeMeChangeMe1! \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Standalone install with cert-manager:
+
+```bash
+helm upgrade --install nifi charts/nifi \
+  -n nifi \
+  --create-namespace \
+  -f examples/standalone/values.yaml \
+  -f examples/cert-manager-values.yaml
+```
+
+Managed install with cert-manager:
+
+```bash
+make install-crd
+make docker-build-controller
+make kind-load-controller
+make deploy-controller
+kubectl -n nifi-system rollout status deployment/nifi2-platform-controller-manager --timeout=5m
+helm upgrade --install nifi charts/nifi \
+  -n nifi \
+  --create-namespace \
+  -f examples/managed/values.yaml \
+  -f examples/cert-manager-values.yaml
+kubectl apply -f examples/managed/nificluster.yaml
+make kind-health
+```
+
+Cert-manager mode expectations:
+
+- ordinary certificate renewal keeps the Secret name, mounted path, and PKCS12 password refs stable
+- NiFi autoreload can absorb that content-only TLS change
+- the controller records TLS drift and watches the same health gate it already uses for restart decisions
+- the controller restarts only when TLS policy or material configuration changes require it
 
 ## Local Kind Flow
 
@@ -388,7 +470,7 @@ Not yet covered by the automated gate:
 - OpenShift runtime validation
 - NiFi image tags other than `2.0.0`
 - multi-node Kubernetes clusters outside kind
-- production ingress and cert-manager automation paths
+- a cert-manager-backed end-to-end renewal flow
 
 ## Private Alpha Release
 
@@ -408,11 +490,12 @@ Support and status expectations:
 ## Known Limitations
 
 - This is still private-alpha quality, not production-hardening guidance.
-- cert-manager remains an external contract rather than a fully automated chart path.
+- cert-manager is now chart-templated, but cert-manager installation and renewal verification are still manual.
 - restore still falls back to `1` replica only when neither `baselineReplicas` nor `lastRunningReplicas` is present.
 - OpenShift remains a secondary compatibility target behind AKS-first behavior and kind validation.
 - the repo directory name and Go module name are not yet fully aligned for a public release decision.
 - `make kind-alpha-e2e` currently assumes the alpha chart image stays aligned with `make kind-load-nifi-image`; update both together if the NiFi image tag changes.
+- cert-manager mode assumes the issuer writes `ca.crt`; without that, the chart's stable `truststore.p12` expectation is not satisfied.
 
 ## Intentionally Out Of Scope
 
@@ -452,6 +535,8 @@ Managed watched-drift behavior:
 - stable TLS content drift follows `spec.restartPolicy.tlsDrift`
 - material TLS ref, mount path, or password-key changes are treated as restart-required
 - the current autoreload observation window is `30s`
+- cert-manager renewal with unchanged Secret name, mount path, and password refs is treated as content-only TLS drift
+- cert-manager Secret name changes are treated as restart-required TLS configuration drift
 
 Managed hibernation behavior:
 
@@ -579,6 +664,20 @@ Useful local commands:
 - `make helm-install-managed`
 - `make apply-managed`
 - `make run`
+
+Manual cert-manager verification flow:
+
+1. install cert-manager and an issuer that publishes `ca.crt`
+2. create `Secret/nifi-tls-params` with the PKCS12 password and `sensitivePropsKey`
+3. install the chart with `-f examples/cert-manager-values.yaml`
+4. wait for `Certificate/nifi` and `Secret/nifi-tls` to become ready
+5. run `make kind-health`
+6. trigger renewal with your normal cert-manager process, for example `cmctl renew -n nifi nifi`
+7. watch:
+   - `kubectl -n nifi get nificluster nifi -o jsonpath='{.status.observedCertificateHash}{"\n"}{.status.tls.observationStartedAt}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'`
+   - `kubectl -n nifi get pods -o custom-columns=NAME:.metadata.name,DEL:.metadata.deletionTimestamp,READY:.status.containerStatuses[0].ready`
+8. expect content-only renewal to enter the TLS observation window and resolve without pod deletion when health stays good
+9. expect a mount-path or Secret-ref change to trigger the existing one-pod-at-a-time managed rollout
 
 ## References
 
