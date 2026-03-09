@@ -112,3 +112,4 @@ Current alpha note:
 
 - the repo now has a green fresh-kind private-alpha workflow
 - CI should treat `make kind-alpha-e2e` as the gate and use the phase-level targets for faster diagnosis
+- evaluator-facing examples and quickstarts should stay aligned with that same gate

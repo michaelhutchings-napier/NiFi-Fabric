@@ -1,3 +1,4 @@
+# Minimal managed-mode NiFiCluster in the Running state.
 apiVersion: platform.nifi.io/v1alpha1
 kind: NiFiCluster
 metadata:
@@ -23,4 +24,3 @@ spec:
     offloadTimeout: 5m
   safety:
     requireClusterHealthy: true
-

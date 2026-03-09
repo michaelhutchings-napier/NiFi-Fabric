@@ -1,3 +1,4 @@
+# Minimal managed-mode example for kind and the private-alpha controller flow.
 replicaCount: 3
 
 controllerManaged:

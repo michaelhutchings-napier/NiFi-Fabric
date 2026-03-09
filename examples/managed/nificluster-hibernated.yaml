@@ -1,3 +1,4 @@
+# Minimal managed-mode NiFiCluster in the Hibernated state.
 apiVersion: platform.nifi.io/v1alpha1
 kind: NiFiCluster
 metadata:

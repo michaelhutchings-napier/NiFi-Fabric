@@ -1,3 +1,4 @@
+# Minimal standalone example for kind and other small evaluator environments.
 replicaCount: 3
 
 image:

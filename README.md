@@ -25,6 +25,92 @@ CI entrypoints:
 - manual `workflow_dispatch` with target selection
 - nightly scheduled full run
 
+## Evaluator Prerequisites
+
+Exact local prerequisites for the current private alpha:
+
+- Docker with permission to run `kind` and `docker exec`
+- kind
+- kubectl
+- Helm 3
+- Go
+- `openssl`
+- `python3`
+
+Optional:
+
+- `keytool`
+  - if it is missing, `hack/create-kind-secrets.sh` runs `keytool` in a disposable `apache/nifi:2.0.0` container
+
+## Install Paths
+
+Recommended evaluator entrypoints:
+
+- Standalone quickstart
+  - use when you only want Helm and a working NiFi 2 cluster
+- Managed quickstart
+  - use when you want the controller, `NiFiCluster`, and lifecycle orchestration
+- Full private-alpha gate
+  - use when you want the entire proven workflow on a fresh kind cluster
+
+Example files are indexed in [examples/README.md](/home/michael/Work/nifi2-platform/examples/README.md).
+
+## Standalone Quickstart
+
+Exact commands:
+
+```bash
+make kind-up
+make kind-load-nifi-image
+make kind-secrets
+make helm-install-standalone
+make kind-health
+```
+
+Primary example:
+
+- [examples/standalone/values.yaml](/home/michael/Work/nifi2-platform/examples/standalone/values.yaml)
+
+## Managed Quickstart
+
+Exact commands:
+
+```bash
+make kind-up
+make kind-load-nifi-image
+make kind-secrets
+make install-crd
+make docker-build-controller
+make kind-load-controller
+make deploy-controller
+kubectl -n nifi-system rollout status deployment/nifi2-platform-controller-manager --timeout=5m
+make helm-install-managed
+make apply-managed
+make kind-health
+```
+
+Primary examples:
+
+- [examples/managed/values.yaml](/home/michael/Work/nifi2-platform/examples/managed/values.yaml)
+- [examples/managed/nificluster.yaml](/home/michael/Work/nifi2-platform/examples/managed/nificluster.yaml)
+
+## Full Alpha Gate
+
+Exact command:
+
+```bash
+make kind-alpha-e2e
+```
+
+Phase-level reruns:
+
+```bash
+make kind-e2e-rollout
+make kind-e2e-config-drift
+make kind-e2e-tls
+make kind-e2e-hibernate
+```
+
 The project is intentionally hybrid:
 
 - Helm owns standard Kubernetes resources and NiFi configuration templating.
@@ -283,6 +369,42 @@ The end-to-end gate covers:
 - restore
 - controller events and metrics presence
 
+## Compatibility
+
+Tested with the current private-alpha gate:
+
+- NiFi image: `apache/nifi:2.0.0`
+- Helm chart example values in [examples/standalone/values.yaml](/home/michael/Work/nifi2-platform/examples/standalone/values.yaml) and [examples/managed/values.yaml](/home/michael/Work/nifi2-platform/examples/managed/values.yaml)
+- kind node image: `kindest/node:v1.31.0`
+- Kubernetes behavior expected by the gate:
+  - `StatefulSet` with `OnDelete` updates in managed mode
+  - direct pod DNS reachability
+  - PVC retention on scale-down and delete
+  - single-node kind control-plane cluster
+
+Not yet covered by the automated gate:
+
+- AKS runtime validation
+- OpenShift runtime validation
+- NiFi image tags other than `2.0.0`
+- multi-node Kubernetes clusters outside kind
+- production ingress and cert-manager automation paths
+
+## Private Alpha Release
+
+What is proven:
+
+- a new evaluator can install the standalone chart and get a healthy NiFi 2 cluster
+- a new evaluator can install managed mode and exercise the current lifecycle paths
+- the repo CI and local gate are aligned on the same end-to-end workflow
+
+Support and status expectations:
+
+- this is private-alpha software
+- expect fast iteration and breaking changes between alpha tags
+- support expectations are best-effort engineering collaboration, not a production SLA
+- bugs should be reported with the failing command, `NiFiCluster` output, controller logs, and any `ARTIFACT_DIR` bundle
+
 ## Known Limitations
 
 - This is still private-alpha quality, not production-hardening guidance.
@@ -308,6 +430,7 @@ Version and tag guidance:
 - use explicit pre-release tags such as `v0.1.0-alpha.1`
 - tag only from commits that pass `make kind-alpha-e2e`
 - keep chart and controller version bumps aligned
+- call out the tested NiFi image and kind/Kubernetes assumptions in the release notes
 
 Private repo checklist:
 
@@ -339,6 +462,36 @@ Managed hibernation behavior:
 - `spec.desiredState=Running` restores the prior size from `status.hibernation.lastRunningReplicas`
 - if `status.hibernation.lastRunningReplicas` is absent, the controller falls back to `1` replica
 - restore does not report success until pod readiness, secured API reachability, and stable cluster convergence return
+
+## Operator UX
+
+Most useful status view:
+
+```bash
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.lastOperation.phase}{"\n"}{.status.lastOperation.message}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'
+```
+
+Example output shape:
+
+```text
+Succeeded
+Revision "nifi-66f744c9b6" is fully rolled out and healthy
+TargetResolved: TargetFound True
+Available: RolloutHealthy True
+Progressing: NoDrift False
+Degraded: AsExpected False
+Hibernated: Running False
+```
+
+Most useful debug commands:
+
+- `kubectl -n nifi get nificluster nifi -o yaml`
+- `kubectl -n nifi describe nificluster nifi`
+- `kubectl -n nifi get sts nifi -o custom-columns=NAME:.metadata.name,SPEC:.spec.replicas,READY:.status.readyReplicas,CURRENT:.status.currentRevision,UPDATE:.status.updateRevision`
+- `kubectl -n nifi get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,REV:.metadata.labels.controller-revision-hash,UID:.metadata.uid,DEL:.metadata.deletionTimestamp`
+- `kubectl -n nifi-system logs deployment/nifi2-platform-controller-manager --tail=200`
+- `kubectl -n nifi get events --sort-by=.lastTimestamp | tail -n 50`
+- `make kind-health`
 
 Local drift verification commands:
 

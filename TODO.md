@@ -23,6 +23,7 @@ Completed in the scaffold:
 4. Expand CI only around the existing alpha gate and phase targets, not by adding new lifecycle scope.
 5. Keep `make kind-load-nifi-image` aligned with the chart NiFi image tag so fresh-kind alpha runs stay repeatable.
 6. Decide on the final repo and module naming before the first non-alpha tag.
+7. Keep README quickstarts, [examples/README.md](/home/michael/Work/nifi2-platform/examples/README.md), and `docs/local-kind.md` aligned with the exact alpha gate commands.
 
 ## Current Managed Rollout Behavior
 

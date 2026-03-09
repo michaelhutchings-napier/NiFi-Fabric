@@ -17,6 +17,14 @@ This repository now includes concrete local workflows for:
 
 This flow is intentionally local-development oriented. It is not a production deployment guide.
 
+Recommended example files:
+
+- standalone Helm values: [examples/standalone/values.yaml](/home/michael/Work/nifi2-platform/examples/standalone/values.yaml)
+- managed Helm values: [examples/managed/values.yaml](/home/michael/Work/nifi2-platform/examples/managed/values.yaml)
+- managed `NiFiCluster`: [examples/managed/nificluster.yaml](/home/michael/Work/nifi2-platform/examples/managed/nificluster.yaml)
+- rollout trigger overlay: [examples/managed/rollout-trigger-values.yaml](/home/michael/Work/nifi2-platform/examples/managed/rollout-trigger-values.yaml)
+- hibernation example: [examples/managed/nificluster-hibernated.yaml](/home/michael/Work/nifi2-platform/examples/managed/nificluster-hibernated.yaml)
+
 ## Private Alpha Workflow
 
 The repo now includes a single fresh-kind entrypoint:
@@ -190,6 +198,7 @@ To trigger a harmless template drift and watch the controller coordinate a rollo
 helm upgrade --install nifi charts/nifi \
   -n nifi \
   -f examples/managed/values.yaml \
+  -f examples/managed/rollout-trigger-values.yaml \
   --reuse-values \
   --set-string podAnnotations.rolloutNonce=$(date +%s)
 ```
@@ -217,6 +226,22 @@ Final verification after the rollout settles:
 ```bash
 make kind-health
 kubectl -n nifi get nificluster nifi -o jsonpath='{.status.lastOperation.phase}{"\n"}{.status.lastOperation.message}{"\n"}'
+```
+
+Most useful operator status command:
+
+```bash
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.lastOperation.phase}{"\n"}{.status.lastOperation.message}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'
+```
+
+Useful live debug commands:
+
+```bash
+kubectl -n nifi get sts nifi -o custom-columns=NAME:.metadata.name,SPEC:.spec.replicas,READY:.status.readyReplicas,CURRENT:.status.currentRevision,UPDATE:.status.updateRevision
+kubectl -n nifi get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,REV:.metadata.labels.controller-revision-hash,UID:.metadata.uid,DEL:.metadata.deletionTimestamp
+kubectl -n nifi describe nificluster nifi
+kubectl -n nifi-system logs deployment/nifi2-platform-controller-manager --tail=200
+kubectl -n nifi get events --sort-by=.lastTimestamp | tail -n 50
 ```
 
 ## Failure Diagnostics
