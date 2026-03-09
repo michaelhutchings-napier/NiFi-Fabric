@@ -78,6 +78,19 @@ func (r *NiFiClusterReconciler) reconcileHibernation(ctx context.Context, cluste
 			return result, nil
 		}
 
+		if currentReplicas == 1 {
+			if err := r.patchTargetReplicas(ctx, target, 0); err != nil {
+				r.markHibernationFailure(cluster, fmt.Sprintf("Scale target StatefulSet %q to 0 replicas failed: %v", target.Name, err))
+				return ctrl.Result{}, fmt.Errorf("scale StatefulSet %s/%s to 0 replicas: %w", target.Namespace, target.Name, err)
+			}
+
+			cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
+			cluster.Status.Replicas.Desired = 0
+			cluster.Status.LastOperation = runningOperation("Hibernation", fmt.Sprintf("Scaled StatefulSet %q down to 0 replicas after the final hibernation step", target.Name))
+			r.setHibernationProgressConditions(cluster, "ScalingDown", fmt.Sprintf("Scaled the final NiFi pod down to zero replicas to complete hibernation for StatefulSet %q", target.Name))
+			return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
+		}
+
 		targetPod, ok := highestOrdinalPod(pods)
 		if !ok {
 			cluster.Status.LastOperation = runningOperation("Hibernation", "Waiting for the highest ordinal pod to appear before hibernation can continue")

@@ -1635,6 +1635,65 @@ func TestReconcileResumesSafelyDuringHibernation(t *testing.T) {
 	}
 }
 
+func TestReconcileHibernationScalesFinalReplicaToZeroWithoutNodePreparation(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.DesiredState = platformv1alpha1.DesiredStateHibernated
+	cluster.Status.Hibernation.LastRunningReplicas = 3
+
+	replicas := int32(1)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+	}
+
+	healthChecker := &fakeHealthChecker{
+		podReadyResponses: []error{nil},
+		healthResponses:   []healthResponse{{result: healthyResult(1)}},
+	}
+	reconciler, k8sClient := newTestReconciler(t, healthChecker, cluster, statefulSet, &pods[0])
+	nodeManager := &fakeNodeManager{
+		responses: []nodePreparationResponse{{
+			err: fmt.Errorf("final hibernation step should not invoke node preparation"),
+		}},
+	}
+	reconciler.NodeManager = nodeManager
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected requeue after final hibernation scale-down, got %s", result.RequeueAfter)
+	}
+	if nodeManager.calls != 0 {
+		t.Fatalf("expected no node preparation calls for the final hibernation step, got %d", nodeManager.calls)
+	}
+
+	updatedStatefulSet := &appsv1.StatefulSet{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), updatedStatefulSet); err != nil {
+		t.Fatalf("get updated statefulset: %v", err)
+	}
+	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != 0 {
+		t.Fatalf("expected final hibernation step to scale to 0 replicas, got %d", got)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.NodeOperation.PodName != "" {
+		t.Fatalf("expected node operation to be cleared after final hibernation scale-down, got %#v", updatedCluster.Status.NodeOperation)
+	}
+	if updatedCluster.Status.Replicas.Desired != 0 {
+		t.Fatalf("expected desired replicas to be recorded as 0, got %d", updatedCluster.Status.Replicas.Desired)
+	}
+	progressing := updatedCluster.GetCondition(platformv1alpha1.ConditionProgressing)
+	if progressing == nil || progressing.Reason != "ScalingDown" {
+		t.Fatalf("expected ScalingDown progressing reason, got %#v", progressing)
+	}
+}
+
 func TestReconcileRestoreWaitsForStableHealthBeforeSuccess(t *testing.T) {
 	ctx := context.Background()
 	cluster := managedCluster()
@@ -1889,8 +1948,14 @@ func TestReconcileHibernationScalesDownHighestOrdinalOneStepAtATime(t *testing.T
 	if thirdResult.RequeueAfter != rolloutPollRequeue {
 		t.Fatalf("expected requeue after third hibernation step, got %s", thirdResult.RequeueAfter)
 	}
-	if len(nodeManager.pods) != 3 || nodeManager.pods[2] != "nifi-0" {
-		t.Fatalf("expected third hibernation target to be final pod nifi-0, got %v", nodeManager.pods)
+	if len(nodeManager.pods) != 2 {
+		t.Fatalf("expected final hibernation step to skip explicit node preparation, got %v", nodeManager.pods)
+	}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), updatedStatefulSet); err != nil {
+		t.Fatalf("get updated statefulset after final scale-down request: %v", err)
+	}
+	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != 0 {
+		t.Fatalf("expected final hibernation step to scale StatefulSet to 0 replicas, got %d", got)
 	}
 
 	if err := k8sClient.Delete(ctx, &pods[0]); err != nil {
