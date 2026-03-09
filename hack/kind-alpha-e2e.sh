@@ -131,6 +131,25 @@ wait_for_rollout_clear() {
   '
 }
 
+wait_for_revision_rollout_observed() {
+  local expected_revision="$1"
+  wait_for "revision rollout to start or settle" 300 bash -ec '
+    trigger="$(kubectl -n "'"${NAMESPACE}"'" get nificluster "'"${HELM_RELEASE}"'" -o jsonpath="{.status.rollout.trigger}")"
+    observed="$(kubectl -n "'"${NAMESPACE}"'" get nificluster "'"${HELM_RELEASE}"'" -o jsonpath="{.status.observedStatefulSetRevision}")"
+    [[ "${trigger}" == "StatefulSetRevision" || "${observed}" == "'"${expected_revision}"'" ]]
+  '
+}
+
+wait_for_revision_rollout_complete() {
+  local expected_revision="$1"
+  wait_for "revision rollout to complete" 900 bash -ec '
+    trigger="$(kubectl -n "'"${NAMESPACE}"'" get nificluster "'"${HELM_RELEASE}"'" -o jsonpath="{.status.rollout.trigger}")"
+    phase="$(kubectl -n "'"${NAMESPACE}"'" get nificluster "'"${HELM_RELEASE}"'" -o jsonpath="{.status.lastOperation.phase}")"
+    observed="$(kubectl -n "'"${NAMESPACE}"'" get nificluster "'"${HELM_RELEASE}"'" -o jsonpath="{.status.observedStatefulSetRevision}")"
+    [[ -z "${trigger}" && "${phase}" == "Succeeded" && "${observed}" == "'"${expected_revision}"'" ]]
+  '
+}
+
 wait_for_tls_observed_hash() {
   local previous_hash="$1"
   wait_for "TLS observed hash to advance without rollout" 600 bash -ec '
@@ -204,7 +223,9 @@ run_make kind-health
 log_step "exercising a managed StatefulSet revision rollout"
 rollout_uids_before="$(pod_uid_snapshot)"
 (cd "${ROOT_DIR}" && helm upgrade --install "${HELM_RELEASE}" charts/nifi --namespace "${NAMESPACE}" -f examples/managed/values.yaml --reuse-values --set-string podAnnotations.rolloutNonce="$(date +%s)")
-wait_for_rollout_clear || fail "managed rollout did not finish"
+target_revision="$(sts_jsonpath '{.status.updateRevision}')"
+wait_for_revision_rollout_observed "${target_revision}" || fail "managed rollout was not observed by the controller"
+wait_for_revision_rollout_complete "${target_revision}" || fail "managed rollout did not finish"
 run_make kind-health
 assert_all_pods_changed "${rollout_uids_before}" "managed rollout"
 

@@ -63,6 +63,15 @@ type ClusterNode struct {
 	Status  NodeStatus
 }
 
+type APIError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("status %d: %s", e.StatusCode, e.Message)
+}
+
 // Client is the minimal NiFi API surface needed for rollout health checks.
 type Client interface {
 	GetClusterSummary(ctx context.Context, req ClusterSummaryRequest) (ClusterSummary, error)
@@ -106,7 +115,10 @@ func (c *HTTPClient) GetClusterSummary(ctx context.Context, req ClusterSummaryRe
 
 	if response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return ClusterSummary{}, fmt.Errorf("cluster summary returned %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+		return ClusterSummary{}, &APIError{
+			StatusCode: response.StatusCode,
+			Message:    strings.TrimSpace(string(body)),
+		}
 	}
 
 	var payload struct {
@@ -148,7 +160,10 @@ func (c *HTTPClient) GetNodes(ctx context.Context, req APIRequest) ([]ClusterNod
 
 	if response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return nil, fmt.Errorf("cluster nodes returned %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+		return nil, &APIError{
+			StatusCode: response.StatusCode,
+			Message:    strings.TrimSpace(string(body)),
+		}
 	}
 
 	var payload struct {
@@ -197,7 +212,10 @@ func (c *HTTPClient) GetNode(ctx context.Context, req APIRequest, nodeID string)
 
 	if response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return ClusterNode{}, fmt.Errorf("cluster node returned %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+		return ClusterNode{}, &APIError{
+			StatusCode: response.StatusCode,
+			Message:    strings.TrimSpace(string(body)),
+		}
 	}
 
 	return decodeNode(response.Body)
@@ -224,7 +242,10 @@ func (c *HTTPClient) UpdateNodeStatus(ctx context.Context, req APIRequest, nodeI
 
 	if response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return ClusterNode{}, fmt.Errorf("update cluster node returned %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+		return ClusterNode{}, &APIError{
+			StatusCode: response.StatusCode,
+			Message:    strings.TrimSpace(string(body)),
+		}
 	}
 
 	return decodeNode(response.Body)
@@ -294,7 +315,10 @@ func (c *HTTPClient) requestToken(ctx context.Context, httpClient *http.Client, 
 
 	if response.StatusCode != http.StatusCreated && response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return "", fmt.Errorf("access token returned %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+		return "", &APIError{
+			StatusCode: response.StatusCode,
+			Message:    strings.TrimSpace(string(body)),
+		}
 	}
 
 	tokenBytes, err := io.ReadAll(io.LimitReader(response.Body, 8192))

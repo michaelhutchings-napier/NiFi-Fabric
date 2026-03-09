@@ -2,7 +2,9 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -15,17 +17,24 @@ import (
 	"github.com/michaelhutchings-napier/nifi-made-simple/internal/nifi"
 )
 
-const defaultNodePreparationTimeout = 5 * time.Minute
+const (
+	defaultNodePreparationTimeout          = 5 * time.Minute
+	requestedDisconnectObservationWindow   = 10 * time.Second
+	requestedDisconnectObservationInterval = 1 * time.Second
+	requestedOffloadObservationWindow      = 10 * time.Second
+	requestedOffloadObservationInterval    = 1 * time.Second
+)
 
 type NodeManager interface {
 	PreparePodForOperation(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, sts *appsv1.StatefulSet, pods []corev1.Pod, pod corev1.Pod, purpose platformv1alpha1.NodeOperationPurpose, current platformv1alpha1.NodeOperationStatus, timeout time.Duration) (NodePreparationResult, error)
 }
 
 type NodePreparationResult struct {
-	Ready     bool
-	TimedOut  bool
-	Message   string
-	Operation platformv1alpha1.NodeOperationStatus
+	Ready      bool
+	TimedOut   bool
+	RequeueNow bool
+	Message    string
+	Operation  platformv1alpha1.NodeOperationStatus
 }
 
 type LiveNodeManager struct {
@@ -41,18 +50,14 @@ func (m *LiveNodeManager) PreparePodForOperation(ctx context.Context, _ *platfor
 		return NodePreparationResult{}, fmt.Errorf("NiFi client is not configured")
 	}
 
-	managementPod, err := selectManagementPod(pods, pod.Name)
-	if err != nil {
-		return NodePreparationResult{}, err
-	}
-	apiRequest, err := m.apiRequest(ctx, sts, managementPod)
+	apiRequest, nodes, err := m.lifecycleAPIRequest(ctx, sts, pods, pod.Name)
 	if err != nil {
 		return NodePreparationResult{}, err
 	}
 
 	operation := current
 	if operation.PodName == "" || operation.PodName != pod.Name || operation.Purpose != purpose {
-		node, err := m.resolvePodNode(ctx, apiRequest, sts, pod)
+		node, err := resolvePodNodeFromCluster(sts, pod, nodes)
 		if err != nil {
 			return NodePreparationResult{}, err
 		}
@@ -73,9 +78,13 @@ func (m *LiveNodeManager) PreparePodForOperation(ctx context.Context, _ *platfor
 		operation.StartedAt = &now
 	}
 
-	node, err := m.NiFiClient.GetNode(ctx, apiRequest, operation.NodeID)
+	node, err := m.nodeFromControlPlane(ctx, apiRequest, operation.NodeID, nodes)
 	if err != nil {
+		if disconnectedNode, ok := disconnectedNodeFromError(err, operation.NodeID); ok {
+			node = disconnectedNode
+		} else {
 		return NodePreparationResult{}, err
+		}
 	}
 
 	switch operation.Stage {
@@ -114,12 +123,12 @@ func (m *LiveNodeManager) progressDisconnecting(ctx context.Context, apiRequest 
 		}, nil
 	default:
 		if _, err := m.NiFiClient.UpdateNodeStatus(ctx, apiRequest, node.NodeID, nifi.NodeStatusDisconnecting); err != nil {
+			if result, handled, conflictErr := m.nodePreparationConflictResult(ctx, apiRequest, operation, err, timeout); handled {
+				return result, conflictErr
+			}
 			return NodePreparationResult{}, err
 		}
-		return NodePreparationResult{
-			Message:   fmt.Sprintf("Requested NiFi disconnect for node %s", node.NodeID),
-			Operation: operation,
-		}, nil
+		return m.observeDisconnectProgress(ctx, apiRequest, operation, timeout)
 	}
 }
 
@@ -138,12 +147,12 @@ func (m *LiveNodeManager) progressOffloading(ctx context.Context, apiRequest nif
 		}, nil
 	case nifi.NodeStatusDisconnected:
 		if _, err := m.NiFiClient.UpdateNodeStatus(ctx, apiRequest, node.NodeID, nifi.NodeStatusOffloading); err != nil {
+			if result, handled, conflictErr := m.nodePreparationConflictResult(ctx, apiRequest, operation, err, timeout); handled {
+				return result, conflictErr
+			}
 			return NodePreparationResult{}, err
 		}
-		return NodePreparationResult{
-			Message:   fmt.Sprintf("Requested NiFi offload for node %s", node.NodeID),
-			Operation: operation,
-		}, nil
+		return m.observeOffloadProgress(ctx, apiRequest, operation, timeout)
 	case nifi.NodeStatusDisconnecting:
 		now := metav1Now()
 		operation.Stage = platformv1alpha1.NodeOperationStageDisconnecting
@@ -160,12 +169,204 @@ func (m *LiveNodeManager) progressOffloading(ctx context.Context, apiRequest nif
 	}
 }
 
-func (m *LiveNodeManager) resolvePodNode(ctx context.Context, apiRequest nifi.APIRequest, sts *appsv1.StatefulSet, pod corev1.Pod) (nifi.ClusterNode, error) {
+func (m *LiveNodeManager) nodePreparationConflictResult(ctx context.Context, apiRequest nifi.APIRequest, operation platformv1alpha1.NodeOperationStatus, err error, timeout time.Duration) (NodePreparationResult, bool, error) {
+	var apiErr *nifi.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusConflict {
+		return NodePreparationResult{}, false, nil
+	}
+
+	refreshedNode, refreshErr := m.nodeFromControlPlane(ctx, apiRequest, operation.NodeID, nil)
+	if refreshErr != nil {
+		return NodePreparationResult{
+			RequeueNow: true,
+			Message:    fmt.Sprintf("Retrying NiFi node preparation for node %s after a conflict: %v", operation.NodeID, refreshErr),
+			Operation:  operation,
+		}, true, nil
+	}
+
+	switch operation.Stage {
+	case platformv1alpha1.NodeOperationStageDisconnecting:
+		switch refreshedNode.Status {
+		case nifi.NodeStatusDisconnected:
+			now := metav1Now()
+			operation.Stage = platformv1alpha1.NodeOperationStageOffloading
+			operation.StartedAt = &now
+			result, progressErr := m.progressOffloading(ctx, apiRequest, refreshedNode, operation, timeout)
+			return result, true, progressErr
+		case nifi.NodeStatusOffloading, nifi.NodeStatusOffloaded, nifi.NodeStatusRemoved:
+			now := metav1Now()
+			operation.Stage = platformv1alpha1.NodeOperationStageOffloading
+			operation.StartedAt = &now
+			return NodePreparationResult{
+				Message:   fmt.Sprintf("NiFi reported a disconnect conflict for node %s; refreshed state is %s", refreshedNode.NodeID, refreshedNode.Status),
+				Operation: operation,
+			}, true, nil
+		case nifi.NodeStatusDisconnecting:
+			return NodePreparationResult{
+				TimedOut:  nodeOperationTimedOut(operation, timeout),
+				Message:   fmt.Sprintf("NiFi reported a disconnect conflict for node %s; refreshed state is DISCONNECTING", refreshedNode.NodeID),
+				Operation: operation,
+			}, true, nil
+		default:
+			return NodePreparationResult{
+				Message:   fmt.Sprintf("NiFi reported a disconnect conflict for node %s; refreshed state is %s", refreshedNode.NodeID, refreshedNode.Status),
+				Operation: operation,
+			}, true, nil
+		}
+	case platformv1alpha1.NodeOperationStageOffloading:
+		switch refreshedNode.Status {
+		case nifi.NodeStatusOffloaded, nifi.NodeStatusRemoved:
+			return NodePreparationResult{
+				Ready:   true,
+				Message: fmt.Sprintf("NiFi node %s is %s and ready for %s", refreshedNode.NodeID, refreshedNode.Status, strings.ToLower(string(operation.Purpose))),
+			}, true, nil
+		case nifi.NodeStatusOffloading:
+			return NodePreparationResult{
+				TimedOut:  nodeOperationTimedOut(operation, timeout),
+				Message:   fmt.Sprintf("NiFi reported an offload conflict for node %s; refreshed state is OFFLOADING", refreshedNode.NodeID),
+				Operation: operation,
+			}, true, nil
+		case nifi.NodeStatusDisconnected:
+			return NodePreparationResult{
+				Ready:   true,
+				Message: fmt.Sprintf("NiFi node %s is DISCONNECTED after an offload conflict and ready for %s", refreshedNode.NodeID, strings.ToLower(string(operation.Purpose))),
+			}, true, nil
+		default:
+			now := metav1Now()
+			operation.Stage = platformv1alpha1.NodeOperationStageDisconnecting
+			operation.StartedAt = &now
+			return NodePreparationResult{
+				Message:   fmt.Sprintf("NiFi reported an offload conflict for node %s; refreshed state is %s", refreshedNode.NodeID, refreshedNode.Status),
+				Operation: operation,
+			}, true, nil
+		}
+	default:
+		return NodePreparationResult{
+			Message:   fmt.Sprintf("NiFi reported a node preparation conflict for node %s", refreshedNode.NodeID),
+			Operation: operation,
+		}, true, nil
+	}
+}
+
+func (m *LiveNodeManager) observeDisconnectProgress(ctx context.Context, apiRequest nifi.APIRequest, operation platformv1alpha1.NodeOperationStatus, timeout time.Duration) (NodePreparationResult, error) {
+	requestMessage := fmt.Sprintf("Requested NiFi disconnect for node %s", operation.NodeID)
+	deadline := time.Now().Add(requestedDisconnectObservationWindow)
+
+	for time.Now().Before(deadline) {
+		if err := sleepWithContext(ctx, requestedDisconnectObservationInterval); err != nil {
+			break
+		}
+
+		refreshedNode, err := m.nodeFromControlPlane(ctx, apiRequest, operation.NodeID, nil)
+		if err != nil {
+			if disconnectedNode, ok := disconnectedNodeFromError(err, operation.NodeID); ok {
+				refreshedNode = disconnectedNode
+			} else {
+				return NodePreparationResult{}, err
+			}
+		}
+
+		switch refreshedNode.Status {
+		case nifi.NodeStatusDisconnected, nifi.NodeStatusOffloading, nifi.NodeStatusOffloaded, nifi.NodeStatusRemoved:
+			now := metav1Now()
+			operation.Stage = platformv1alpha1.NodeOperationStageOffloading
+			operation.StartedAt = &now
+			return m.progressOffloading(ctx, apiRequest, refreshedNode, operation, timeout)
+		case nifi.NodeStatusDisconnecting:
+			continue
+		}
+	}
+
+	return NodePreparationResult{
+		RequeueNow: true,
+		Message:    requestMessage,
+		Operation:  operation,
+	}, nil
+}
+
+func (m *LiveNodeManager) observeOffloadProgress(ctx context.Context, apiRequest nifi.APIRequest, operation platformv1alpha1.NodeOperationStatus, timeout time.Duration) (NodePreparationResult, error) {
+	requestMessage := fmt.Sprintf("Requested NiFi offload for node %s", operation.NodeID)
+	deadline := time.Now().Add(requestedOffloadObservationWindow)
+
+	for time.Now().Before(deadline) {
+		if err := sleepWithContext(ctx, requestedOffloadObservationInterval); err != nil {
+			break
+		}
+
+		refreshedNode, err := m.nodeFromControlPlane(ctx, apiRequest, operation.NodeID, nil)
+		if err != nil {
+			if disconnectedNode, ok := disconnectedNodeFromError(err, operation.NodeID); ok {
+				refreshedNode = disconnectedNode
+			} else {
+				return NodePreparationResult{}, err
+			}
+		}
+
+		switch refreshedNode.Status {
+		case nifi.NodeStatusOffloaded, nifi.NodeStatusRemoved:
+			return NodePreparationResult{
+				Ready:   true,
+				Message: fmt.Sprintf("NiFi node %s is %s and ready for %s", refreshedNode.NodeID, refreshedNode.Status, strings.ToLower(string(operation.Purpose))),
+			}, nil
+		case nifi.NodeStatusOffloading:
+			continue
+		case nifi.NodeStatusDisconnected:
+			continue
+		}
+	}
+
+	return NodePreparationResult{
+		RequeueNow: true,
+		Message:    requestMessage,
+		Operation:  operation,
+	}, nil
+}
+
+func (m *LiveNodeManager) nodeFromControlPlane(ctx context.Context, apiRequest nifi.APIRequest, nodeID string, knownNodes []nifi.ClusterNode) (nifi.ClusterNode, error) {
+	if node, ok := clusterNodeByID(knownNodes, nodeID); ok {
+		return node, nil
+	}
+
 	nodes, err := m.NiFiClient.GetNodes(ctx, apiRequest)
 	if err != nil {
 		return nifi.ClusterNode{}, err
 	}
 
+	node, ok := clusterNodeByID(nodes, nodeID)
+	if !ok {
+		return nifi.ClusterNode{}, fmt.Errorf("could not find NiFi node %q in cluster control-plane view", nodeID)
+	}
+	return node, nil
+}
+
+func clusterNodeByID(nodes []nifi.ClusterNode, nodeID string) (nifi.ClusterNode, bool) {
+	for _, node := range nodes {
+		if node.NodeID == nodeID {
+			return node, true
+		}
+	}
+	return nifi.ClusterNode{}, false
+}
+
+func disconnectedNodeFromError(err error, nodeID string) (nifi.ClusterNode, bool) {
+	var apiErr *nifi.APIError
+	if !errors.As(err, &apiErr) {
+		return nifi.ClusterNode{}, false
+	}
+	if apiErr.StatusCode != http.StatusConflict {
+		return nifi.ClusterNode{}, false
+	}
+	if !strings.Contains(strings.ToLower(apiErr.Message), "not connected") {
+		return nifi.ClusterNode{}, false
+	}
+	return nifi.ClusterNode{
+		NodeID:  nodeID,
+		Status:  nifi.NodeStatusDisconnected,
+		Address: nodeID,
+	}, true
+}
+
+func resolvePodNodeFromCluster(sts *appsv1.StatefulSet, pod corev1.Pod, nodes []nifi.ClusterNode) (nifi.ClusterNode, error) {
 	targetAddress := podDNSName(sts, &pod)
 	targetHost := normalizeNodeAddress(targetAddress)
 	targetIP := normalizeNodeAddress(pod.Status.PodIP)
@@ -176,6 +377,49 @@ func (m *LiveNodeManager) resolvePodNode(ctx context.Context, apiRequest nifi.AP
 	}
 
 	return nifi.ClusterNode{}, fmt.Errorf("could not match pod %q to a NiFi node using address %q", pod.Name, targetAddress)
+}
+
+func (m *LiveNodeManager) lifecycleAPIRequest(ctx context.Context, sts *appsv1.StatefulSet, pods []corev1.Pod, targetPodName string) (nifi.APIRequest, []nifi.ClusterNode, error) {
+	ordered := append([]corev1.Pod(nil), pods...)
+	sortPodsByOrdinal(ordered)
+
+	var lastErr error
+	for _, pod := range ordered {
+		if pod.Name == targetPodName || pod.DeletionTimestamp != nil || !isPodReady(&pod) {
+			continue
+		}
+		apiRequest, nodes, err := m.inspectLifecycleSource(ctx, sts, pod)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		sourceNode, err := resolvePodNodeFromCluster(sts, pod, nodes)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if sourceNode.Status == nifi.NodeStatusConnected {
+			return apiRequest, nodes, nil
+		}
+		lastErr = fmt.Errorf("candidate lifecycle source pod %q maps to NiFi node %q in state %s", pod.Name, sourceNode.NodeID, sourceNode.Status)
+	}
+
+	if lastErr != nil {
+		return nifi.APIRequest{}, nil, lastErr
+	}
+	return nifi.APIRequest{}, nil, fmt.Errorf("no connected non-target pod is available for lifecycle control-plane calls")
+}
+
+func (m *LiveNodeManager) inspectLifecycleSource(ctx context.Context, sts *appsv1.StatefulSet, managementPod corev1.Pod) (nifi.APIRequest, []nifi.ClusterNode, error) {
+	apiRequest, err := m.apiRequest(ctx, sts, &managementPod)
+	if err != nil {
+		return nifi.APIRequest{}, nil, err
+	}
+	nodes, err := m.NiFiClient.GetNodes(ctx, apiRequest)
+	if err != nil {
+		return nifi.APIRequest{}, nil, err
+	}
+	return apiRequest, nodes, nil
 }
 
 func (m *LiveNodeManager) apiRequest(ctx context.Context, sts *appsv1.StatefulSet, managementPod *corev1.Pod) (nifi.APIRequest, error) {
@@ -194,25 +438,6 @@ func (m *LiveNodeManager) apiRequest(ctx context.Context, sts *appsv1.StatefulSe
 		Password:  auth.Password,
 		CACertPEM: caCert,
 	}, nil
-}
-
-func selectManagementPod(pods []corev1.Pod, targetPodName string) (*corev1.Pod, error) {
-	ordered := append([]corev1.Pod(nil), pods...)
-	sortPodsByOrdinal(ordered)
-
-	for i := range ordered {
-		if ordered[i].Name == targetPodName || ordered[i].DeletionTimestamp != nil || !isPodReady(&ordered[i]) {
-			continue
-		}
-		return &ordered[i], nil
-	}
-	for i := range ordered {
-		if ordered[i].DeletionTimestamp != nil || !isPodReady(&ordered[i]) {
-			continue
-		}
-		return &ordered[i], nil
-	}
-	return nil, fmt.Errorf("no Ready management pod is available")
 }
 
 func nodeOperationTimedOut(operation platformv1alpha1.NodeOperationStatus, timeout time.Duration) bool {

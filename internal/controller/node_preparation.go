@@ -42,6 +42,9 @@ func (r *NiFiClusterReconciler) preparePodForOperation(ctx context.Context, clus
 	}
 
 	r.markNodePreparationProgress(cluster, purpose, result.Message)
+	if result.RequeueNow {
+		return false, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
+	}
 	return false, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 }
 
