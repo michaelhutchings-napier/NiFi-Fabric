@@ -42,8 +42,14 @@ func (r *NiFiClusterReconciler) reconcileHibernation(ctx context.Context, cluste
 
 	currentReplicas := derefInt32(target.Spec.Replicas)
 	if currentReplicas > 0 {
-		if cluster.Status.Hibernation.LastRunningReplicas == 0 {
-			cluster.Status.Hibernation.LastRunningReplicas = currentReplicas
+		if shouldCaptureHibernationRestoreTarget(cluster) || cluster.Status.Hibernation.LastRunningReplicas == 0 {
+			restoreTarget := currentReplicas
+			if cluster.Status.Hibernation.BaselineReplicas > restoreTarget {
+				restoreTarget = cluster.Status.Hibernation.BaselineReplicas
+			}
+			if restoreTarget > cluster.Status.Hibernation.LastRunningReplicas {
+				cluster.Status.Hibernation.LastRunningReplicas = restoreTarget
+			}
 		}
 
 		clearNodeOperationIfPodMissing(cluster, pods)
@@ -160,6 +166,15 @@ func (r *NiFiClusterReconciler) reconcileHibernation(ctx context.Context, cluste
 	})
 	cluster.Status.LastOperation = succeededOperation("Hibernation", fmt.Sprintf("Cluster is hibernated with PVCs preserved; restore target is %d replicas", restoreReplicaFallback(cluster)))
 	return ctrl.Result{}, nil
+}
+
+func shouldCaptureHibernationRestoreTarget(cluster *platformv1alpha1.NiFiCluster) bool {
+	condition := cluster.GetCondition(platformv1alpha1.ConditionHibernated)
+	if condition == nil {
+		return true
+	}
+
+	return condition.Reason != "Hibernating" && condition.Reason != "Hibernated"
 }
 
 func (r *NiFiClusterReconciler) liveHibernationTargetState(ctx context.Context, target *appsv1.StatefulSet) (*appsv1.StatefulSet, []corev1.Pod, error) {

@@ -8,7 +8,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  validate:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -22,4 +22,7 @@ jobs:
       run: go test ./...
     - name: Helm lint
       run: helm lint charts/nifi
-
+    - name: Helm template examples
+      run: |
+        helm template nifi charts/nifi -f examples/standalone/values.yaml >/tmp/nifi-standalone.yaml
+        helm template nifi charts/nifi -f examples/managed/values.yaml >/tmp/nifi-managed.yaml

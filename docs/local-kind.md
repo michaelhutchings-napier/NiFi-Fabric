@@ -28,16 +28,23 @@ make kind-alpha-e2e
 The workflow currently:
 
 - creates a fresh kind cluster
+- preloads the NiFi runtime image into the kind node
 - installs the controller and managed chart
 - runs the per-pod health gate
 - exercises managed rollout, config drift, TLS observe-only, TLS restart-required, hibernation, and restore
 - checks controller metrics and Kubernetes events
 - fails fast and dumps diagnostics on the first failing stage
 
-Current limitation:
+The repo also includes phase-level fresh-kind targets:
 
-- the command is the intended private-alpha workflow, but it is not yet green end to end
-- the current blocker is repeated managed revision-rollout advancement after the first healthy replacement
+```bash
+make kind-e2e-rollout
+make kind-e2e-config-drift
+make kind-e2e-tls
+make kind-e2e-hibernate
+```
+
+Each target provisions a fresh cluster and runs only the minimum lifecycle slice needed for that phase.
 
 ## Prerequisites
 
@@ -55,6 +62,7 @@ Current limitation:
 
 ```bash
 make kind-up
+make kind-load-nifi-image
 make kind-secrets
 make helm-install-standalone
 make kind-health
@@ -152,6 +160,7 @@ Exact commands:
 
 ```bash
 make kind-up
+make kind-load-nifi-image
 make kind-secrets
 make install-crd
 make docker-build-controller
@@ -167,6 +176,12 @@ The full alpha path wraps these commands plus the drift and hibernation checks:
 
 ```bash
 make kind-alpha-e2e
+```
+
+For CI or local artifact capture:
+
+```bash
+ARTIFACT_DIR=$PWD/artifacts/alpha-debug make kind-e2e-tls
 ```
 
 To trigger a harmless template drift and watch the controller coordinate a rollout:
@@ -203,6 +218,25 @@ Final verification after the rollout settles:
 make kind-health
 kubectl -n nifi get nificluster nifi -o jsonpath='{.status.lastOperation.phase}{"\n"}{.status.lastOperation.message}{"\n"}'
 ```
+
+## Failure Diagnostics
+
+On any alpha-phase failure, the workflow now dumps:
+
+- `NiFiCluster` YAML and `describe`
+- target `StatefulSet` YAML
+- pod revision, readiness, UID, and deletion timestamps
+- full `describe pods`
+- controller logs
+- `nifi` and `nifi-system` events
+
+If `ARTIFACT_DIR` is set, those diagnostics are also written to files for CI upload.
+
+## Known Limitations
+
+- The workflow is a private-alpha confidence gate, not a production certification suite.
+- Local runs still assume pre-created TLS and auth Secrets.
+- `make kind-load-nifi-image` is part of the supported alpha path; if the chart image tag changes, update that helper to match.
 
 ## Managed Config Drift Verification
 

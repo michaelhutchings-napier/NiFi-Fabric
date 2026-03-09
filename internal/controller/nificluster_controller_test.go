@@ -1600,6 +1600,39 @@ func TestReconcileRecordsBaselineReplicasWhileRunning(t *testing.T) {
 	}
 }
 
+func TestReconcileDoesNotShrinkBaselineReplicasDuringPartialRestore(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Status.Hibernation.BaselineReplicas = 3
+
+	replicas := int32(2)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+	}
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		healthResponses: []healthResponse{{result: healthyResult(2)}},
+	}, cluster, statefulSet, &pods[0], &pods[1])
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != 0 {
+		t.Fatalf("expected steady state without requeue, got %s", result.RequeueAfter)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.Hibernation.BaselineReplicas != 3 {
+		t.Fatalf("expected baselineReplicas to remain 3, got %d", updatedCluster.Status.Hibernation.BaselineReplicas)
+	}
+}
+
 func TestReconcileResumesSafelyDuringHibernation(t *testing.T) {
 	ctx := context.Background()
 	cluster := managedCluster()
@@ -1632,6 +1665,92 @@ func TestReconcileResumesSafelyDuringHibernation(t *testing.T) {
 	progressing := updatedCluster.GetCondition(platformv1alpha1.ConditionProgressing)
 	if progressing == nil || progressing.Reason != "WaitingForScaleDown" {
 		t.Fatalf("expected WaitingForScaleDown progressing reason, got %#v", progressing)
+	}
+}
+
+func TestReconcileDoesNotShrinkLastRunningReplicasDuringHibernation(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.DesiredState = platformv1alpha1.DesiredStateHibernated
+	cluster.Status.Hibernation.LastRunningReplicas = 3
+
+	replicas := int32(2)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+	}
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		podReadyResponses: []error{nil},
+		healthResponses:   []healthResponse{{result: healthyResult(2)}},
+	}, cluster, statefulSet, &pods[0], &pods[1])
+	nodeManager := &fakeNodeManager{
+		responses: []nodePreparationResponse{{
+			result: NodePreparationResult{Ready: true, Message: "NiFi node node-1 is OFFLOADED and ready for hibernation"},
+		}},
+	}
+	reconciler.NodeManager = nodeManager
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected requeue after hibernation step, got %s", result.RequeueAfter)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.Hibernation.LastRunningReplicas != 3 {
+		t.Fatalf("expected lastRunningReplicas to remain 3, got %d", updatedCluster.Status.Hibernation.LastRunningReplicas)
+	}
+}
+
+func TestReconcileRecoversRestoreTargetFromBaselineDuringMidHibernation(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.DesiredState = platformv1alpha1.DesiredStateHibernated
+	cluster.Status.Hibernation.BaselineReplicas = 3
+	cluster.Status.Conditions = []metav1.Condition{{
+		Type:   platformv1alpha1.ConditionHibernated,
+		Status: metav1.ConditionFalse,
+		Reason: "Hibernating",
+	}}
+
+	replicas := int32(2)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+	}
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		podReadyResponses: []error{nil},
+		healthResponses:   []healthResponse{{result: healthyResult(2)}},
+	}, cluster, statefulSet, &pods[0], &pods[1])
+	reconciler.NodeManager = &fakeNodeManager{
+		responses: []nodePreparationResponse{{
+			result: NodePreparationResult{Ready: true, Message: "NiFi node node-1 is OFFLOADED and ready for hibernation"},
+		}},
+	}
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected requeue after hibernation step, got %s", result.RequeueAfter)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.Hibernation.LastRunningReplicas != 3 {
+		t.Fatalf("expected lastRunningReplicas to recover from baseline=3, got %d", updatedCluster.Status.Hibernation.LastRunningReplicas)
 	}
 }
 

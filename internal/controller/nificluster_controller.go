@@ -710,7 +710,7 @@ func (r *NiFiClusterReconciler) syncReplicaStatus(cluster *platformv1alpha1.NiFi
 		Ready:   target.Status.ReadyReplicas,
 		Updated: target.Status.UpdatedReplicas,
 	}
-	if cluster.Spec.DesiredState == platformv1alpha1.DesiredStateRunning && desiredReplicas > 0 {
+	if cluster.Spec.DesiredState == platformv1alpha1.DesiredStateRunning && desiredReplicas > cluster.Status.Hibernation.BaselineReplicas {
 		cluster.Status.Hibernation.BaselineReplicas = desiredReplicas
 	}
 

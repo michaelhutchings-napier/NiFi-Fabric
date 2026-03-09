@@ -2,6 +2,29 @@
 
 `nifi2-platform` is a thin, modern platform layer for running Apache NiFi 2.x on Kubernetes.
 
+## Private Alpha Quickstart
+
+Primary local gate:
+
+```bash
+make kind-alpha-e2e
+```
+
+Phase reruns:
+
+```bash
+make kind-e2e-rollout
+make kind-e2e-config-drift
+make kind-e2e-tls
+make kind-e2e-hibernate
+```
+
+CI entrypoints:
+
+- GitHub Actions workflow `alpha-e2e`
+- manual `workflow_dispatch` with target selection
+- nightly scheduled full run
+
 The project is intentionally hybrid:
 
 - Helm owns standard Kubernetes resources and NiFi configuration templating.
@@ -149,6 +172,7 @@ What is runnable now:
 
 - the standalone Helm chart can render and deploy a minimal real NiFi 2 cluster on kind
 - the repo has a single alpha workflow entrypoint: `make kind-alpha-e2e`
+- the repo has phase-level fresh-kind alpha targets for rollout, config drift, TLS, and hibernation debugging
 - the chart wires Kubernetes leader election and ConfigMap-backed cluster state settings through explicit NiFi configuration rather than hidden controller behavior
 - the chart mounts persistent repositories, config, Services, and probes suitable for a kind-focused local workflow
 - the repo includes a repeatable health-check flow that separates pod readiness, secured API reachability, and actual cluster convergence
@@ -163,11 +187,12 @@ What is still intentionally stubbed:
 - production-hardening of chart defaults, auth choices, and storage layouts
 - richer restore target memory than `status.hibernation.lastRunningReplicas` plus the current `1` replica fallback
 
-Current alpha limitation:
+Current alpha status:
 
-- the fresh-kind `make kind-alpha-e2e` workflow is in place and fail-fast, but it is not yet green end to end
-- the current blocker is managed revision rollout repetition after the first healthy replacement during `OnDelete` rollout coordination
-- treat the workflow as an active hardening target, not a release gate that already passes
+- `make kind-alpha-e2e` is green end to end and is the private-alpha gate
+- failures dump `NiFiCluster`, `StatefulSet`, pod revision and UID state, controller logs, and relevant events
+- CI can upload those diagnostics from `ARTIFACT_DIR` on failure
+- the fresh kind workflow preloads `apache/nifi:2.0.0` into the kind node before Helm install so bootstrap does not depend on an in-cluster registry pull
 
 Implementation note for this slice:
 
@@ -181,9 +206,10 @@ The exact local flow is documented in [docs/local-kind.md](docs/local-kind.md).
 Standalone short version:
 
 1. `make kind-up`
-2. `make kind-secrets`
-3. `make helm-install-standalone`
-4. `make kind-health`
+2. `make kind-load-nifi-image`
+3. `make kind-secrets`
+4. `make helm-install-standalone`
+5. `make kind-health`
 
 `make kind-health` is the authoritative local verification flow for this repository. It reports three distinct stages:
 
@@ -203,20 +229,21 @@ Treat those numbers as an observed baseline, not a hard SLA.
 Managed rollout short version:
 
 1. `make kind-up`
-2. `make kind-secrets`
-3. `make install-crd`
-4. `make docker-build-controller`
-5. `make kind-load-controller`
-6. `make deploy-controller`
-7. `kubectl -n nifi-system rollout status deployment/nifi2-platform-controller-manager --timeout=5m`
-8. `make helm-install-managed`
-9. `make apply-managed`
-10. `make kind-health`
-11. `helm upgrade --install nifi charts/nifi -n nifi -f examples/managed/values.yaml --reuse-values --set-string podAnnotations.rolloutNonce=$(date +%s)`
-12. `make kind-config-drift`
-13. `make kind-tls-drift`
-14. `make kind-hibernate`
-15. `make kind-restore`
+2. `make kind-load-nifi-image`
+3. `make kind-secrets`
+4. `make install-crd`
+5. `make docker-build-controller`
+6. `make kind-load-controller`
+7. `make deploy-controller`
+8. `kubectl -n nifi-system rollout status deployment/nifi2-platform-controller-manager --timeout=5m`
+9. `make helm-install-managed`
+10. `make apply-managed`
+11. `make kind-health`
+12. `helm upgrade --install nifi charts/nifi -n nifi -f examples/managed/values.yaml --reuse-values --set-string podAnnotations.rolloutNonce=$(date +%s)`
+13. `make kind-config-drift`
+14. `make kind-tls-drift`
+15. `make kind-hibernate`
+16. `make kind-restore`
 
 Private-alpha full path:
 
@@ -224,7 +251,74 @@ Private-alpha full path:
 
 The command provisions a fresh kind cluster, installs the managed chart and controller, runs the health gate, exercises managed rollout, config drift, TLS observe-only, TLS restart-required, hibernation, and restore, then checks controller metrics and events. It exits on the first failing stage and dumps diagnostics.
 
+Phase-level private-alpha paths:
+
+1. `make kind-e2e-rollout`
+2. `make kind-e2e-config-drift`
+3. `make kind-e2e-tls`
+4. `make kind-e2e-hibernate`
+
+Each target provisions a fresh kind cluster and runs only the minimum slice needed for that lifecycle area.
+
 On one clean kind run, the controller advanced the rollout in the expected order: `nifi-2`, then `nifi-1`, then `nifi-0`.
+
+## Proven Workflow Coverage
+
+The current private-alpha package is proven by:
+
+- `go test ./...`
+- `helm lint charts/nifi`
+- `helm template` for standalone and managed examples
+- `make kind-alpha-e2e`
+
+The end-to-end gate covers:
+
+- managed install
+- per-pod health gate
+- managed revision rollout
+- config drift rollout
+- TLS observe-only handling
+- TLS restart-required rollout
+- hibernation
+- restore
+- controller events and metrics presence
+
+## Known Limitations
+
+- This is still private-alpha quality, not production-hardening guidance.
+- cert-manager remains an external contract rather than a fully automated chart path.
+- restore still falls back to `1` replica only when neither `baselineReplicas` nor `lastRunningReplicas` is present.
+- OpenShift remains a secondary compatibility target behind AKS-first behavior and kind validation.
+- the repo directory name and Go module name are not yet fully aligned for a public release decision.
+- `make kind-alpha-e2e` currently assumes the alpha chart image stays aligned with `make kind-load-nifi-image`; update both together if the NiFi image tag changes.
+
+## Intentionally Out Of Scope
+
+- new CRDs beyond `NiFiCluster`
+- NiFi 1.x support
+- flow, user, policy, or registry management APIs
+- backup and restore orchestration
+- autoscaling
+- broader lifecycle scope than the existing managed restart, TLS, and hibernation behavior
+
+## Release Prep
+
+Version and tag guidance:
+
+- use explicit pre-release tags such as `v0.1.0-alpha.1`
+- tag only from commits that pass `make kind-alpha-e2e`
+- keep chart and controller version bumps aligned
+
+Private repo checklist:
+
+- confirm repo visibility before publishing any tag
+- confirm controller image name and registry path before adding release automation
+- keep CI artifact upload enabled for failed alpha runs
+- confirm the GitHub runner image still has Docker support for kind-based jobs
+
+Module and repo naming TODO:
+
+- if the final repository path changes, update [go.mod](/home/michael/Work/nifi2-platform/go.mod) and imports before the first non-alpha tag
 
 Managed watched-drift behavior:
 
@@ -316,6 +410,7 @@ Useful local commands:
 - `make test`
 - `make helm-lint`
 - `make kind-up`
+- `make kind-load-nifi-image`
 - `make kind-secrets`
 - `make install-crd`
 - `make docker-build-controller`

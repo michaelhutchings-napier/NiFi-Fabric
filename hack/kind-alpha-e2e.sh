@@ -8,6 +8,8 @@ NAMESPACE="${NAMESPACE:-nifi}"
 SYSTEM_NAMESPACE="${SYSTEM_NAMESPACE:-nifi-system}"
 HELM_RELEASE="${HELM_RELEASE:-nifi}"
 CONTROLLER_IMAGE="${CONTROLLER_IMAGE:-nifi2-platform-controller:dev}"
+ARTIFACT_DIR="${ARTIFACT_DIR:-}"
+PHASE="${PHASE:-full}"
 START_EPOCH="$(date +%s)"
 
 require_command() {
@@ -25,6 +27,59 @@ elapsed() {
   echo "$(( $(date +%s) - START_EPOCH ))"
 }
 
+usage() {
+  cat <<'EOF'
+Usage: hack/kind-alpha-e2e.sh [--phase full|rollout|config-drift|tls|hibernate] [--artifacts-dir DIR]
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --phase)
+      PHASE="${2:-}"
+      shift 2
+      ;;
+    --artifacts-dir)
+      ARTIFACT_DIR="${2:-}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "unknown argument: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+case "${PHASE}" in
+  full|rollout|config-drift|tls|hibernate)
+    ;;
+  *)
+    echo "invalid phase: ${PHASE}" >&2
+    usage
+    exit 1
+    ;;
+esac
+
+capture_cmd() {
+  local name="$1"
+  shift
+
+  if [[ -z "${ARTIFACT_DIR}" ]]; then
+    return 0
+  fi
+
+  mkdir -p "${ARTIFACT_DIR}"
+  {
+    echo "### ${name}"
+    "$@"
+  } >"${ARTIFACT_DIR}/${name}.log" 2>&1 || true
+}
+
 dump_diagnostics() {
   set +e
   echo
@@ -33,10 +88,26 @@ dump_diagnostics() {
   kubectl get ns || true
   kubectl -n "${SYSTEM_NAMESPACE}" get deployment,pod || true
   kubectl -n "${NAMESPACE}" get nificluster,statefulset,pod,pvc,secret,configmap || true
+  kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o yaml || true
   kubectl -n "${NAMESPACE}" describe nificluster "${HELM_RELEASE}" || true
-  kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 50 || true
-  kubectl -n "${SYSTEM_NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 50 || true
-  kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi2-platform-controller-manager --tail=200 || true
+  kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" -o yaml || true
+  kubectl -n "${NAMESPACE}" get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,REV:.metadata.labels.controller-revision-hash,UID:.metadata.uid,DEL:.metadata.deletionTimestamp || true
+  kubectl -n "${NAMESPACE}" describe pods || true
+  kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 100 || true
+  kubectl -n "${SYSTEM_NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 100 || true
+  kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi2-platform-controller-manager --tail=300 || true
+
+  capture_cmd cluster-info kubectl cluster-info --context "kind-${KIND_CLUSTER_NAME}"
+  capture_cmd namespaces kubectl get ns -o wide
+  capture_cmd system-workloads kubectl -n "${SYSTEM_NAMESPACE}" get deployment,pod -o wide
+  capture_cmd nificluster-yaml kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o yaml
+  capture_cmd nificluster-describe kubectl -n "${NAMESPACE}" describe nificluster "${HELM_RELEASE}"
+  capture_cmd statefulset-yaml kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" -o yaml
+  capture_cmd pods-summary kubectl -n "${NAMESPACE}" get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,REV:.metadata.labels.controller-revision-hash,UID:.metadata.uid,DEL:.metadata.deletionTimestamp
+  capture_cmd pods-describe kubectl -n "${NAMESPACE}" describe pods
+  capture_cmd nifi-events bash -lc "kubectl -n '${NAMESPACE}' get events --sort-by=.lastTimestamp | tail -n 200"
+  capture_cmd system-events bash -lc "kubectl -n '${SYSTEM_NAMESPACE}' get events --sort-by=.lastTimestamp | tail -n 200"
+  capture_cmd controller-logs kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi2-platform-controller-manager --tail=500
 }
 
 dump_tls_restart_diagnostics() {
@@ -47,6 +118,9 @@ dump_tls_restart_diagnostics() {
   kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o jsonpath='{.status.rollout.trigger}{"\n"}{.status.lastOperation.phase}{"\n"}{.status.lastOperation.message}{"\n"}{.status.nodeOperation.podName}{" "}{.status.nodeOperation.stage}{" "}{.status.nodeOperation.nodeID}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}' || true
   kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 80 || true
   kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi2-platform-controller-manager --tail=300 || true
+
+  capture_cmd tls-restart-status kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o yaml
+  capture_cmd tls-restart-pods kubectl -n "${NAMESPACE}" get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,REV:.metadata.labels.controller-revision-hash,UID:.metadata.uid,DEL:.metadata.deletionTimestamp
 }
 
 fail() {
@@ -208,105 +282,173 @@ verify_events() {
   fi
 }
 
+bootstrap_managed_cluster() {
+  log_step "creating a fresh kind cluster"
+  kind delete cluster --name "${KIND_CLUSTER_NAME}" >/dev/null 2>&1 || true
+  run_make kind-up
+  kubectl config use-context "kind-${KIND_CLUSTER_NAME}" >/dev/null
+  log_step "preloading the NiFi runtime image into kind"
+  run_make kind-load-nifi-image
+
+  log_step "installing controller prerequisites and the managed chart"
+  run_make kind-secrets
+  run_make install-crd
+  run_make docker-build-controller CONTROLLER_IMAGE="${CONTROLLER_IMAGE}"
+  run_make kind-load-controller CONTROLLER_IMAGE="${CONTROLLER_IMAGE}"
+  run_make deploy-controller
+  kubectl -n "${SYSTEM_NAMESPACE}" rollout status deployment/nifi2-platform-controller-manager --timeout=5m
+  run_make helm-install-managed
+  run_make apply-managed
+  run_make kind-health
+}
+
+run_phase_rollout() {
+  log_step "exercising a managed StatefulSet revision rollout"
+  rollout_uids_before="$(pod_uid_snapshot)"
+  (cd "${ROOT_DIR}" && helm upgrade --install "${HELM_RELEASE}" charts/nifi --namespace "${NAMESPACE}" -f examples/managed/values.yaml --reuse-values --set-string podAnnotations.rolloutNonce="$(date +%s)")
+  target_revision="$(sts_jsonpath '{.status.updateRevision}')"
+  wait_for_revision_rollout_observed "${target_revision}" || fail "managed rollout was not observed by the controller"
+  wait_for_revision_rollout_complete "${target_revision}" || fail "managed rollout did not finish"
+  run_make kind-health
+  assert_all_pods_changed "${rollout_uids_before}" "managed rollout"
+}
+
+run_phase_config_drift() {
+  log_step "exercising watched ConfigMap drift rollout"
+  config_hash_before="$(cluster_jsonpath '{.status.observedConfigHash}')"
+  config_uids_before="$(pod_uid_snapshot)"
+  run_make kind-config-drift
+  wait_for "config drift hash to advance" 900 bash -ec '
+    current="$(kubectl -n "'"${NAMESPACE}"'" get nificluster "'"${HELM_RELEASE}"'" -o jsonpath="{.status.observedConfigHash}")"
+    [[ -n "${current}" && "${current}" != "'"${config_hash_before}"'" ]]
+  '
+  wait_for_rollout_clear || fail "config drift rollout did not finish"
+  run_make kind-health
+  assert_all_pods_changed "${config_uids_before}" "config drift rollout"
+}
+
+run_phase_tls() {
+  log_step "exercising TLS observe-only drift handling"
+  kubectl -n "${NAMESPACE}" patch nificluster "${HELM_RELEASE}" --type merge -p '{"spec":{"restartPolicy":{"tlsDrift":"ObserveOnly"}}}' >/dev/null
+  tls_uids_before="$(pod_uid_snapshot)"
+  tls_hash_before="$(cluster_jsonpath '{.status.observedCertificateHash}')"
+  run_make kind-tls-drift
+  wait_for_tls_observed_hash "${tls_hash_before}" || fail "TLS observe-only path did not reconcile the certificate hash"
+  run_make kind-health
+  assert_pods_unchanged "${tls_uids_before}" "TLS observe-only drift"
+
+  log_step "exercising restart-required TLS drift handling"
+  tls_config_hash_before="$(cluster_jsonpath '{.status.observedTLSConfigurationHash}')"
+  tls_restart_uids_before="$(pod_uid_snapshot)"
+  run_make kind-tls-config-drift
+  wait_for "TLS configuration hash to advance" 900 bash -ec '
+    current="$(kubectl -n "'"${NAMESPACE}"'" get nificluster "'"${HELM_RELEASE}"'" -o jsonpath="{.status.observedTLSConfigurationHash}")"
+    [[ -n "${current}" && "${current}" != "'"${tls_config_hash_before}"'" ]]
+  '
+  if ! wait_for_rollout_clear; then
+    dump_tls_restart_diagnostics
+    fail "TLS restart-required rollout did not finish"
+  fi
+  run_make kind-health
+  assert_all_pods_changed "${tls_restart_uids_before}" "TLS restart-required rollout"
+}
+
+run_phase_hibernate() {
+  log_step "hibernating the managed cluster"
+  restore_target="$(cluster_jsonpath '{.status.hibernation.lastRunningReplicas}')"
+  if [[ -z "${restore_target}" || "${restore_target}" == "0" ]]; then
+    restore_target="$(cluster_jsonpath '{.status.hibernation.baselineReplicas}')"
+  fi
+  pvc_count_before="$(kubectl -n "${NAMESPACE}" get pvc --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+  run_make kind-hibernate
+  wait_for_hibernated || fail "hibernation did not complete"
+  pvc_count_after="$(kubectl -n "${NAMESPACE}" get pvc --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+  if [[ "${pvc_count_before}" != "${pvc_count_after}" ]]; then
+    fail "PVC count changed during hibernation (${pvc_count_before} -> ${pvc_count_after})"
+  fi
+
+  log_step "restoring the managed cluster"
+  run_make kind-restore
+  if [[ -z "${restore_target}" || "${restore_target}" == "0" ]]; then
+    restore_target="1"
+  fi
+  wait_for_restore_target "${restore_target}" || fail "restore target replicas were not applied"
+  run_make kind-health
+}
+
+verify_alpha_observability() {
+  log_step "verifying basic alpha observability"
+  verify_events
+  verify_metrics
+}
+
+print_success() {
+  echo
+  echo "PASS: ${PHASE} private-alpha workflow completed successfully in +$(elapsed)s"
+  case "${PHASE}" in
+    full)
+      echo "  managed install"
+      echo "  health check"
+      echo "  managed rollout"
+      echo "  config drift rollout"
+      echo "  TLS observe-only path"
+      echo "  TLS restart-required path"
+      echo "  hibernation"
+      echo "  restore"
+      ;;
+    rollout)
+      echo "  managed install"
+      echo "  health check"
+      echo "  managed rollout"
+      ;;
+    config-drift)
+      echo "  managed install"
+      echo "  health check"
+      echo "  config drift rollout"
+      ;;
+    tls)
+      echo "  managed install"
+      echo "  health check"
+      echo "  TLS observe-only path"
+      echo "  TLS restart-required path"
+      ;;
+    hibernate)
+      echo "  managed install"
+      echo "  health check"
+      echo "  hibernation"
+      echo "  restore"
+      ;;
+  esac
+}
+
 require_command kind
 require_command kubectl
 require_command helm
 require_command curl
 require_command grep
 
-log_step "creating a fresh kind cluster"
-kind delete cluster --name "${KIND_CLUSTER_NAME}" >/dev/null 2>&1 || true
-run_make kind-up
-kubectl config use-context "kind-${KIND_CLUSTER_NAME}" >/dev/null
+bootstrap_managed_cluster
 
-log_step "installing controller prerequisites and the managed chart"
-run_make kind-secrets
-run_make install-crd
-run_make docker-build-controller CONTROLLER_IMAGE="${CONTROLLER_IMAGE}"
-run_make kind-load-controller CONTROLLER_IMAGE="${CONTROLLER_IMAGE}"
-run_make deploy-controller
-kubectl -n "${SYSTEM_NAMESPACE}" rollout status deployment/nifi2-platform-controller-manager --timeout=5m
-run_make helm-install-managed
-run_make apply-managed
-run_make kind-health
+case "${PHASE}" in
+  rollout)
+    run_phase_rollout
+    ;;
+  config-drift)
+    run_phase_config_drift
+    ;;
+  tls)
+    run_phase_tls
+    ;;
+  hibernate)
+    run_phase_hibernate
+    ;;
+  full)
+    run_phase_rollout
+    run_phase_config_drift
+    run_phase_tls
+    run_phase_hibernate
+    ;;
+esac
 
-log_step "exercising a managed StatefulSet revision rollout"
-rollout_uids_before="$(pod_uid_snapshot)"
-(cd "${ROOT_DIR}" && helm upgrade --install "${HELM_RELEASE}" charts/nifi --namespace "${NAMESPACE}" -f examples/managed/values.yaml --reuse-values --set-string podAnnotations.rolloutNonce="$(date +%s)")
-target_revision="$(sts_jsonpath '{.status.updateRevision}')"
-wait_for_revision_rollout_observed "${target_revision}" || fail "managed rollout was not observed by the controller"
-wait_for_revision_rollout_complete "${target_revision}" || fail "managed rollout did not finish"
-run_make kind-health
-assert_all_pods_changed "${rollout_uids_before}" "managed rollout"
-
-log_step "exercising watched ConfigMap drift rollout"
-config_hash_before="$(cluster_jsonpath '{.status.observedConfigHash}')"
-config_uids_before="$(pod_uid_snapshot)"
-run_make kind-config-drift
-wait_for "config drift hash to advance" 900 bash -ec '
-  current="$(kubectl -n "'"${NAMESPACE}"'" get nificluster "'"${HELM_RELEASE}"'" -o jsonpath="{.status.observedConfigHash}")"
-  [[ -n "${current}" && "${current}" != "'"${config_hash_before}"'" ]]
-'
-wait_for_rollout_clear || fail "config drift rollout did not finish"
-run_make kind-health
-assert_all_pods_changed "${config_uids_before}" "config drift rollout"
-
-log_step "exercising TLS observe-only drift handling"
-kubectl -n "${NAMESPACE}" patch nificluster "${HELM_RELEASE}" --type merge -p '{"spec":{"restartPolicy":{"tlsDrift":"ObserveOnly"}}}' >/dev/null
-tls_uids_before="$(pod_uid_snapshot)"
-tls_hash_before="$(cluster_jsonpath '{.status.observedCertificateHash}')"
-run_make kind-tls-drift
-wait_for_tls_observed_hash "${tls_hash_before}" || fail "TLS observe-only path did not reconcile the certificate hash"
-run_make kind-health
-assert_pods_unchanged "${tls_uids_before}" "TLS observe-only drift"
-
-log_step "exercising restart-required TLS drift handling"
-tls_config_hash_before="$(cluster_jsonpath '{.status.observedTLSConfigurationHash}')"
-tls_restart_uids_before="$(pod_uid_snapshot)"
-run_make kind-tls-config-drift
-wait_for "TLS configuration hash to advance" 900 bash -ec '
-  current="$(kubectl -n "'"${NAMESPACE}"'" get nificluster "'"${HELM_RELEASE}"'" -o jsonpath="{.status.observedTLSConfigurationHash}")"
-  [[ -n "${current}" && "${current}" != "'"${tls_config_hash_before}"'" ]]
-'
-if ! wait_for_rollout_clear; then
-  dump_tls_restart_diagnostics
-  fail "TLS restart-required rollout did not finish"
-fi
-run_make kind-health
-assert_all_pods_changed "${tls_restart_uids_before}" "TLS restart-required rollout"
-
-log_step "hibernating the managed cluster"
-restore_target="$(cluster_jsonpath '{.status.hibernation.lastRunningReplicas}')"
-if [[ -z "${restore_target}" || "${restore_target}" == "0" ]]; then
-  restore_target="$(cluster_jsonpath '{.status.hibernation.baselineReplicas}')"
-fi
-pvc_count_before="$(kubectl -n "${NAMESPACE}" get pvc --no-headers 2>/dev/null | wc -l | tr -d ' ')"
-run_make kind-hibernate
-wait_for_hibernated || fail "hibernation did not complete"
-pvc_count_after="$(kubectl -n "${NAMESPACE}" get pvc --no-headers 2>/dev/null | wc -l | tr -d ' ')"
-if [[ "${pvc_count_before}" != "${pvc_count_after}" ]]; then
-  fail "PVC count changed during hibernation (${pvc_count_before} -> ${pvc_count_after})"
-fi
-
-log_step "restoring the managed cluster"
-run_make kind-restore
-if [[ -z "${restore_target}" || "${restore_target}" == "0" ]]; then
-  restore_target="1"
-fi
-wait_for_restore_target "${restore_target}" || fail "restore target replicas were not applied"
-run_make kind-health
-
-log_step "verifying basic alpha observability"
-verify_events
-verify_metrics
-
-echo
-echo "PASS: fresh-kind alpha e2e completed successfully in +$(elapsed)s"
-echo "  managed install"
-echo "  health check"
-echo "  managed rollout"
-echo "  config drift rollout"
-echo "  TLS observe-only path"
-echo "  TLS restart-required path"
-echo "  hibernation"
-echo "  restore"
+verify_alpha_observability
+print_success

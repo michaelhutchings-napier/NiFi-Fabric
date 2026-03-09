@@ -17,11 +17,12 @@ Completed in the scaffold:
 
 ## Next Steps
 
-1. Finish the managed `OnDelete` alpha hardening work so `make kind-alpha-e2e` passes on a fresh kind cluster.
-2. Fix the remaining restart-required TLS config-drift progression bug so `make kind-alpha-e2e` can complete past the TLS rollout phases and reach the already-fixed hibernation/restore path.
-3. Replace the hand-written CRD and deepcopy scaffolding with generated artifacts once controller-tools are introduced.
-4. Replace the local-development TLS Secret workflow with an optional cert-manager-backed chart path once the secret contract is stable.
-5. Expand CI to include envtest assets and kind-based smoke coverage.
+1. Keep `make kind-alpha-e2e` green as the private-alpha gate before broadening scope.
+2. Replace the hand-written CRD and deepcopy scaffolding with generated artifacts once controller-tools are introduced.
+3. Replace the local-development TLS Secret workflow with an optional cert-manager-backed chart path once the secret contract is stable.
+4. Expand CI only around the existing alpha gate and phase targets, not by adding new lifecycle scope.
+5. Keep `make kind-load-nifi-image` aligned with the chart NiFi image tag so fresh-kind alpha runs stay repeatable.
+6. Decide on the final repo and module naming before the first non-alpha tag.
 
 ## Current Managed Rollout Behavior
 
@@ -52,11 +53,11 @@ What is still intentionally deferred:
 - controller metrics and events beyond the minimal runtime defaults
 - richer restore target memory than `status.hibernation.lastRunningReplicas` with a `1` replica fallback
 
-Current alpha blocker:
+Current alpha gate:
 
-- managed revision rollout, ConfigDrift rollout, and the hibernation settle state machine are no longer the first blockers
-- the current fresh-kind blocker is the restart-required TLS drift path, which can stall in `PreparingNodeForRestart` while the target node is already disconnected and the controller has not yet advanced the final TLS rollout step
-- because that failure happens before hibernation in the full alpha workflow, `make kind-alpha-e2e` is still not fully green even though the hibernation progression tests are now green
+- `make kind-alpha-e2e` is the private-alpha release gate and currently passes on a fresh kind cluster
+- `make kind-e2e-rollout`, `make kind-e2e-config-drift`, `make kind-e2e-tls`, and `make kind-e2e-hibernate` are the intended first-line debugging targets
+- future alpha work should preserve those gates before adding scope
 
 Current watched-drift assumptions:
 

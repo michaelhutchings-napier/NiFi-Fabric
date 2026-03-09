@@ -10,8 +10,9 @@ LOCALBIN ?= $(PWD)/bin
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 ENVTEST_K8S_VERSION ?= 1.31.0
 CONTROLLER_IMAGE ?= nifi2-platform-controller:dev
+NIFI_IMAGE ?= apache/nifi:2.0.0
 
-.PHONY: fmt test test-unit test-envtest helm-lint run setup-envtest envtest-use kind-up kind-down kind-secrets kind-health kind-config-drift kind-tls-drift kind-tls-config-drift kind-tls-restart-e2e kind-hibernate kind-restore kind-alpha-e2e docker-build-controller kind-load-controller deploy-controller undeploy-controller install-crd helm-install-standalone helm-install-managed apply-managed
+.PHONY: fmt test test-unit test-envtest helm-lint run setup-envtest envtest-use kind-up kind-down kind-secrets kind-health kind-config-drift kind-tls-drift kind-tls-config-drift kind-tls-restart-e2e kind-hibernate kind-restore kind-alpha-e2e kind-e2e-rollout kind-e2e-config-drift kind-e2e-tls kind-e2e-hibernate docker-build-controller kind-load-controller kind-load-nifi-image deploy-controller undeploy-controller install-crd helm-install-standalone helm-install-managed apply-managed
 
 fmt:
 	$(GO) fmt ./...
@@ -45,6 +46,9 @@ kind-up:
 kind-down:
 	$(KIND) delete cluster --name $(KIND_CLUSTER_NAME)
 
+kind-load-nifi-image:
+	docker exec $(KIND_CLUSTER_NAME)-control-plane ctr -n k8s.io images pull --platform linux/amd64 docker.io/$(NIFI_IMAGE)
+
 kind-secrets:
 	bash hack/create-kind-secrets.sh $(NAMESPACE) $(HELM_RELEASE) nifi-tls nifi-auth
 
@@ -71,6 +75,18 @@ kind-restore:
 
 kind-alpha-e2e:
 	bash hack/kind-alpha-e2e.sh
+
+kind-e2e-rollout:
+	bash hack/kind-alpha-e2e.sh --phase rollout
+
+kind-e2e-config-drift:
+	bash hack/kind-alpha-e2e.sh --phase config-drift
+
+kind-e2e-tls:
+	bash hack/kind-alpha-e2e.sh --phase tls
+
+kind-e2e-hibernate:
+	bash hack/kind-alpha-e2e.sh --phase hibernate
 
 docker-build-controller:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -o bin/manager ./main.go

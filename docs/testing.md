@@ -75,6 +75,12 @@ Helm template tests should cover:
 kind-based integration should cover:
 
 - a single fresh-kind `make kind-alpha-e2e` path for private-alpha validation
+- preloading the NiFi runtime image into the fresh kind node so alpha validation is not gated by an in-cluster registry pull
+- phase-level fresh-kind reruns:
+  - `make kind-e2e-rollout`
+  - `make kind-e2e-config-drift`
+  - `make kind-e2e-tls`
+  - `make kind-e2e-hibernate`
 - fresh multi-node NiFi cluster formation without ZooKeeper
 - ConfigMap drift triggering a health-gated sequential rollout
 - TLS content drift resolving without restart when policy allows
@@ -104,4 +110,5 @@ The minimum acceptance suite should include:
 
 Current alpha note:
 
-- the repo has a concrete fresh-kind workflow, but the managed revision-rollout stage is still under hardening and is not yet consistently green end to end
+- the repo now has a green fresh-kind private-alpha workflow
+- CI should treat `make kind-alpha-e2e` as the gate and use the phase-level targets for faster diagnosis
