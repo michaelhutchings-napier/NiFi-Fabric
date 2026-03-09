@@ -51,6 +51,9 @@ tls:
     secretName: nifi-tls
     duration: 2160h
     renewBefore: 360h
+    # Leave empty to default the certificate subject to the Service FQDN.
+    # NiFi derives its node identity from the certificate subject, so cert-manager
+    # mode must not leave the subject empty.
     commonName: ""
     dnsNames: []
     usages:

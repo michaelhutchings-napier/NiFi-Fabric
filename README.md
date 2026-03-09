@@ -19,6 +19,12 @@ make kind-e2e-tls
 make kind-e2e-hibernate
 ```
 
+Focused cert-manager path:
+
+```bash
+make kind-cert-manager-e2e
+```
+
 CI entrypoints:
 
 - GitHub Actions workflow `alpha-e2e`
@@ -34,6 +40,8 @@ Exact local prerequisites for the current private alpha:
 - kubectl
 - Helm 3
 - Go
+- `curl`
+- `jq`
 - `openssl`
 - `python3`
 
@@ -259,6 +267,7 @@ What is runnable now:
 - the standalone Helm chart can render and deploy a minimal real NiFi 2 cluster on kind
 - the repo has a single alpha workflow entrypoint: `make kind-alpha-e2e`
 - the repo has phase-level fresh-kind alpha targets for rollout, config drift, TLS, and hibernation debugging
+- the repo has a focused fresh-kind cert-manager evaluation path: `make kind-cert-manager-e2e`
 - the chart wires Kubernetes leader election and ConfigMap-backed cluster state settings through explicit NiFi configuration rather than hidden controller behavior
 - the chart mounts persistent repositories, config, Services, and probes suitable for a kind-focused local workflow
 - the repo includes a repeatable health-check flow that separates pod readiness, secured API reachability, and actual cluster convergence
@@ -269,7 +278,7 @@ What is runnable now:
 
 What is still intentionally stubbed:
 
-- cert-manager renewal is documented and templated, but not yet part of the automated alpha gate
+- cert-manager has a focused kind evaluation path, but it is still separate from the main private-alpha gate
 - production-hardening of chart defaults, auth choices, and storage layouts
 - richer restore target memory than `status.hibernation.lastRunningReplicas` plus the current `1` replica fallback
 
@@ -301,6 +310,7 @@ Both modes keep the same mounted Secret name and TLS file paths in the pod:
 - the chart mounts exactly one TLS Secret and the controller does not rename it
 - the `StatefulSet` still mounts one TLS Secret at `/opt/nifi/tls`
 - NiFi still uses `keystore.p12`, `truststore.p12`, and `ca.crt` from that path
+- in cert-manager mode, `commonName` now defaults to `<release>.<namespace>.svc.cluster.local` so the certificate subject is never empty
 - the controller still treats ordinary TLS material renewal as watched certificate drift and applies the existing autoreload-first policy
 
 The controller does not create or mutate `Certificate` resources. Helm owns that resource; the controller only watches the resulting Secret material and decides whether TLS drift resolves through autoreload or requires a managed restart.
@@ -308,6 +318,26 @@ The controller does not create or mutate `Certificate` resources. Helm owns that
 ## Optional Cert-Manager Quickstart
 
 This path is not part of `make kind-alpha-e2e`, but the chart can now render and install cert-manager-managed TLS when cert-manager is already present in the cluster.
+
+There is now also a focused fresh-kind evaluator path for this mode:
+
+```bash
+make kind-cert-manager-e2e
+```
+
+That workflow:
+
+- creates a fresh kind cluster
+- installs cert-manager when needed
+- bootstraps a CA-backed `ClusterIssuer`
+- deploys the managed chart with [examples/cert-manager-values.yaml](/home/michael/Work/nifi2-platform/examples/cert-manager-values.yaml)
+- applies [examples/managed/nificluster.yaml](/home/michael/Work/nifi2-platform/examples/managed/nificluster.yaml)
+- verifies `Certificate/nifi` readiness and `Secret/nifi-tls` contents
+- verifies NiFi health with the same per-pod health gate
+- triggers a content-only renewal and verifies TLS observation resolves without restart
+- triggers a restart-required TLS config change and verifies the managed rollout still completes safely
+
+That path is now proven on a fresh kind cluster.
 
 Prerequisites beyond the normal managed quickstart:
 
@@ -438,6 +468,7 @@ The current private-alpha package is proven by:
 - `helm lint charts/nifi`
 - `helm template` for standalone and managed examples
 - `make kind-alpha-e2e`
+- `make kind-cert-manager-e2e`
 
 The end-to-end gate covers:
 
@@ -450,6 +481,13 @@ The end-to-end gate covers:
 - hibernation
 - restore
 - controller events and metrics presence
+
+The focused cert-manager path additionally covers:
+
+- cert-manager installation and issuer bootstrap on kind
+- `Certificate` readiness and target Secret population
+- content-only cert renewal with the current TLS observation policy
+- restart-required TLS config change while the chart still sources TLS from cert-manager
 
 ## Compatibility
 
@@ -471,6 +509,7 @@ Not yet covered by the automated gate:
 - NiFi image tags other than `2.0.0`
 - multi-node Kubernetes clusters outside kind
 - a cert-manager-backed end-to-end renewal flow
+- cert-manager coverage is focused and separate from the main alpha gate
 
 ## Private Alpha Release
 
@@ -490,12 +529,13 @@ Support and status expectations:
 ## Known Limitations
 
 - This is still private-alpha quality, not production-hardening guidance.
-- cert-manager is now chart-templated, but cert-manager installation and renewal verification are still manual.
+- cert-manager is now chart-templated and has a focused kind workflow, but it is not yet part of `make kind-alpha-e2e`.
 - restore still falls back to `1` replica only when neither `baselineReplicas` nor `lastRunningReplicas` is present.
 - OpenShift remains a secondary compatibility target behind AKS-first behavior and kind validation.
 - the repo directory name and Go module name are not yet fully aligned for a public release decision.
 - `make kind-alpha-e2e` currently assumes the alpha chart image stays aligned with `make kind-load-nifi-image`; update both together if the NiFi image tag changes.
 - cert-manager mode assumes the issuer writes `ca.crt`; without that, the chart's stable `truststore.p12` expectation is not satisfied.
+- the focused cert-manager workflow downloads `cmctl` on demand if it is not already installed.
 
 ## Intentionally Out Of Scope
 
@@ -661,6 +701,7 @@ Useful local commands:
 - `make kind-tls-config-drift`
 - `make kind-hibernate`
 - `make kind-restore`
+- `make kind-cert-manager-e2e`
 - `make helm-install-managed`
 - `make apply-managed`
 - `make run`
@@ -678,6 +719,12 @@ Manual cert-manager verification flow:
    - `kubectl -n nifi get pods -o custom-columns=NAME:.metadata.name,DEL:.metadata.deletionTimestamp,READY:.status.containerStatuses[0].ready`
 8. expect content-only renewal to enter the TLS observation window and resolve without pod deletion when health stays good
 9. expect a mount-path or Secret-ref change to trigger the existing one-pod-at-a-time managed rollout
+
+Focused cert-manager evaluator command:
+
+```bash
+make kind-cert-manager-e2e
+```
 
 ## References
 

@@ -8,6 +8,7 @@ There is also one optional TLS-source overlay:
   - Switches the chart from `tls.mode=externalSecret` to `tls.mode=certManager`.
   - Use it on top of either the standalone or managed Helm values when cert-manager is already installed.
   - Still requires a separate Secret for the PKCS12 password and `nifi.sensitive.props.key`.
+  - The focused fresh-kind evaluation command is `make kind-cert-manager-e2e`.
 
 ## Standalone
 

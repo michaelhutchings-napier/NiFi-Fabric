@@ -13,9 +13,7 @@ spec:
     group: {{ default "cert-manager.io" .Values.tls.certManager.issuerRef.group | quote }}
   duration: {{ .Values.tls.certManager.duration | quote }}
   renewBefore: {{ .Values.tls.certManager.renewBefore | quote }}
-  {{- if .Values.tls.certManager.commonName }}
-  commonName: {{ .Values.tls.certManager.commonName | quote }}
-  {{- end }}
+  commonName: {{ include "nifi.certManagerCommonName" . | quote }}
   dnsNames:
     - {{ include "nifi.fullname" . | quote }}
     - {{ printf "%s.%s.svc" (include "nifi.fullname" .) .Release.Namespace | quote }}

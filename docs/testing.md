@@ -75,6 +75,7 @@ Helm template tests should cover:
 kind-based integration should cover:
 
 - a single fresh-kind `make kind-alpha-e2e` path for private-alpha validation
+- a focused fresh-kind `make kind-cert-manager-e2e` path for cert-manager validation without changing the main alpha gate
 - preloading the NiFi runtime image into the fresh kind node so alpha validation is not gated by an in-cluster registry pull
 - phase-level fresh-kind reruns:
   - `make kind-e2e-rollout`
@@ -85,6 +86,9 @@ kind-based integration should cover:
 - ConfigMap drift triggering a health-gated sequential rollout
 - TLS content drift resolving without restart when policy allows
 - TLS configuration drift triggering a health-gated sequential rollout
+- cert-manager installation, issuer bootstrap, and `Certificate` readiness on kind
+- cert-manager renewal updating the mounted Secret without forcing restart when refs, paths, and passwords remain stable
+- restart-required TLS config change continuing to use the managed rollout path even when the TLS Secret is cert-manager-managed
 - image or template upgrade through the `OnDelete` coordinator
 - hibernation to zero and restore to the prior running size
 - controller restart during rollout and during hibernation
@@ -111,6 +115,8 @@ The minimum acceptance suite should include:
 Current alpha note:
 
 - the repo now has a green fresh-kind private-alpha workflow
+- the repo now also has a green fresh-kind `make kind-cert-manager-e2e` workflow
 - CI should treat `make kind-alpha-e2e` as the gate and use the phase-level targets for faster diagnosis
 - evaluator-facing examples and quickstarts should stay aligned with that same gate
-- cert-manager mode should at least render in CI via `helm template`, even though renewal remains a manual verification path today
+- cert-manager mode should still render in CI via `helm template`
+- the focused cert-manager path is an additional evaluation workflow, not a replacement for `make kind-alpha-e2e`

@@ -55,12 +55,20 @@ make kind-e2e-hibernate
 
 Each target provisions a fresh cluster and runs only the minimum lifecycle slice needed for that phase.
 
+There is also a focused cert-manager evaluator path:
+
+```bash
+make kind-cert-manager-e2e
+```
+
 ## Prerequisites
 
 - Docker
 - kind
 - kubectl
 - Helm 3
+- curl
+- jq
 - openssl
 - python3
 - Go
@@ -263,6 +271,7 @@ If `ARTIFACT_DIR` is set, those diagnostics are also written to files for CI upl
 - The workflow is a private-alpha confidence gate, not a production certification suite.
 - The default alpha path still assumes pre-created TLS and auth Secrets.
 - cert-manager installation and renewal are not part of `make kind-alpha-e2e`.
+- cert-manager now has its own focused kind workflow instead of being folded into the alpha gate.
 - `make kind-load-nifi-image` is part of the supported alpha path; if the chart image tag changes, update that helper to match.
 
 ## Optional Cert-Manager TLS Mode
@@ -278,6 +287,20 @@ The chart now supports:
   - the controller still owns only TLS drift observation and restart decisions
 
 This is intentionally not part of the automated alpha gate. Use it when cert-manager is already installed and you want the chart to manage `Certificate` resources without changing the controller model.
+
+If you want the repo to set up cert-manager for you on a fresh kind cluster, use:
+
+```bash
+make kind-cert-manager-e2e
+```
+
+That path installs cert-manager if needed, bootstraps the `nifi-ca` `ClusterIssuer`, deploys the managed chart with the cert-manager overlay, verifies renewal without restart, and then verifies a restart-required TLS config change.
+
+The chart now defaults cert-manager mode to a non-empty certificate subject:
+
+- `tls.certManager.commonName` defaults to `<release>.<namespace>.svc.cluster.local`
+- NiFi derives node identity from the certificate subject, so cert-manager mode must not leave it empty
+- override `tls.certManager.commonName` only when your issuer policy needs a different subject
 
 Manual prerequisites:
 
@@ -347,6 +370,12 @@ For ordinary renewal with unchanged Secret name, mount path, and PKCS12 password
 - `ConditionProgressing=True` with a TLS observation reason during the observation window
 - no pod deletion timestamps
 - `status.observedCertificateHash` to advance only after the controller accepts the renewed TLS material as steady state
+
+Focused cert-manager evaluator path:
+
+```bash
+make kind-cert-manager-e2e
+```
 
 ## Managed Config Drift Verification
 

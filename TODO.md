@@ -14,16 +14,16 @@ Completed in the scaffold:
 8. Policy-driven TLS drift handling with autoreload observation, restart-required TLS rollout decisions, and persisted TLS status.
 9. Managed hibernation and restore with persisted `status.hibernation.lastRunningReplicas` and health-gated restore completion.
 10. Example manifests, Makefile targets, kind config, and CI skeleton.
+11. Optional chart-managed cert-manager TLS source with a focused fresh-kind `make kind-cert-manager-e2e` proof path.
 
 ## Next Steps
 
 1. Keep `make kind-alpha-e2e` green as the private-alpha gate before broadening scope.
 2. Replace the hand-written CRD and deepcopy scaffolding with generated artifacts once controller-tools are introduced.
-3. Keep the new cert-manager chart path aligned with the existing external Secret contract and TLS policy docs without adding a second lifecycle path.
-4. Expand CI only around the existing alpha gate and phase targets, not by adding new lifecycle scope.
-5. Keep `make kind-load-nifi-image` aligned with the chart NiFi image tag so fresh-kind alpha runs stay repeatable.
-6. Decide on the final repo and module naming before the first non-alpha tag.
-7. Keep README quickstarts, [examples/README.md](/home/michael/Work/nifi2-platform/examples/README.md), `docs/local-kind.md`, and the cert-manager overlay docs aligned with the exact alpha gate and manual cert-manager commands.
+3. Decide whether the focused `make kind-cert-manager-e2e` path should stay local-only or later be promoted into a separate scheduled CI job without changing the main alpha gate.
+4. Keep `make kind-load-nifi-image` aligned with the chart NiFi image tag so fresh-kind alpha runs stay repeatable.
+5. Decide on the final repo and module naming before the first non-alpha tag.
+6. Keep README quickstarts, [examples/README.md](/home/michael/Work/nifi2-platform/examples/README.md), `docs/local-kind.md`, and the cert-manager overlay docs aligned with the exact alpha gate and manual cert-manager commands.
 
 ## Current Managed Rollout Behavior
 

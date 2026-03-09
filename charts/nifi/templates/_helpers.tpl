@@ -97,3 +97,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- fail "tls.certManager.pkcs12.passwordSecretRef.key is required when tls.mode=certManager and tls.certManager.pkcs12.password is empty" -}}
 {{- end -}}
 {{- end -}}
+
+{{- define "nifi.certManagerCommonName" -}}
+{{- if .Values.tls.certManager.commonName -}}
+{{- .Values.tls.certManager.commonName -}}
+{{- else -}}
+{{- printf "%s.%s.svc.cluster.local" (include "nifi.fullname" .) .Release.Namespace -}}
+{{- end -}}
+{{- end -}}
