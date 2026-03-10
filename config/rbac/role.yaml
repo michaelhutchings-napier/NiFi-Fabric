@@ -1,7 +1,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: nifi2-platform-controller-manager
+  name: nifi-fabric-controller-manager
 rules:
 - apiGroups:
   - platform.nifi.io

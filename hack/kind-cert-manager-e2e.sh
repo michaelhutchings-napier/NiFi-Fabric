@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-nifi2-platform-cert-manager}"
+KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-nifi-fabric-cert-manager}"
 NAMESPACE="${NAMESPACE:-nifi}"
 SYSTEM_NAMESPACE="${SYSTEM_NAMESPACE:-nifi-system}"
 HELM_RELEASE="${HELM_RELEASE:-nifi}"
@@ -11,7 +11,7 @@ TLS_SECRET_NAME="${TLS_SECRET_NAME:-nifi-tls}"
 TLS_PARAMS_SECRET_NAME="${TLS_PARAMS_SECRET_NAME:-nifi-tls-params}"
 CERT_MANAGER_NAMESPACE="${CERT_MANAGER_NAMESPACE:-cert-manager}"
 CERTIFICATE_NAME="${CERTIFICATE_NAME:-nifi}"
-CONTROLLER_IMAGE="${CONTROLLER_IMAGE:-nifi2-platform-controller:dev}"
+CONTROLLER_IMAGE="${CONTROLLER_IMAGE:-nifi-fabric-controller:dev}"
 LOCALBIN="${LOCALBIN:-${ROOT_DIR}/bin}"
 CMCTL_BIN="${CMCTL_BIN:-${LOCALBIN}/cmctl}"
 CMCTL_DOWNLOAD_URL="${CMCTL_DOWNLOAD_URL:-}"
@@ -198,7 +198,7 @@ dump_diagnostics() {
   kubectl -n "${NAMESPACE}" get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,REV:.metadata.labels.controller-revision-hash,UID:.metadata.uid,DEL:.metadata.deletionTimestamp || true
   kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 100 || true
   kubectl -n "${CERT_MANAGER_NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 100 || true
-  kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi2-platform-controller-manager --tail=300 || true
+  kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi-fabric-controller-manager --tail=300 || true
 
   capture_cmd cert-manager-workloads kubectl -n "${CERT_MANAGER_NAMESPACE}" get deployment,pod,issuer,certificate,certificaterequest,clusterissuer -o wide
   capture_cmd nificluster-yaml kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o yaml
@@ -209,8 +209,8 @@ dump_diagnostics() {
   capture_cmd pods-summary kubectl -n "${NAMESPACE}" get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,REV:.metadata.labels.controller-revision-hash,UID:.metadata.uid,DEL:.metadata.deletionTimestamp
   capture_cmd nifi-events bash -lc "kubectl -n '${NAMESPACE}' get events --sort-by=.lastTimestamp | tail -n 200"
   capture_cmd cert-manager-events bash -lc "kubectl -n '${CERT_MANAGER_NAMESPACE}' get events --sort-by=.lastTimestamp | tail -n 200"
-  capture_cmd controller-logs kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi2-platform-controller-manager --tail=500
-  capture_cmd controller-metrics bash -lc "kubectl -n '${SYSTEM_NAMESPACE}' port-forward deployment/nifi2-platform-controller-manager 18080:8080 >/tmp/nifi-cert-manager-metrics.log 2>&1 & pf=\$!; sleep 5; curl --silent --show-error --fail http://127.0.0.1:18080/metrics || true; kill \$pf >/dev/null 2>&1 || true; wait \$pf >/dev/null 2>&1 || true"
+  capture_cmd controller-logs kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi-fabric-controller-manager --tail=500
+  capture_cmd controller-metrics bash -lc "kubectl -n '${SYSTEM_NAMESPACE}' port-forward deployment/nifi-fabric-controller-manager 18080:8080 >/tmp/nifi-cert-manager-metrics.log 2>&1 & pf=\$!; sleep 5; curl --silent --show-error --fail http://127.0.0.1:18080/metrics || true; kill \$pf >/dev/null 2>&1 || true; wait \$pf >/dev/null 2>&1 || true"
 }
 
 log_step "creating a fresh kind cluster for cert-manager evaluation"
@@ -240,7 +240,7 @@ run_make install-crd
 run_make docker-build-controller
 run_make kind-load-controller
 run_make deploy-controller
-kubectl -n "${SYSTEM_NAMESPACE}" rollout status deployment/nifi2-platform-controller-manager --timeout=5m
+kubectl -n "${SYSTEM_NAMESPACE}" rollout status deployment/nifi-fabric-controller-manager --timeout=5m
 
 log_step "installing the managed chart with cert-manager TLS"
 (cd "${ROOT_DIR}" && helm upgrade --install "${HELM_RELEASE}" charts/nifi \

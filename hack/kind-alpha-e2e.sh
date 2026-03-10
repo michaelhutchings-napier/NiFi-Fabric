@@ -3,11 +3,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-nifi2-platform}"
+KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-nifi-fabric}"
 NAMESPACE="${NAMESPACE:-nifi}"
 SYSTEM_NAMESPACE="${SYSTEM_NAMESPACE:-nifi-system}"
 HELM_RELEASE="${HELM_RELEASE:-nifi}"
-CONTROLLER_IMAGE="${CONTROLLER_IMAGE:-nifi2-platform-controller:dev}"
+CONTROLLER_IMAGE="${CONTROLLER_IMAGE:-nifi-fabric-controller:dev}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-}"
 PHASE="${PHASE:-full}"
 START_EPOCH="$(date +%s)"
@@ -97,7 +97,7 @@ dump_diagnostics() {
   kubectl -n "${NAMESPACE}" describe pods || true
   kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 100 || true
   kubectl -n "${SYSTEM_NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 100 || true
-  kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi2-platform-controller-manager --tail=300 || true
+  kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi-fabric-controller-manager --tail=300 || true
 
   capture_cmd cluster-info kubectl cluster-info --context "kind-${KIND_CLUSTER_NAME}"
   capture_cmd namespaces kubectl get ns -o wide
@@ -111,8 +111,8 @@ dump_diagnostics() {
   capture_cmd pods-describe kubectl -n "${NAMESPACE}" describe pods
   capture_cmd nifi-events bash -lc "kubectl -n '${NAMESPACE}' get events --sort-by=.lastTimestamp | tail -n 200"
   capture_cmd system-events bash -lc "kubectl -n '${SYSTEM_NAMESPACE}' get events --sort-by=.lastTimestamp | tail -n 200"
-  capture_cmd controller-logs kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi2-platform-controller-manager --tail=500
-  capture_cmd controller-metrics bash -lc "kubectl -n '${SYSTEM_NAMESPACE}' port-forward deployment/nifi2-platform-controller-manager 18080:8080 >/tmp/nifi-alpha-metrics.log 2>&1 & pf=\$!; sleep 5; curl --silent --show-error --fail http://127.0.0.1:18080/metrics || true; kill \$pf >/dev/null 2>&1 || true; wait \$pf >/dev/null 2>&1 || true"
+  capture_cmd controller-logs kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi-fabric-controller-manager --tail=500
+  capture_cmd controller-metrics bash -lc "kubectl -n '${SYSTEM_NAMESPACE}' port-forward deployment/nifi-fabric-controller-manager 18080:8080 >/tmp/nifi-alpha-metrics.log 2>&1 & pf=\$!; sleep 5; curl --silent --show-error --fail http://127.0.0.1:18080/metrics || true; kill \$pf >/dev/null 2>&1 || true; wait \$pf >/dev/null 2>&1 || true"
 }
 
 dump_tls_restart_diagnostics() {
@@ -122,7 +122,7 @@ dump_tls_restart_diagnostics() {
   kubectl -n "${NAMESPACE}" get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,REV:.metadata.labels.controller-revision-hash,UID:.metadata.uid,DEL:.metadata.deletionTimestamp || true
   kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o jsonpath='{.status.rollout.trigger}{"\n"}{.status.lastOperation.phase}{"\n"}{.status.lastOperation.message}{"\n"}{.status.nodeOperation.podName}{" "}{.status.nodeOperation.stage}{" "}{.status.nodeOperation.nodeID}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}' || true
   kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 80 || true
-  kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi2-platform-controller-manager --tail=300 || true
+  kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi-fabric-controller-manager --tail=300 || true
 
   capture_cmd tls-restart-status kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o yaml
   capture_cmd tls-restart-pods kubectl -n "${NAMESPACE}" get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,REV:.metadata.labels.controller-revision-hash,UID:.metadata.uid,DEL:.metadata.deletionTimestamp
@@ -267,7 +267,7 @@ wait_for_restore_target() {
 
 verify_metrics() {
   local pf_pid=""
-  kubectl -n "${SYSTEM_NAMESPACE}" port-forward deployment/nifi2-platform-controller-manager 18080:8080 >/tmp/nifi-alpha-metrics.log 2>&1 &
+  kubectl -n "${SYSTEM_NAMESPACE}" port-forward deployment/nifi-fabric-controller-manager 18080:8080 >/tmp/nifi-alpha-metrics.log 2>&1 &
   pf_pid=$!
   sleep 5
   local metrics
@@ -307,7 +307,7 @@ bootstrap_managed_cluster() {
   run_make docker-build-controller CONTROLLER_IMAGE="${CONTROLLER_IMAGE}"
   run_make kind-load-controller CONTROLLER_IMAGE="${CONTROLLER_IMAGE}"
   run_make deploy-controller
-  kubectl -n "${SYSTEM_NAMESPACE}" rollout status deployment/nifi2-platform-controller-manager --timeout=5m
+  kubectl -n "${SYSTEM_NAMESPACE}" rollout status deployment/nifi-fabric-controller-manager --timeout=5m
   run_make helm-install-managed
   run_make apply-managed
   run_make kind-health

@@ -3,13 +3,13 @@ HELM ?= helm
 KIND ?= kind
 KUBECTL ?= kubectl
 
-KIND_CLUSTER_NAME ?= nifi2-platform
+KIND_CLUSTER_NAME ?= nifi-fabric
 NAMESPACE ?= nifi
 HELM_RELEASE ?= nifi
 LOCALBIN ?= $(PWD)/bin
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 ENVTEST_K8S_VERSION ?= 1.31.0
-CONTROLLER_IMAGE ?= nifi2-platform-controller:dev
+CONTROLLER_IMAGE ?= nifi-fabric-controller:dev
 NIFI_IMAGE ?= apache/nifi:2.0.0
 
 .PHONY: fmt test test-unit test-envtest helm-lint run setup-envtest envtest-use kind-up kind-down kind-secrets kind-health kind-config-drift kind-tls-drift kind-tls-config-drift kind-tls-restart-e2e kind-hibernate kind-restore kind-alpha-e2e kind-e2e-rollout kind-e2e-config-drift kind-e2e-tls kind-e2e-hibernate kind-bootstrap-cert-manager kind-cert-manager-secrets kind-cert-manager-e2e docker-build-controller kind-load-controller kind-load-nifi-image deploy-controller undeploy-controller install-crd helm-install-standalone helm-install-managed apply-managed

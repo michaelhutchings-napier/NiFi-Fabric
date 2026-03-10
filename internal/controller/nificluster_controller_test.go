@@ -18,8 +18,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	platformv1alpha1 "github.com/michaelhutchings-napier/nifi-made-simple/api/v1alpha1"
-	"github.com/michaelhutchings-napier/nifi-made-simple/internal/nifi"
+	platformv1alpha1 "github.com/michaelhutchings-napier/NiFi-Fabric/api/v1alpha1"
+	"github.com/michaelhutchings-napier/NiFi-Fabric/internal/nifi"
 )
 
 func TestBuildRolloutPlanSelectsHighestOrdinalOutdatedPod(t *testing.T) {
@@ -1075,12 +1075,12 @@ func TestReconcileResumesFinalOrdinalTLSRolloutWhenConflictRefreshReportsNotConn
 	}
 
 	tlsSecret := watchedSecret("nifi-tls", corev1.SecretTypeOpaque, map[string][]byte{
-		"tls.p12":             []byte("keystore"),
-		"truststore.p12":      []byte("truststore"),
-		"ca.crt":              []byte("ca"),
-		"keystorePassword":    []byte("changeit"),
-		"truststorePassword":  []byte("changeit"),
-		"sensitivePropsKey":   []byte("sensitive"),
+		"tls.p12":            []byte("keystore"),
+		"truststore.p12":     []byte("truststore"),
+		"ca.crt":             []byte("ca"),
+		"keystorePassword":   []byte("changeit"),
+		"truststorePassword": []byte("changeit"),
+		"sensitivePropsKey":  []byte("sensitive"),
 	})
 	authSecret := watchedSecret("nifi-auth", corev1.SecretTypeOpaque, map[string][]byte{
 		"username": []byte("admin"),

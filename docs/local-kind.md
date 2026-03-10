@@ -19,12 +19,12 @@ This flow is intentionally local-development oriented. It is not a production de
 
 Recommended example files:
 
-- standalone Helm values: [examples/standalone/values.yaml](/home/michael/Work/nifi2-platform/examples/standalone/values.yaml)
-- managed Helm values: [examples/managed/values.yaml](/home/michael/Work/nifi2-platform/examples/managed/values.yaml)
-- optional cert-manager TLS overlay: [examples/cert-manager-values.yaml](/home/michael/Work/nifi2-platform/examples/cert-manager-values.yaml)
-- managed `NiFiCluster`: [examples/managed/nificluster.yaml](/home/michael/Work/nifi2-platform/examples/managed/nificluster.yaml)
-- rollout trigger overlay: [examples/managed/rollout-trigger-values.yaml](/home/michael/Work/nifi2-platform/examples/managed/rollout-trigger-values.yaml)
-- hibernation example: [examples/managed/nificluster-hibernated.yaml](/home/michael/Work/nifi2-platform/examples/managed/nificluster-hibernated.yaml)
+- standalone Helm values: [examples/standalone/values.yaml](../examples/standalone/values.yaml)
+- managed Helm values: [examples/managed/values.yaml](../examples/managed/values.yaml)
+- optional cert-manager TLS overlay: [examples/cert-manager-values.yaml](../examples/cert-manager-values.yaml)
+- managed `NiFiCluster`: [examples/managed/nificluster.yaml](../examples/managed/nificluster.yaml)
+- rollout trigger overlay: [examples/managed/rollout-trigger-values.yaml](../examples/managed/rollout-trigger-values.yaml)
+- hibernation example: [examples/managed/nificluster-hibernated.yaml](../examples/managed/nificluster-hibernated.yaml)
 
 ## Private Alpha Workflow
 
@@ -183,7 +183,7 @@ make install-crd
 make docker-build-controller
 make kind-load-controller
 make deploy-controller
-kubectl -n nifi-system rollout status deployment/nifi2-platform-controller-manager --timeout=5m
+kubectl -n nifi-system rollout status deployment/nifi-fabric-controller-manager --timeout=5m
 make helm-install-managed
 make apply-managed
 make kind-health
@@ -251,14 +251,14 @@ kubectl -n nifi get pods -o custom-columns=NAME:.metadata.name,READY:.status.con
 kubectl -n nifi get nificluster nifi -o jsonpath='{.status.rollout.trigger}{"\n"}{.status.nodeOperation.podName}{" "}{.status.nodeOperation.stage}{" "}{.status.nodeOperation.nodeId}{"\n"}{.status.tls.observationStartedAt}{"\n"}{.status.hibernation.lastRunningReplicas}{"\n"}'
 kubectl -n nifi describe nificluster nifi
 kubectl -n nifi get events --field-selector involvedObject.kind=NiFiCluster,involvedObject.name=nifi --sort-by=.lastTimestamp
-kubectl -n nifi-system logs deployment/nifi2-platform-controller-manager --tail=200
+kubectl -n nifi-system logs deployment/nifi-fabric-controller-manager --tail=200
 kubectl -n nifi get events --sort-by=.lastTimestamp | tail -n 50
 ```
 
 Controller metrics quick check:
 
 ```bash
-kubectl -n nifi-system port-forward deployment/nifi2-platform-controller-manager 18080:8080
+kubectl -n nifi-system port-forward deployment/nifi-fabric-controller-manager 18080:8080
 curl --silent http://127.0.0.1:18080/metrics | rg 'nifi_platform_(lifecycle_transitions_total|rollouts_total|tls_actions_total|hibernation_operations_total|node_preparation_outcomes_total)'
 ```
 
@@ -374,7 +374,7 @@ make install-crd
 make docker-build-controller
 make kind-load-controller
 make deploy-controller
-kubectl -n nifi-system rollout status deployment/nifi2-platform-controller-manager --timeout=5m
+kubectl -n nifi-system rollout status deployment/nifi-fabric-controller-manager --timeout=5m
 helm upgrade --install nifi charts/nifi \
   -n nifi \
   --create-namespace \

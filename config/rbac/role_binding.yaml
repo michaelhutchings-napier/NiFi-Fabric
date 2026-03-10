@@ -1,13 +1,13 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: nifi2-platform-controller-manager
+  name: nifi-fabric-controller-manager
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: nifi2-platform-controller-manager
+  name: nifi-fabric-controller-manager
 subjects:
 - kind: ServiceAccount
-  name: nifi2-platform-controller-manager
+  name: nifi-fabric-controller-manager
   namespace: nifi-system
 

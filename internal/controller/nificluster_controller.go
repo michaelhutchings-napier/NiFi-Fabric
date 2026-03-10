@@ -21,8 +21,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	platformv1alpha1 "github.com/michaelhutchings-napier/nifi-made-simple/api/v1alpha1"
-	"github.com/michaelhutchings-napier/nifi-made-simple/internal/nifi"
+	platformv1alpha1 "github.com/michaelhutchings-napier/NiFi-Fabric/api/v1alpha1"
+	"github.com/michaelhutchings-napier/NiFi-Fabric/internal/nifi"
 )
 
 const rolloutPollRequeue = 5 * time.Second

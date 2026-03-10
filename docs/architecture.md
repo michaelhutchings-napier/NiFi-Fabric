@@ -2,7 +2,7 @@
 
 ## System Overview
 
-`nifi2-platform` separates declarative resource rendering from runtime safety orchestration.
+`NiFi-Fabric` separates declarative resource rendering from runtime safety orchestration.
 
 - Helm renders and upgrades the standard Kubernetes resources needed to run NiFi 2.x.
 - The optional controller watches the rendered workload and applies lifecycle rules that require live cluster state and ordered actions.

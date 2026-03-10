@@ -24,7 +24,7 @@ Completed in the scaffold:
 3. Decide whether the focused `make kind-cert-manager-e2e` path should stay local-only or later be promoted into a separate scheduled CI job without changing the main alpha gate.
 4. Keep `make kind-load-nifi-image` aligned with the chart NiFi image tag so fresh-kind alpha runs stay repeatable.
 5. Decide on the final repo and module naming before the first non-alpha tag.
-6. Keep README quickstarts, [examples/README.md](/home/michael/Work/nifi2-platform/examples/README.md), `docs/local-kind.md`, and the cert-manager overlay docs aligned with the exact alpha gate and manual cert-manager commands.
+6. Keep README quickstarts, [examples/README.md](examples/README.md), `docs/local-kind.md`, and the cert-manager overlay docs aligned with the exact alpha gate and manual cert-manager commands.
 7. Decide whether trust-manager is needed later as an optional extension for broader CA bundle distribution without changing the current chart or controller scope.
 
 ## Current Managed Rollout Behavior

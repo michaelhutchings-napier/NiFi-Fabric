@@ -12,8 +12,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	platformv1alpha1 "github.com/michaelhutchings-napier/nifi-made-simple/api/v1alpha1"
-	"github.com/michaelhutchings-napier/nifi-made-simple/internal/controller"
+	platformv1alpha1 "github.com/michaelhutchings-napier/NiFi-Fabric/api/v1alpha1"
+	"github.com/michaelhutchings-napier/NiFi-Fabric/internal/controller"
 )
 
 func main() {
@@ -44,7 +44,7 @@ func main() {
 		},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "nifi2-platform-controller",
+		LeaderElectionID:       "nifi-fabric-controller",
 	})
 	if err != nil {
 		ctrl.Log.WithName("setup").Error(err, "unable to start manager")

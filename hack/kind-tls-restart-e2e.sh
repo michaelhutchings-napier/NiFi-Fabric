@@ -3,11 +3,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-nifi2-platform}"
+KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-nifi-fabric}"
 NAMESPACE="${NAMESPACE:-nifi}"
 SYSTEM_NAMESPACE="${SYSTEM_NAMESPACE:-nifi-system}"
 HELM_RELEASE="${HELM_RELEASE:-nifi}"
-CONTROLLER_IMAGE="${CONTROLLER_IMAGE:-nifi2-platform-controller:dev}"
+CONTROLLER_IMAGE="${CONTROLLER_IMAGE:-nifi-fabric-controller:dev}"
 START_EPOCH="$(date +%s)"
 
 require_command() {
@@ -59,7 +59,7 @@ dump_tls_restart_diagnostics() {
   kubectl -n "${NAMESPACE}" get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,REV:.metadata.labels.controller-revision-hash,UID:.metadata.uid,DEL:.metadata.deletionTimestamp || true
   kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" -o jsonpath='{.spec.replicas}{"\n"}{.status.currentRevision}{"\n"}{.status.updateRevision}{"\n"}{.status.currentReplicas}{"\n"}{.status.updatedReplicas}{"\n"}{.status.readyReplicas}{"\n"}' || true
   kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 80 || true
-  kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi2-platform-controller-manager --tail=300 || true
+  kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi-fabric-controller-manager --tail=300 || true
 }
 
 fail() {
@@ -146,7 +146,7 @@ run_make install-crd
 run_make docker-build-controller CONTROLLER_IMAGE="${CONTROLLER_IMAGE}"
 run_make kind-load-controller CONTROLLER_IMAGE="${CONTROLLER_IMAGE}"
 run_make deploy-controller
-kubectl -n "${SYSTEM_NAMESPACE}" rollout status deployment/nifi2-platform-controller-manager --timeout=5m
+kubectl -n "${SYSTEM_NAMESPACE}" rollout status deployment/nifi-fabric-controller-manager --timeout=5m
 run_make helm-install-managed
 run_make apply-managed
 run_make kind-health

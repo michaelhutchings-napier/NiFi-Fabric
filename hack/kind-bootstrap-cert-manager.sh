@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-nifi2-platform}"
+KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-nifi-fabric}"
 CERT_MANAGER_NAMESPACE="${CERT_MANAGER_NAMESPACE:-cert-manager}"
 BOOTSTRAP_ISSUER_NAME="${BOOTSTRAP_ISSUER_NAME:-nifi-selfsigned-bootstrap}"
 ROOT_CA_CERT_NAME="${ROOT_CA_CERT_NAME:-nifi-root-ca}"

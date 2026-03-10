@@ -1,4 +1,4 @@
-module github.com/michaelhutchings-napier/nifi-made-simple
+module github.com/michaelhutchings-napier/NiFi-Fabric
 
 go 1.22.0
 

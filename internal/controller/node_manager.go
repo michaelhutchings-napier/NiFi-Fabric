@@ -13,8 +13,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	platformv1alpha1 "github.com/michaelhutchings-napier/nifi-made-simple/api/v1alpha1"
-	"github.com/michaelhutchings-napier/nifi-made-simple/internal/nifi"
+	platformv1alpha1 "github.com/michaelhutchings-napier/NiFi-Fabric/api/v1alpha1"
+	"github.com/michaelhutchings-napier/NiFi-Fabric/internal/nifi"
 )
 
 const (
@@ -83,7 +83,7 @@ func (m *LiveNodeManager) PreparePodForOperation(ctx context.Context, _ *platfor
 		if disconnectedNode, ok := disconnectedNodeFromError(err, operation.NodeID); ok {
 			node = disconnectedNode
 		} else {
-		return NodePreparationResult{}, err
+			return NodePreparationResult{}, err
 		}
 	}
 

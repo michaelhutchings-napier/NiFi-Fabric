@@ -1,6 +1,6 @@
-# nifi2-platform
+# NiFi-Fabric
 
-`nifi2-platform` is a thin, modern platform layer for running Apache NiFi 2.x on Kubernetes.
+`NiFi-Fabric` is a thin, modern platform layer for running Apache NiFi 2.x on Kubernetes.
 
 ## Project Summary
 
@@ -94,7 +94,7 @@ Supported evaluator paths:
 - focused cert-manager quickstart
 - full private-alpha gate with `make kind-alpha-e2e`
 
-Known limitations are called out below and in [docs/local-kind.md](/home/michael/Work/nifi2-platform/docs/local-kind.md).
+Known limitations are called out below and in [docs/local-kind.md](docs/local-kind.md).
 
 ## Evaluator Prerequisites
 
@@ -126,7 +126,7 @@ Recommended evaluator entrypoints:
 - Full private-alpha gate
   - use when you want the entire proven workflow on a fresh kind cluster
 
-Example files are indexed in [examples/README.md](/home/michael/Work/nifi2-platform/examples/README.md).
+Example files are indexed in [examples/README.md](examples/README.md).
 
 ## Standalone Quickstart
 
@@ -142,7 +142,7 @@ make kind-health
 
 Primary example:
 
-- [examples/standalone/values.yaml](/home/michael/Work/nifi2-platform/examples/standalone/values.yaml)
+- [examples/standalone/values.yaml](examples/standalone/values.yaml)
 
 ## Managed Quickstart
 
@@ -156,7 +156,7 @@ make install-crd
 make docker-build-controller
 make kind-load-controller
 make deploy-controller
-kubectl -n nifi-system rollout status deployment/nifi2-platform-controller-manager --timeout=5m
+kubectl -n nifi-system rollout status deployment/nifi-fabric-controller-manager --timeout=5m
 make helm-install-managed
 make apply-managed
 make kind-health
@@ -164,8 +164,8 @@ make kind-health
 
 Primary examples:
 
-- [examples/managed/values.yaml](/home/michael/Work/nifi2-platform/examples/managed/values.yaml)
-- [examples/managed/nificluster.yaml](/home/michael/Work/nifi2-platform/examples/managed/nificluster.yaml)
+- [examples/managed/values.yaml](examples/managed/values.yaml)
+- [examples/managed/nificluster.yaml](examples/managed/nificluster.yaml)
 
 ## Full Alpha Gate
 
@@ -416,8 +416,8 @@ That workflow:
 
 - creates a fresh kind cluster
 - bootstraps cert-manager and the evaluator CA issuer flow
-- deploys the managed chart with [examples/cert-manager-values.yaml](/home/michael/Work/nifi2-platform/examples/cert-manager-values.yaml)
-- applies [examples/managed/nificluster.yaml](/home/michael/Work/nifi2-platform/examples/managed/nificluster.yaml)
+- deploys the managed chart with [examples/cert-manager-values.yaml](examples/cert-manager-values.yaml)
+- applies [examples/managed/nificluster.yaml](examples/managed/nificluster.yaml)
 - verifies `Certificate/nifi` readiness and `Secret/nifi-tls` contents
 - verifies NiFi health with the same per-pod health gate
 - triggers a content-only renewal and verifies TLS observation resolves without restart
@@ -445,7 +445,7 @@ Prerequisites beyond the normal managed quickstart:
 
 Example overlay:
 
-- [examples/cert-manager-values.yaml](/home/michael/Work/nifi2-platform/examples/cert-manager-values.yaml)
+- [examples/cert-manager-values.yaml](examples/cert-manager-values.yaml)
 
 Example parameter Secret:
 
@@ -480,7 +480,7 @@ make install-crd
 make docker-build-controller
 make kind-load-controller
 make deploy-controller
-kubectl -n nifi-system rollout status deployment/nifi2-platform-controller-manager --timeout=5m
+kubectl -n nifi-system rollout status deployment/nifi-fabric-controller-manager --timeout=5m
 helm upgrade --install nifi charts/nifi \
   -n nifi \
   --create-namespace \
@@ -534,7 +534,7 @@ Managed rollout short version:
 5. `make docker-build-controller`
 6. `make kind-load-controller`
 7. `make deploy-controller`
-8. `kubectl -n nifi-system rollout status deployment/nifi2-platform-controller-manager --timeout=5m`
+8. `kubectl -n nifi-system rollout status deployment/nifi-fabric-controller-manager --timeout=5m`
 9. `make helm-install-managed`
 10. `make apply-managed`
 11. `make kind-health`
@@ -664,7 +664,7 @@ Private repo checklist:
 
 Module and repo naming TODO:
 
-- if the final repository path changes, update [go.mod](/home/michael/Work/nifi2-platform/go.mod) and imports before the first non-alpha tag
+- if the final repository path changes again, update [go.mod](go.mod) and imports before the first non-alpha tag
 
 Private-alpha release checklist:
 
@@ -727,9 +727,9 @@ Most useful debug commands:
 - `kubectl -n nifi get sts nifi -o custom-columns=NAME:.metadata.name,SPEC:.spec.replicas,READY:.status.readyReplicas,CURRENT:.status.currentRevision,UPDATE:.status.updateRevision`
 - `kubectl -n nifi get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,REV:.metadata.labels.controller-revision-hash,UID:.metadata.uid,DEL:.metadata.deletionTimestamp`
 - `kubectl -n nifi get events --field-selector involvedObject.kind=NiFiCluster,involvedObject.name=nifi --sort-by=.lastTimestamp`
-- `kubectl -n nifi-system logs deployment/nifi2-platform-controller-manager --tail=200`
+- `kubectl -n nifi-system logs deployment/nifi-fabric-controller-manager --tail=200`
 - `kubectl -n nifi get events --sort-by=.lastTimestamp | tail -n 50`
-- `kubectl -n nifi-system port-forward deployment/nifi2-platform-controller-manager 18080:8080`
+- `kubectl -n nifi-system port-forward deployment/nifi-fabric-controller-manager 18080:8080`
 - `curl --silent http://127.0.0.1:18080/metrics | rg 'nifi_platform_(lifecycle_transitions_total|rollouts_total|tls_actions_total|hibernation_operations_total|node_preparation_outcomes_total)'`
 - `make kind-health`
 

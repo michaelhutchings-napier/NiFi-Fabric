@@ -1,22 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nifi2-platform-controller-manager
+  name: nifi-fabric-controller-manager
   namespace: nifi-system
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: nifi2-platform-controller-manager
+      app.kubernetes.io/name: nifi-fabric-controller-manager
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: nifi2-platform-controller-manager
+        app.kubernetes.io/name: nifi-fabric-controller-manager
     spec:
-      serviceAccountName: nifi2-platform-controller-manager
+      serviceAccountName: nifi-fabric-controller-manager
       containers:
       - name: manager
-        image: nifi2-platform-controller:dev
+        image: nifi-fabric-controller:dev
         imagePullPolicy: Never
         args:
         - --leader-elect
