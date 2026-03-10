@@ -26,6 +26,7 @@ Completed in the scaffold:
 5. Decide on the final repo and module naming before the first non-alpha tag.
 6. Keep README quickstarts, [examples/README.md](examples/README.md), `docs/local-kind.md`, and the cert-manager overlay docs aligned with the exact alpha gate and manual cert-manager commands.
 7. Decide whether trust-manager is needed later as an optional extension for broader CA bundle distribution without changing the current chart or controller scope.
+8. Run the first real AKS and OpenShift evaluations before claiming anything beyond kind-based private-alpha coverage.
 
 ## Current Managed Rollout Behavior
 

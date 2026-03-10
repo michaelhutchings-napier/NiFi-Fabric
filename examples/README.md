@@ -2,6 +2,30 @@
 
 These are the four evaluator-facing examples for the current private alpha.
 
+There is also one AKS-prepared set of starting overlays:
+
+- [aks/standalone-values.yaml](aks/standalone-values.yaml)
+  - Prepared starting point for future AKS standalone evaluation.
+  - Not yet validated on a real AKS cluster.
+
+- [aks/managed-values.yaml](aks/managed-values.yaml)
+  - Prepared starting point for future AKS managed-mode evaluation.
+  - Compose with [cert-manager-values.yaml](cert-manager-values.yaml) if cert-manager already exists in the AKS cluster.
+  - Not yet validated on a real AKS cluster.
+
+There is also one OpenShift-prepared set of starting overlays:
+
+- [openshift/standalone-values.yaml](openshift/standalone-values.yaml)
+  - Prepared starting point for future OpenShift standalone evaluation.
+  - Keeps the Service internal and renders a passthrough Route.
+  - Not yet validated on a real OpenShift cluster.
+
+- [openshift/managed-values.yaml](openshift/managed-values.yaml)
+  - Prepared starting point for future OpenShift managed-mode evaluation.
+  - Keeps the Service internal, renders a passthrough Route, and relaxes fixed kind-style UID settings.
+  - Compose with [cert-manager-values.yaml](cert-manager-values.yaml) if cert-manager already exists in the OpenShift cluster.
+  - Not yet validated on a real OpenShift cluster.
+
 There is also one optional TLS-source overlay:
 
 - [cert-manager-values.yaml](cert-manager-values.yaml)

@@ -1,0 +1,26 @@
+{{- if .Values.openshift.route.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "nifi.fullname" . }}
+  labels:
+    {{- include "nifi.labels" . | nindent 4 }}
+  {{- with .Values.openshift.route.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.openshift.route.host }}
+  host: {{ . | quote }}
+  {{- end }}
+  to:
+    kind: Service
+    name: {{ include "nifi.fullname" . }}
+    weight: 100
+  port:
+    targetPort: https
+  wildcardPolicy: None
+  tls:
+    termination: {{ default "passthrough" .Values.openshift.route.tls.termination | quote }}
+    insecureEdgeTerminationPolicy: {{ default "None" .Values.openshift.route.tls.insecureEdgeTerminationPolicy | quote }}
+{{- end }}

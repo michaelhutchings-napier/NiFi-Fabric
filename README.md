@@ -93,8 +93,45 @@ Supported evaluator paths:
 - managed quickstart
 - focused cert-manager quickstart
 - full private-alpha gate with `make kind-alpha-e2e`
+- AKS readiness guide for future evaluation with [docs/aks.md](docs/aks.md)
+- OpenShift readiness guide for future evaluation with [docs/openshift.md](docs/openshift.md)
 
 Known limitations are called out below and in [docs/local-kind.md](docs/local-kind.md).
+
+## AKS Readiness
+
+AKS is a target platform, but it is not yet validated in this repository.
+
+What exists today:
+
+- an AKS readiness guide in [docs/aks.md](docs/aks.md)
+- AKS-oriented starting overlays in:
+  - [examples/aks/standalone-values.yaml](examples/aks/standalone-values.yaml)
+  - [examples/aks/managed-values.yaml](examples/aks/managed-values.yaml)
+
+What that means:
+
+- the chart and controller are prepared for a first AKS evaluation
+- the repository does not yet claim any successful AKS runtime test
+- kind remains the only proven automated runtime today
+
+## OpenShift Readiness
+
+OpenShift is a secondary target platform, but it is not yet validated in this repository.
+
+What exists today:
+
+- an OpenShift readiness guide in [docs/openshift.md](docs/openshift.md)
+- OpenShift-oriented starting overlays in:
+  - [examples/openshift/standalone-values.yaml](examples/openshift/standalone-values.yaml)
+  - [examples/openshift/managed-values.yaml](examples/openshift/managed-values.yaml)
+- chart-level Route rendering with passthrough termination as the first OpenShift readiness option
+
+What that means:
+
+- the chart is prepared for a first OpenShift evaluation
+- the repository does not yet claim any successful OpenShift runtime test
+- internal `ClusterIP` readiness remains the first validation step before trusting Route behavior
 
 ## Evaluator Prerequisites
 
@@ -599,8 +636,10 @@ The focused cert-manager path additionally covers:
 | Managed rollout model | proven | `StatefulSet` with `OnDelete` |
 | Persistent storage assumptions | proven on kind | PVC retention on scale-down and delete |
 | Cert-manager evaluator path | proven | separate `make kind-cert-manager-e2e` path |
-| AKS | not yet covered by automated gate | target platform, still pending runtime validation |
-| OpenShift | not yet covered by automated gate | friendly secondary target, not yet proven |
+| AKS readiness guide | prepared | see [docs/aks.md](docs/aks.md) and `examples/aks/*` |
+| AKS runtime validation | not yet covered by automated gate | target platform, still pending real cluster testing |
+| OpenShift readiness guide | prepared | see [docs/openshift.md](docs/openshift.md) and `examples/openshift/*` |
+| OpenShift runtime validation | not yet covered by automated gate | friendly secondary target, still pending real cluster testing |
 | Production guidance | not yet covered | private-alpha only |
 | Alternate NiFi image tags | not yet covered | no compatibility claim beyond `2.0.0` |
 
@@ -622,6 +661,8 @@ Support and status expectations:
 What is not yet proven for this release:
 
 - non-kind runtime behavior
+- AKS runtime behavior
+- OpenShift runtime behavior
 - production upgrade guidance
 - storage classes and network policies outside the current evaluator examples
 - cert-manager renewal as part of the main alpha gate instead of the focused evaluator flow
@@ -632,6 +673,8 @@ What is not yet proven for this release:
 - cert-manager is now chart-templated and has a focused kind workflow, but it is not yet part of `make kind-alpha-e2e`.
 - restore still falls back to `1` replica only when neither `baselineReplicas` nor `lastRunningReplicas` is present.
 - OpenShift remains a secondary compatibility target behind AKS-first behavior and kind validation.
+- OpenShift now has a readiness guide, Route template, and example overlays, but there is still no validated OpenShift runtime result in this repository.
+- AKS now has a readiness guide and example overlays, but there is still no validated AKS runtime result in this repository.
 - the repo directory name and Go module name are not yet fully aligned for a public release decision.
 - `make kind-alpha-e2e` currently assumes the alpha chart image stays aligned with `make kind-load-nifi-image`; update both together if the NiFi image tag changes.
 - cert-manager mode assumes the issuer writes `ca.crt`; without that, the chart's stable `truststore.p12` expectation is not satisfied.
@@ -732,6 +775,18 @@ Most useful debug commands:
 - `kubectl -n nifi-system port-forward deployment/nifi-fabric-controller-manager 18080:8080`
 - `curl --silent http://127.0.0.1:18080/metrics | rg 'nifi_platform_(lifecycle_transitions_total|rollouts_total|tls_actions_total|hibernation_operations_total|node_preparation_outcomes_total)'`
 - `make kind-health`
+
+Once an AKS cluster is available, start with:
+
+- `docs/aks.md`
+- `examples/aks/managed-values.yaml`
+- `bash hack/check-nifi-health.sh --namespace nifi --statefulset nifi --auth-secret nifi-auth`
+
+Once an OpenShift cluster is available, start with:
+
+- `docs/openshift.md`
+- `examples/openshift/managed-values.yaml`
+- `bash hack/check-nifi-health.sh --namespace nifi --statefulset nifi --auth-secret nifi-auth`
 
 Interpretation notes:
 

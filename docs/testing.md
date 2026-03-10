@@ -115,6 +115,8 @@ The minimum acceptance suite should include:
 - use Helm template tests for values-to-manifest behavior
 - use kind for end-to-end lifecycle behavior
 - add AKS smoke validation after kind coverage is stable
+- keep [docs/aks.md](aks.md) and `examples/aks/*` honest: prepared for evaluation, not validated, until a real AKS run is recorded
+- keep [docs/openshift.md](openshift.md) and `examples/openshift/*` honest: prepared for evaluation, not validated, until a real OpenShift run is recorded
 
 Current alpha note:
 

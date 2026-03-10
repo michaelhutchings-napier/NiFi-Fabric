@@ -92,6 +92,10 @@ openshift:
   route:
     enabled: false
     host: ""
+    annotations: {}
+    tls:
+      termination: passthrough
+      insecureEdgeTerminationPolicy: None
 
 serviceMonitor:
   enabled: false
