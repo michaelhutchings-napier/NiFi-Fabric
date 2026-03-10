@@ -12,7 +12,7 @@ ENVTEST_K8S_VERSION ?= 1.31.0
 CONTROLLER_IMAGE ?= nifi-fabric-controller:dev
 NIFI_IMAGE ?= apache/nifi:2.0.0
 
-.PHONY: fmt test test-unit test-envtest helm-lint run setup-envtest envtest-use kind-up kind-down kind-secrets kind-health kind-config-drift kind-tls-drift kind-tls-config-drift kind-tls-restart-e2e kind-hibernate kind-restore kind-alpha-e2e kind-e2e-rollout kind-e2e-config-drift kind-e2e-tls kind-e2e-hibernate kind-bootstrap-cert-manager kind-cert-manager-secrets kind-cert-manager-e2e docker-build-controller kind-load-controller kind-load-nifi-image deploy-controller undeploy-controller install-crd helm-install-standalone helm-install-managed apply-managed
+.PHONY: fmt test test-unit test-envtest helm-lint run setup-envtest envtest-use kind-up kind-down kind-secrets kind-health kind-config-drift kind-tls-drift kind-tls-config-drift kind-tls-restart-e2e kind-hibernate kind-restore kind-alpha-e2e kind-e2e-rollout kind-e2e-config-drift kind-e2e-tls kind-e2e-hibernate kind-bootstrap-cert-manager kind-cert-manager-secrets kind-cert-manager-e2e docker-build-controller kind-load-controller kind-load-nifi-image deploy-controller undeploy-controller install-crd helm-install-standalone helm-install-managed apply-managed install-standalone install-managed install-managed-cert-manager
 
 fmt:
 	$(GO) fmt ./...
@@ -125,3 +125,12 @@ helm-install-managed:
 
 apply-managed:
 	$(KUBECTL) apply -f examples/managed/nificluster.yaml
+
+install-standalone:
+	bash hack/install-standalone.sh
+
+install-managed:
+	bash hack/install-managed.sh
+
+install-managed-cert-manager:
+	bash hack/install-managed-cert-manager.sh

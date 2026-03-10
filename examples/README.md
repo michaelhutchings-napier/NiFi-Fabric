@@ -2,6 +2,12 @@
 
 These are the four evaluator-facing examples for the current private alpha.
 
+Recommended one-command evaluator installs:
+
+- standalone: `make install-standalone`
+- managed: `make install-managed`
+- managed + cert-manager: `make install-managed-cert-manager`
+
 There is also one AKS-prepared set of starting overlays:
 
 - [aks/standalone-values.yaml](aks/standalone-values.yaml)

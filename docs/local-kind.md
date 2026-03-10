@@ -75,7 +75,43 @@ make kind-cert-manager-e2e
 
 `keytool` is optional. If it is not installed locally, `hack/create-kind-secrets.sh` runs `keytool` in a disposable `apache/nifi:2.0.0` container.
 
+## One-Command Evaluator Installs
+
+Standalone:
+
+```bash
+make install-standalone
+```
+
+Managed:
+
+```bash
+make install-managed
+```
+
+Managed with cert-manager:
+
+```bash
+make install-managed-cert-manager
+```
+
+Each installer:
+
+- creates or reuses the local kind cluster
+- creates the required namespaces
+- installs CRDs, controller, and `NiFiCluster` only when that mode needs them
+- installs the chart
+- prints the next health and debug commands
+
 ## Standalone Commands
+
+One-command path:
+
+```bash
+make install-standalone
+```
+
+Verbose equivalent:
 
 ```bash
 make kind-up
@@ -173,7 +209,13 @@ The local image flow is intentionally simple:
 - `make docker-build-controller` builds `bin/manager` with the host Go toolchain
 - the Docker image uses a `scratch` runtime image and does not need to pull a base image for the local dev path
 
-Exact commands:
+One-command path:
+
+```bash
+make install-managed
+```
+
+Verbose equivalent:
 
 ```bash
 make kind-up
@@ -306,6 +348,12 @@ The chart now supports:
   - the controller still owns only TLS drift observation and restart decisions
 
 This is intentionally not part of the automated alpha gate. Use it when cert-manager is already installed and you want the chart to manage `Certificate` resources without changing the controller model.
+
+One-command path:
+
+```bash
+make install-managed-cert-manager
+```
 
 If you want the repo to set up cert-manager for you on a fresh kind cluster, use:
 

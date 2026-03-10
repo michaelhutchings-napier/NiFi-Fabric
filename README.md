@@ -157,9 +157,11 @@ Optional:
 Recommended evaluator entrypoints:
 
 - Standalone quickstart
-  - use when you only want Helm and a working NiFi 2 cluster
+  - one-command kind installer for Helm-only evaluation
 - Managed quickstart
-  - use when you want the controller, `NiFiCluster`, and lifecycle orchestration
+  - one-command kind installer for the controller, `NiFiCluster`, and lifecycle orchestration
+- Managed + cert-manager quickstart
+  - one-command kind installer for managed mode with separate cert-manager bootstrap
 - Full private-alpha gate
   - use when you want the entire proven workflow on a fresh kind cluster
 
@@ -167,7 +169,17 @@ Example files are indexed in [examples/README.md](examples/README.md).
 
 ## Standalone Quickstart
 
-Exact commands:
+One-command evaluator install:
+
+```bash
+make install-standalone
+```
+
+Primary example:
+
+- [examples/standalone/values.yaml](examples/standalone/values.yaml)
+
+Verbose equivalent:
 
 ```bash
 make kind-up
@@ -177,13 +189,20 @@ make helm-install-standalone
 make kind-health
 ```
 
-Primary example:
-
-- [examples/standalone/values.yaml](examples/standalone/values.yaml)
-
 ## Managed Quickstart
 
-Exact commands:
+One-command evaluator install:
+
+```bash
+make install-managed
+```
+
+Primary examples:
+
+- [examples/managed/values.yaml](examples/managed/values.yaml)
+- [examples/managed/nificluster.yaml](examples/managed/nificluster.yaml)
+
+Verbose equivalent:
 
 ```bash
 make kind-up
@@ -198,11 +217,6 @@ make helm-install-managed
 make apply-managed
 make kind-health
 ```
-
-Primary examples:
-
-- [examples/managed/values.yaml](examples/managed/values.yaml)
-- [examples/managed/nificluster.yaml](examples/managed/nificluster.yaml)
 
 ## Full Alpha Gate
 
@@ -423,6 +437,12 @@ cert-manager remains a cluster-level dependency. It is installed once per cluste
 
 This path is not part of `make kind-alpha-e2e`, but the chart can now render and install cert-manager-managed TLS when cert-manager is already present in the cluster.
 
+One-command evaluator install:
+
+```bash
+make install-managed-cert-manager
+```
+
 Bootstrap cert-manager and the evaluator issuer flow on kind:
 
 ```bash
@@ -461,6 +481,27 @@ That workflow:
 - triggers a restart-required TLS config change and verifies the managed rollout still completes safely
 
 That path is now proven on a fresh kind cluster.
+
+Verbose equivalent:
+
+```bash
+make kind-up
+make kind-load-nifi-image
+make kind-bootstrap-cert-manager
+make kind-cert-manager-secrets
+make install-crd
+make docker-build-controller
+make kind-load-controller
+make deploy-controller
+kubectl -n nifi-system rollout status deployment/nifi-fabric-controller-manager --timeout=5m
+helm upgrade --install nifi charts/nifi \
+  -n nifi \
+  --create-namespace \
+  -f examples/managed/values.yaml \
+  -f examples/cert-manager-values.yaml
+kubectl apply -f examples/managed/nificluster.yaml
+make kind-health
+```
 
 What is automated:
 
