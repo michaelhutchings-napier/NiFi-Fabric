@@ -4,14 +4,20 @@ set -euo pipefail
 
 CERT_MANAGER_NAMESPACE="${CERT_MANAGER_NAMESPACE:-cert-manager}"
 CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.19.2}"
+CERT_MANAGER_RELEASE_NAME="${CERT_MANAGER_RELEASE_NAME:-cert-manager}"
+CERT_MANAGER_REPO_NAME="${CERT_MANAGER_REPO_NAME:-jetstack}"
+CERT_MANAGER_REPO_URL="${CERT_MANAGER_REPO_URL:-https://charts.jetstack.io}"
 
-if kubectl -n "${CERT_MANAGER_NAMESPACE}" get deployment cert-manager >/dev/null 2>&1 \
-  && kubectl -n "${CERT_MANAGER_NAMESPACE}" get deployment cert-manager-webhook >/dev/null 2>&1 \
-  && kubectl -n "${CERT_MANAGER_NAMESPACE}" get deployment cert-manager-cainjector >/dev/null 2>&1; then
-  echo "cert-manager is already installed in namespace ${CERT_MANAGER_NAMESPACE}"
-else
-  kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
-fi
+helm repo add "${CERT_MANAGER_REPO_NAME}" "${CERT_MANAGER_REPO_URL}" --force-update >/dev/null
+helm repo update "${CERT_MANAGER_REPO_NAME}" >/dev/null
+
+helm upgrade --install "${CERT_MANAGER_RELEASE_NAME}" "${CERT_MANAGER_REPO_NAME}/cert-manager" \
+  --namespace "${CERT_MANAGER_NAMESPACE}" \
+  --create-namespace \
+  --version "${CERT_MANAGER_VERSION}" \
+  --set crds.enabled=true \
+  --wait \
+  --timeout 10m
 
 kubectl rollout status -n "${CERT_MANAGER_NAMESPACE}" deployment/cert-manager --timeout=5m
 kubectl rollout status -n "${CERT_MANAGER_NAMESPACE}" deployment/cert-manager-webhook --timeout=5m

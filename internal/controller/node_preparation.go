@@ -115,6 +115,7 @@ func (r *NiFiClusterReconciler) markNodePreparationProgress(cluster *platformv1a
 }
 
 func (r *NiFiClusterReconciler) markNodePreparationTimedOut(cluster *platformv1alpha1.NiFiCluster, purpose platformv1alpha1.NodeOperationPurpose, message string) {
+	recordNodePreparationOutcome(purpose, "timed_out")
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionAvailable,
 		Status:             metav1.ConditionFalse,
@@ -140,6 +141,7 @@ func (r *NiFiClusterReconciler) markNodePreparationTimedOut(cluster *platformv1a
 }
 
 func (r *NiFiClusterReconciler) markNodePreparationBlocked(cluster *platformv1alpha1.NiFiCluster, purpose platformv1alpha1.NodeOperationPurpose, message string) {
+	recordNodePreparationOutcome(purpose, "retrying")
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionAvailable,
 		Status:             metav1.ConditionFalse,

@@ -15,6 +15,7 @@ Completed in the scaffold:
 9. Managed hibernation and restore with persisted `status.hibernation.lastRunningReplicas` and health-gated restore completion.
 10. Example manifests, Makefile targets, kind config, and CI skeleton.
 11. Optional chart-managed cert-manager TLS source with a focused fresh-kind `make kind-cert-manager-e2e` proof path.
+12. Separate kind bootstrap path for cert-manager and evaluator issuer setup using the official Helm chart source.
 
 ## Next Steps
 
@@ -24,6 +25,7 @@ Completed in the scaffold:
 4. Keep `make kind-load-nifi-image` aligned with the chart NiFi image tag so fresh-kind alpha runs stay repeatable.
 5. Decide on the final repo and module naming before the first non-alpha tag.
 6. Keep README quickstarts, [examples/README.md](/home/michael/Work/nifi2-platform/examples/README.md), `docs/local-kind.md`, and the cert-manager overlay docs aligned with the exact alpha gate and manual cert-manager commands.
+7. Decide whether trust-manager is needed later as an optional extension for broader CA bundle distribution without changing the current chart or controller scope.
 
 ## Current Managed Rollout Behavior
 
@@ -51,13 +53,13 @@ Current rollout algorithm:
 
 What is still intentionally deferred:
 
-- controller metrics and events beyond the minimal runtime defaults
 - richer restore target memory than `status.hibernation.lastRunningReplicas` with a `1` replica fallback
 
 Current alpha gate:
 
 - `make kind-alpha-e2e` is the private-alpha release gate and currently passes on a fresh kind cluster
 - `make kind-e2e-rollout`, `make kind-e2e-config-drift`, `make kind-e2e-tls`, and `make kind-e2e-hibernate` are the intended first-line debugging targets
+- lifecycle events and metrics are now part of the supported debug surface and should stay stable while the alpha gate stays green
 - future alpha work should preserve those gates before adding scope
 
 Current watched-drift assumptions:

@@ -382,7 +382,29 @@ The controller does not create or mutate `Certificate` resources. Helm owns that
 
 ## Optional Cert-Manager Quickstart
 
+cert-manager remains a cluster-level dependency. It is installed once per cluster and is intentionally not embedded into the NiFi chart as a subchart.
+
 This path is not part of `make kind-alpha-e2e`, but the chart can now render and install cert-manager-managed TLS when cert-manager is already present in the cluster.
+
+Bootstrap cert-manager and the evaluator issuer flow on kind:
+
+```bash
+make kind-bootstrap-cert-manager
+```
+
+That bootstrap command:
+
+- installs cert-manager from the official `jetstack/cert-manager` Helm chart source
+- waits for cert-manager readiness
+- creates a self-signed bootstrap `Issuer`
+- mints a root CA `Certificate`
+- publishes the evaluator `ClusterIssuer/nifi-ca`
+
+The focused cert-manager evaluator then uses that issuer path end to end:
+
+- `Issuer/nifi-selfsigned-bootstrap`
+- `Certificate/nifi-root-ca`
+- `ClusterIssuer/nifi-ca`
 
 There is now also a focused fresh-kind evaluator path for this mode:
 
@@ -393,8 +415,7 @@ make kind-cert-manager-e2e
 That workflow:
 
 - creates a fresh kind cluster
-- installs cert-manager when needed
-- bootstraps a CA-backed `ClusterIssuer`
+- bootstraps cert-manager and the evaluator CA issuer flow
 - deploys the managed chart with [examples/cert-manager-values.yaml](/home/michael/Work/nifi2-platform/examples/cert-manager-values.yaml)
 - applies [examples/managed/nificluster.yaml](/home/michael/Work/nifi2-platform/examples/managed/nificluster.yaml)
 - verifies `Certificate/nifi` readiness and `Secret/nifi-tls` contents
@@ -404,10 +425,22 @@ That workflow:
 
 That path is now proven on a fresh kind cluster.
 
+What is automated:
+
+- cert-manager install on kind through the official Helm chart
+- evaluator issuer bootstrap
+- managed chart install with the cert-manager overlay
+- focused renewal and restart-required TLS exercises
+
+What is still manual outside the focused evaluator flow:
+
+- choosing a different issuer model for non-kind clusters
+- providing the stable Secret for PKCS12 passwords and `nifi.sensitive.props.key`
+- any trust-distribution story beyond the current `ca.crt` Secret contract
+
 Prerequisites beyond the normal managed quickstart:
 
-- cert-manager already installed
-- a working `Issuer` or `ClusterIssuer` that publishes `ca.crt`
+- a kind cluster
 - a stable Secret for the PKCS12 password and `nifi.sensitive.props.key`
 
 Example overlay:
@@ -441,6 +474,8 @@ helm upgrade --install nifi charts/nifi \
 Managed install with cert-manager:
 
 ```bash
+make kind-bootstrap-cert-manager
+make kind-cert-manager-secrets
 make install-crd
 make docker-build-controller
 make kind-load-controller
@@ -461,6 +496,7 @@ Cert-manager mode expectations:
 - NiFi autoreload can absorb that content-only TLS change
 - the controller records TLS drift and watches the same health gate it already uses for restart decisions
 - the controller restarts only when TLS policy or material configuration changes require it
+- trust-manager is not part of this evaluator package; if broader CA bundle distribution becomes necessary later, treat it as a future optional extension rather than part of the current chart or controller scope
 
 ## Local Kind Flow
 
@@ -687,11 +723,26 @@ Most useful debug commands:
 
 - `kubectl -n nifi get nificluster nifi -o yaml`
 - `kubectl -n nifi describe nificluster nifi`
+- `kubectl -n nifi get nificluster nifi -o jsonpath='{.status.rollout.trigger}{"\n"}{.status.nodeOperation.podName}{" "}{.status.nodeOperation.stage}{" "}{.status.nodeOperation.nodeId}{"\n"}{.status.tls.observationStartedAt}{"\n"}{.status.hibernation.lastRunningReplicas}{"\n"}'`
 - `kubectl -n nifi get sts nifi -o custom-columns=NAME:.metadata.name,SPEC:.spec.replicas,READY:.status.readyReplicas,CURRENT:.status.currentRevision,UPDATE:.status.updateRevision`
 - `kubectl -n nifi get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,REV:.metadata.labels.controller-revision-hash,UID:.metadata.uid,DEL:.metadata.deletionTimestamp`
+- `kubectl -n nifi get events --field-selector involvedObject.kind=NiFiCluster,involvedObject.name=nifi --sort-by=.lastTimestamp`
 - `kubectl -n nifi-system logs deployment/nifi2-platform-controller-manager --tail=200`
 - `kubectl -n nifi get events --sort-by=.lastTimestamp | tail -n 50`
+- `kubectl -n nifi-system port-forward deployment/nifi2-platform-controller-manager 18080:8080`
+- `curl --silent http://127.0.0.1:18080/metrics | rg 'nifi_platform_(lifecycle_transitions_total|rollouts_total|tls_actions_total|hibernation_operations_total|node_preparation_outcomes_total)'`
 - `make kind-health`
+
+Interpretation notes:
+
+- `Progressing=True` with `PreparingNodeForRestart` means the controller is still waiting on NiFi disconnect or offload and has not deleted the pod yet.
+- `Progressing=True` with `TLSAutoreloadObserving` means the controller detected certificate content drift and is waiting through the autoreload observation window before deciding whether restart is necessary.
+- `Rollout.trigger=StatefulSetRevision|ConfigDrift|TLSDrift` shows why the current managed restart is running.
+- `NodeOperation` is the safest place to see which pod and NiFi node the controller is preparing before restart or hibernation.
+- `nifi_platform_rollouts_total` and `nifi_platform_rollout_duration_seconds` show managed restart outcomes by trigger.
+- `nifi_platform_tls_actions_total` and `nifi_platform_tls_observation_duration_seconds` show whether TLS drift resolved through autoreload or escalated to restart.
+- `nifi_platform_hibernation_operations_total` and `nifi_platform_hibernation_duration_seconds` show hibernation and restore starts or completions.
+- `nifi_platform_node_preparation_outcomes_total` counts controller-observed node-preparation retries and timeouts; it is an attempt counter, not a unique-pod counter.
 
 Local drift verification commands:
 
@@ -783,8 +834,8 @@ Useful local commands:
 
 Manual cert-manager verification flow:
 
-1. install cert-manager and an issuer that publishes `ca.crt`
-2. create `Secret/nifi-tls-params` with the PKCS12 password and `sensitivePropsKey`
+1. run `make kind-bootstrap-cert-manager`
+2. run `make kind-cert-manager-secrets`
 3. install the chart with `-f examples/cert-manager-values.yaml`
 4. wait for `Certificate/nifi` and `Secret/nifi-tls` to become ready
 5. run `make kind-health`

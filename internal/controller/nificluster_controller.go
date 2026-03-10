@@ -36,6 +36,7 @@ type NiFiClusterReconciler struct {
 	HealthChecker ClusterHealthChecker
 	NodeManager   NodeManager
 	Recorder      record.EventRecorder
+	observability *observabilityState
 }
 
 func (r *NiFiClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

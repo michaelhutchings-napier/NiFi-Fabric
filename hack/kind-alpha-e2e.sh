@@ -89,8 +89,10 @@ dump_diagnostics() {
   kubectl -n "${SYSTEM_NAMESPACE}" get deployment,pod || true
   kubectl -n "${NAMESPACE}" get nificluster,statefulset,pod,pvc,secret,configmap || true
   kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o yaml || true
+  kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o jsonpath='{.status.lastOperation.phase}{"\n"}{.status.lastOperation.message}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}' || true
   kubectl -n "${NAMESPACE}" describe nificluster "${HELM_RELEASE}" || true
   kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" -o yaml || true
+  kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" -o jsonpath='{.spec.replicas}{"\n"}{.status.readyReplicas}{"\n"}{.status.currentRevision}{"\n"}{.status.updateRevision}{"\n"}' || true
   kubectl -n "${NAMESPACE}" get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,REV:.metadata.labels.controller-revision-hash,UID:.metadata.uid,DEL:.metadata.deletionTimestamp || true
   kubectl -n "${NAMESPACE}" describe pods || true
   kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 100 || true
@@ -101,13 +103,16 @@ dump_diagnostics() {
   capture_cmd namespaces kubectl get ns -o wide
   capture_cmd system-workloads kubectl -n "${SYSTEM_NAMESPACE}" get deployment,pod -o wide
   capture_cmd nificluster-yaml kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o yaml
+  capture_cmd nificluster-status kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o jsonpath='{.status.lastOperation.phase}{"\n"}{.status.lastOperation.message}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'
   capture_cmd nificluster-describe kubectl -n "${NAMESPACE}" describe nificluster "${HELM_RELEASE}"
   capture_cmd statefulset-yaml kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" -o yaml
+  capture_cmd statefulset-status kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" -o jsonpath='{.spec.replicas}{"\n"}{.status.readyReplicas}{"\n"}{.status.currentRevision}{"\n"}{.status.updateRevision}{"\n"}'
   capture_cmd pods-summary kubectl -n "${NAMESPACE}" get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,REV:.metadata.labels.controller-revision-hash,UID:.metadata.uid,DEL:.metadata.deletionTimestamp
   capture_cmd pods-describe kubectl -n "${NAMESPACE}" describe pods
   capture_cmd nifi-events bash -lc "kubectl -n '${NAMESPACE}' get events --sort-by=.lastTimestamp | tail -n 200"
   capture_cmd system-events bash -lc "kubectl -n '${SYSTEM_NAMESPACE}' get events --sort-by=.lastTimestamp | tail -n 200"
   capture_cmd controller-logs kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi2-platform-controller-manager --tail=500
+  capture_cmd controller-metrics bash -lc "kubectl -n '${SYSTEM_NAMESPACE}' port-forward deployment/nifi2-platform-controller-manager 18080:8080 >/tmp/nifi-alpha-metrics.log 2>&1 & pf=\$!; sleep 5; curl --silent --show-error --fail http://127.0.0.1:18080/metrics || true; kill \$pf >/dev/null 2>&1 || true; wait \$pf >/dev/null 2>&1 || true"
 }
 
 dump_tls_restart_diagnostics() {
@@ -265,10 +270,16 @@ verify_metrics() {
   kubectl -n "${SYSTEM_NAMESPACE}" port-forward deployment/nifi2-platform-controller-manager 18080:8080 >/tmp/nifi-alpha-metrics.log 2>&1 &
   pf_pid=$!
   sleep 5
-  if ! curl --silent --show-error --fail http://127.0.0.1:18080/metrics | grep -q 'nifi_platform_lifecycle_transitions_total'; then
+  local metrics
+  metrics="$(curl --silent --show-error --fail http://127.0.0.1:18080/metrics)"
+  if ! grep -q 'nifi_platform_lifecycle_transitions_total' <<<"${metrics}" || \
+     ! grep -q 'nifi_platform_rollouts_total' <<<"${metrics}" || \
+     ! grep -q 'nifi_platform_tls_actions_total' <<<"${metrics}" || \
+     ! grep -q 'nifi_platform_hibernation_operations_total' <<<"${metrics}" || \
+     ! grep -q 'nifi_platform_node_preparation_outcomes_total' <<<"${metrics}"; then
     kill "${pf_pid}" >/dev/null 2>&1 || true
     wait "${pf_pid}" >/dev/null 2>&1 || true
-    fail "controller metrics endpoint did not expose nifi_platform_lifecycle_transitions_total"
+    fail "controller metrics endpoint did not expose the expected lifecycle metric set"
   fi
   kill "${pf_pid}" >/dev/null 2>&1 || true
   wait "${pf_pid}" >/dev/null 2>&1 || true

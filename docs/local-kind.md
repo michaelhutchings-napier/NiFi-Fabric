@@ -248,10 +248,27 @@ Useful live debug commands:
 ```bash
 kubectl -n nifi get sts nifi -o custom-columns=NAME:.metadata.name,SPEC:.spec.replicas,READY:.status.readyReplicas,CURRENT:.status.currentRevision,UPDATE:.status.updateRevision
 kubectl -n nifi get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,REV:.metadata.labels.controller-revision-hash,UID:.metadata.uid,DEL:.metadata.deletionTimestamp
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.rollout.trigger}{"\n"}{.status.nodeOperation.podName}{" "}{.status.nodeOperation.stage}{" "}{.status.nodeOperation.nodeId}{"\n"}{.status.tls.observationStartedAt}{"\n"}{.status.hibernation.lastRunningReplicas}{"\n"}'
 kubectl -n nifi describe nificluster nifi
+kubectl -n nifi get events --field-selector involvedObject.kind=NiFiCluster,involvedObject.name=nifi --sort-by=.lastTimestamp
 kubectl -n nifi-system logs deployment/nifi2-platform-controller-manager --tail=200
 kubectl -n nifi get events --sort-by=.lastTimestamp | tail -n 50
 ```
+
+Controller metrics quick check:
+
+```bash
+kubectl -n nifi-system port-forward deployment/nifi2-platform-controller-manager 18080:8080
+curl --silent http://127.0.0.1:18080/metrics | rg 'nifi_platform_(lifecycle_transitions_total|rollouts_total|tls_actions_total|hibernation_operations_total|node_preparation_outcomes_total)'
+```
+
+Interpretation notes:
+
+- `Progressing=True` with reason `PreparingNodeForRestart` or `PreparingNodeForHibernation` means the controller is still in the NiFi disconnect or offload sequence and has not taken the destructive Kubernetes step yet.
+- `status.rollout.trigger` tells you whether the current managed restart was caused by StatefulSet revision drift, watched config drift, or TLS drift.
+- `status.nodeOperation` is the best single place to see which pod and NiFi node are currently being prepared.
+- `status.tls.observationStartedAt` plus `Progressing=TLSAutoreloadObserving` means the controller is intentionally waiting for NiFi autoreload before deciding whether restart is needed.
+- `nifi_platform_node_preparation_outcomes_total` counts retry and timeout observations, not unique pods.
 
 ## Failure Diagnostics
 
@@ -265,6 +282,8 @@ On any alpha-phase failure, the workflow now dumps:
 - `nifi` and `nifi-system` events
 
 If `ARTIFACT_DIR` is set, those diagnostics are also written to files for CI upload.
+
+The artifact bundle now includes concise `NiFiCluster` status, compact `StatefulSet` status, pod revision and UID state, recent events, controller logs, and a controller metrics snapshot in addition to the full YAML dumps.
 
 ## Known Limitations
 
@@ -291,6 +310,20 @@ This is intentionally not part of the automated alpha gate. Use it when cert-man
 If you want the repo to set up cert-manager for you on a fresh kind cluster, use:
 
 ```bash
+make kind-bootstrap-cert-manager
+```
+
+That bootstrap path:
+
+- installs cert-manager from the official `jetstack/cert-manager` Helm chart
+- waits for cert-manager controller, webhook, and cainjector readiness
+- creates the evaluator `Issuer/nifi-selfsigned-bootstrap`
+- creates `Certificate/nifi-root-ca`
+- creates `ClusterIssuer/nifi-ca`
+
+The focused end-to-end evaluator path then uses the same issuer contract:
+
+```bash
 make kind-cert-manager-e2e
 ```
 
@@ -304,7 +337,7 @@ The chart now defaults cert-manager mode to a non-empty certificate subject:
 
 Manual prerequisites:
 
-- cert-manager already installed
+- cert-manager already installed, or `make kind-bootstrap-cert-manager` already run
 - an `Issuer` or `ClusterIssuer` that publishes `ca.crt`
 - a stable Secret for the PKCS12 password and `nifi.sensitive.props.key`
 
@@ -335,6 +368,8 @@ helm upgrade --install nifi charts/nifi \
 Managed install:
 
 ```bash
+make kind-bootstrap-cert-manager
+make kind-cert-manager-secrets
 make install-crd
 make docker-build-controller
 make kind-load-controller
@@ -372,6 +407,25 @@ For ordinary renewal with unchanged Secret name, mount path, and PKCS12 password
 - `status.observedCertificateHash` to advance only after the controller accepts the renewed TLS material as steady state
 
 Focused cert-manager evaluator path:
+
+```bash
+make kind-bootstrap-cert-manager
+make kind-cert-manager-secrets
+```
+
+Minimal manual cert-manager evaluator path:
+
+```bash
+helm upgrade --install nifi charts/nifi \
+  -n nifi \
+  --create-namespace \
+  -f examples/managed/values.yaml \
+  -f examples/cert-manager-values.yaml
+kubectl apply -f examples/managed/nificluster.yaml
+make kind-health
+```
+
+Full focused cert-manager evaluator path:
 
 ```bash
 make kind-cert-manager-e2e

@@ -39,6 +39,7 @@ Current unit coverage in the scaffold includes:
 - hibernation removes the highest ordinal node only after NiFi disconnect and offload complete
 - node-preparation timeout keeps `status.nodeOperation` persisted and blocks destructive progress
 - NiFi access-token and cluster-summary request handling
+- lifecycle transition metrics for rollout, TLS observation, hibernation, and node-preparation retry or timeout paths
 
 ## controller-runtime `envtest`
 
@@ -75,6 +76,7 @@ Helm template tests should cover:
 kind-based integration should cover:
 
 - a single fresh-kind `make kind-alpha-e2e` path for private-alpha validation
+- a separate `make kind-bootstrap-cert-manager` path that installs cert-manager from the official Helm chart source and bootstraps the evaluator issuer flow without modifying the NiFi chart
 - a focused fresh-kind `make kind-cert-manager-e2e` path for cert-manager validation without changing the main alpha gate
 - preloading the NiFi runtime image into the fresh kind node so alpha validation is not gated by an in-cluster registry pull
 - phase-level fresh-kind reruns:
@@ -92,6 +94,8 @@ kind-based integration should cover:
 - image or template upgrade through the `OnDelete` coordinator
 - hibernation to zero and restore to the prior running size
 - controller restart during rollout and during hibernation
+- controller metrics exposure for rollout, TLS, hibernation, and node-preparation counters
+- Kubernetes events for `NiFiCluster` lifecycle transitions
 
 ## Upgrade, Restart, And Cert Rotation Cases
 
@@ -120,3 +124,5 @@ Current alpha note:
 - evaluator-facing examples and quickstarts should stay aligned with that same gate
 - cert-manager mode should still render in CI via `helm template`
 - the focused cert-manager path is an additional evaluation workflow, not a replacement for `make kind-alpha-e2e`
+- cert-manager itself remains a cluster dependency and should stay outside the NiFi chart
+- CI diagnostics should include compact `NiFiCluster` status, compact `StatefulSet` status, pod revision or UID state, recent events, controller logs, and a controller metrics snapshot before falling back to large YAML dumps

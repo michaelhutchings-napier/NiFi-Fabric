@@ -6,8 +6,9 @@ There is also one optional TLS-source overlay:
 
 - [examples/cert-manager-values.yaml](/home/michael/Work/nifi2-platform/examples/cert-manager-values.yaml)
   - Switches the chart from `tls.mode=externalSecret` to `tls.mode=certManager`.
-  - Use it on top of either the standalone or managed Helm values when cert-manager is already installed.
+  - Use it on top of either the standalone or managed Helm values when cert-manager and the `nifi-ca` issuer bootstrap are already installed.
   - Still requires a separate Secret for the PKCS12 password and `nifi.sensitive.props.key`.
+  - For kind evaluator setup, run `make kind-bootstrap-cert-manager` first.
   - The focused fresh-kind evaluation command is `make kind-cert-manager-e2e`.
 
 ## Standalone
