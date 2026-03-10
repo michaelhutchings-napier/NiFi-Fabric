@@ -2,6 +2,40 @@
 
 `nifi2-platform` is a thin, modern platform layer for running Apache NiFi 2.x on Kubernetes.
 
+## Project Summary
+
+This repository packages two evaluator paths around the same NiFi 2-first design:
+
+- a standalone Helm chart for teams that want plain Kubernetes resources and no controller dependency
+- an optional managed mode where a thin controller handles rollout safety, TLS drift policy, and hibernation against that same chart-managed `StatefulSet`
+
+It is intentionally not a NiFiKop clone. The current private-alpha focus is a small, explainable platform layer that another engineer can install, evaluate, and debug on kind without first learning a large custom API.
+
+## Hybrid Architecture Summary
+
+```mermaid
+flowchart LR
+    GitOps[GitOps or engineer] --> Helm[Helm chart]
+    Helm --> K8s[Kubernetes resources]
+    Helm --> CertMgr[cert-manager Certificate resources]
+    CertMgr --> TLSSecret[TLS Secret]
+    K8s --> NiFi[NiFi 2 cluster]
+    Controller[Thin controller] --> NiFiCluster[NiFiCluster CR]
+    Controller --> K8s
+    Controller --> NiFi
+    TLSSecret --> NiFi
+
+```
+
+Responsibilities are intentionally split:
+
+- Helm owns standard Kubernetes resources, NiFi config templating, PVCs, Services, Secret references, and optional cert-manager `Certificate` resources.
+- NiFi native behavior owns Kubernetes-based cluster coordination, shared state where configured, cluster join or rejoin behavior, and TLS autoreload capability.
+- The controller owns lifecycle and safety decisions Helm cannot do safely: status conditions, watched-drift observation, managed `OnDelete` rollout sequencing, TLS restart policy decisions, and hibernation or restore orchestration.
+- cert-manager owns certificate issuance and renewal when `tls.mode=certManager`; it does not own restart policy.
+
+This means ordinary certificate renewal is not treated as a restart-only operator workflow. Helm declares the `Certificate`, cert-manager renews the Secret, NiFi tries to absorb stable material changes through autoreload, and the controller only restarts when the existing TLS policy says a restart is required.
+
 ## Private Alpha Quickstart
 
 Primary local gate:
@@ -30,6 +64,37 @@ CI entrypoints:
 - GitHub Actions workflow `alpha-e2e`
 - manual `workflow_dispatch` with target selection
 - nightly scheduled full run
+
+## Private Alpha Release Notes
+
+What is proven:
+
+- standalone chart install on kind
+- managed install on kind
+- per-pod NiFi health gate
+- managed revision rollout
+- watched config-drift rollout
+- TLS observe-only path
+- restart-required TLS rollout
+- hibernation and restore
+- focused cert-manager evaluator path on kind
+
+What is not proven:
+
+- AKS runtime validation
+- OpenShift runtime validation
+- production-hardening guidance
+- NiFi image versions beyond the current tested tag
+- cert-manager as part of the main `make kind-alpha-e2e` gate
+
+Supported evaluator paths:
+
+- standalone quickstart
+- managed quickstart
+- focused cert-manager quickstart
+- full private-alpha gate with `make kind-alpha-e2e`
+
+Known limitations are called out below and in [docs/local-kind.md](/home/michael/Work/nifi2-platform/docs/local-kind.md).
 
 ## Evaluator Prerequisites
 
@@ -491,25 +556,17 @@ The focused cert-manager path additionally covers:
 
 ## Compatibility
 
-Tested with the current private-alpha gate:
-
-- NiFi image: `apache/nifi:2.0.0`
-- Helm chart example values in [examples/standalone/values.yaml](/home/michael/Work/nifi2-platform/examples/standalone/values.yaml) and [examples/managed/values.yaml](/home/michael/Work/nifi2-platform/examples/managed/values.yaml)
-- kind node image: `kindest/node:v1.31.0`
-- Kubernetes behavior expected by the gate:
-  - `StatefulSet` with `OnDelete` updates in managed mode
-  - direct pod DNS reachability
-  - PVC retention on scale-down and delete
-  - single-node kind control-plane cluster
-
-Not yet covered by the automated gate:
-
-- AKS runtime validation
-- OpenShift runtime validation
-- NiFi image tags other than `2.0.0`
-- multi-node Kubernetes clusters outside kind
-- a cert-manager-backed end-to-end renewal flow
-- cert-manager coverage is focused and separate from the main alpha gate
+| Area | Current private-alpha coverage | Notes |
+| --- | --- | --- |
+| NiFi image | `apache/nifi:2.0.0` | current tested image tag |
+| Kubernetes runtime | `kindest/node:v1.31.0` | single control-plane kind cluster |
+| Managed rollout model | proven | `StatefulSet` with `OnDelete` |
+| Persistent storage assumptions | proven on kind | PVC retention on scale-down and delete |
+| Cert-manager evaluator path | proven | separate `make kind-cert-manager-e2e` path |
+| AKS | not yet covered by automated gate | target platform, still pending runtime validation |
+| OpenShift | not yet covered by automated gate | friendly secondary target, not yet proven |
+| Production guidance | not yet covered | private-alpha only |
+| Alternate NiFi image tags | not yet covered | no compatibility claim beyond `2.0.0` |
 
 ## Private Alpha Release
 
@@ -525,6 +582,13 @@ Support and status expectations:
 - expect fast iteration and breaking changes between alpha tags
 - support expectations are best-effort engineering collaboration, not a production SLA
 - bugs should be reported with the failing command, `NiFiCluster` output, controller logs, and any `ARTIFACT_DIR` bundle
+
+What is not yet proven for this release:
+
+- non-kind runtime behavior
+- production upgrade guidance
+- storage classes and network policies outside the current evaluator examples
+- cert-manager renewal as part of the main alpha gate instead of the focused evaluator flow
 
 ## Known Limitations
 
@@ -565,6 +629,17 @@ Private repo checklist:
 Module and repo naming TODO:
 
 - if the final repository path changes, update [go.mod](/home/michael/Work/nifi2-platform/go.mod) and imports before the first non-alpha tag
+
+Private-alpha release checklist:
+
+- confirm `go test ./...` is green
+- confirm `helm lint charts/nifi` is green
+- confirm standalone, managed, and cert-manager overlay `helm template` renders are green
+- confirm `make kind-alpha-e2e` is green
+- confirm `make kind-cert-manager-e2e` is green
+- tag from the exact passing commit
+- record the tested NiFi image tag and kind node image in the release notes
+- confirm private repository visibility and image registry settings before sharing evaluator instructions
 
 Managed watched-drift behavior:
 
@@ -725,6 +800,10 @@ Focused cert-manager evaluator command:
 ```bash
 make kind-cert-manager-e2e
 ```
+
+## Trademark And Disclaimer
+
+Apache NiFi and NiFi are trademarks of The Apache Software Foundation. This project is independent and is not endorsed by, sponsored by, or affiliated with The Apache Software Foundation.
 
 ## References
 
