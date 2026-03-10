@@ -59,6 +59,13 @@ Focused cert-manager path:
 make kind-cert-manager-e2e
 ```
 
+Focused auth paths:
+
+```bash
+make kind-auth-oidc-e2e
+make kind-auth-ldap-e2e
+```
+
 CI entrypoints:
 
 - GitHub Actions workflow `alpha-e2e`
@@ -78,6 +85,8 @@ What is proven:
 - restart-required TLS rollout
 - hibernation and restore
 - focused cert-manager evaluator path on kind
+- focused OIDC evaluator path on kind
+- focused LDAP evaluator path on kind
 
 What is not proven:
 
@@ -92,6 +101,8 @@ Supported evaluator paths:
 - standalone quickstart
 - managed quickstart
 - focused cert-manager quickstart
+- focused OIDC auth quickstart
+- focused LDAP auth quickstart
 - full private-alpha gate with `make kind-alpha-e2e`
 - AKS readiness guide for future evaluation with [docs/aks.md](docs/aks.md)
 - OpenShift readiness guide for future evaluation with [docs/openshift.md](docs/openshift.md)
@@ -270,34 +281,83 @@ Provider-first summary:
 - the chart can seed NiFi application group names and bind policies to those groups.
 - initial admin bootstrap prefers `authz.bootstrap.initialAdminGroup`; `authz.bootstrap.initialAdminIdentity` remains the fallback path.
 - the controller remains uninvolved in authentication and authorization decisions.
+- the chart fails fast at render time for unsupported auth/authz pairings and missing required OIDC or LDAP bootstrap settings.
 
 What is proven today:
 
-- the existing kind evaluator path still targets `singleUser + fileManaged`
+- `singleUser + fileManaged` in the main kind alpha gate
+- focused OIDC runtime on kind:
+  - Keycloak bootstrap
+  - NiFi OIDC discovery and login wiring
+  - exact group-claim name configuration and seeded NiFi application-group prerequisites
+  - Initial Admin Identity fallback bootstrap
+  - authenticated non-admin denial checks
+- focused LDAP runtime on kind:
+  - LDAP bootstrap
+  - NiFi LDAP login provider and LDAP user or group provider wiring
+  - Initial Admin Identity bootstrap
+  - authenticated non-admin denial checks
 
-What is prepared, not validated:
+What is prepared, not yet runtime-proven:
 
-- OIDC with external group claims
-- LDAP login and LDAP group sync
-- any real IdP, LDAP, or enterprise SSO runtime behavior
+- OIDC custom non-admin group policy bindings from `authz.policies`
+- LDAP custom group-policy seeding beyond the focused bootstrap path
+- ingress-backed or Route-backed auth runtime behavior
+- any IdP or LDAP deployment outside the focused kind evaluators
 
 Prepared overlays:
 
 - [examples/oidc-values.yaml](examples/oidc-values.yaml)
 - [examples/oidc-group-claims-values.yaml](examples/oidc-group-claims-values.yaml)
+- [examples/oidc-external-url-values.yaml](examples/oidc-external-url-values.yaml)
 - [examples/ldap-values.yaml](examples/ldap-values.yaml)
+- [examples/ingress-proxy-host-values.yaml](examples/ingress-proxy-host-values.yaml)
+- [examples/openshift/route-proxy-host-values.yaml](examples/openshift/route-proxy-host-values.yaml)
 
 ### OIDC Group-Based Authorization
 
 `auth.mode=oidc` keeps authentication provider-first and avoids per-user provisioning.
 
 - NiFi authenticates users through OIDC.
+- the chart renders `nifi.security.user.oidc.*` properties directly into `nifi.properties`.
 - NiFi reads one identifying user claim and one groups claim from the token.
 - the chart seeds NiFi application group names locally.
 - file-managed policies bind to those group names.
 - token group names must match the seeded NiFi application groups exactly.
+- the public HTTPS host used for the browser redirect must also be present in `web.proxyHosts`.
+
+Required values for the prepared path:
+
+- `auth.oidc.discoveryUrl`
+- `auth.oidc.clientId`
+- `auth.oidc.clientSecret.existingSecret`
+- `auth.oidc.claims.identifyingUser`
+- `auth.oidc.claims.groups`
 
 Use [examples/oidc-values.yaml](examples/oidc-values.yaml) with [examples/oidc-group-claims-values.yaml](examples/oidc-group-claims-values.yaml) as the starting point.
+
+Focused kind proof path:
+
+```bash
+make kind-auth-oidc-e2e
+```
+
+That focused gate currently proves:
+
+- Keycloak-backed OIDC login against NiFi
+- exact claim-name wiring for `email` and `groups`
+- seeded NiFi application-group names matching IdP group names
+- Initial Admin Identity fallback bootstrap
+- non-admin denial behavior for users outside the admin bootstrap path
+
+It does not yet prove custom non-admin policy bindings from `authz.policies` at runtime.
+
+Typical external-host composition:
+
+- add [examples/oidc-external-url-values.yaml](examples/oidc-external-url-values.yaml) for an ingress-backed public hostname
+- or add [examples/openshift/route-proxy-host-values.yaml](examples/openshift/route-proxy-host-values.yaml) for an OpenShift passthrough Route host
+
+The chart now fails fast if you enable OIDC with Ingress or an explicit OpenShift Route host but do not also provide `web.proxyHosts`.
 
 ### LDAP Sync
 
@@ -305,10 +365,76 @@ Use [examples/oidc-values.yaml](examples/oidc-values.yaml) with [examples/oidc-g
 
 - NiFi authenticates the user against LDAP.
 - NiFi syncs users and groups from LDAP.
+- the chart renders both `login-identity-providers.xml` and the LDAP user or group provider inside `authorizers.xml`.
 - file-managed policies still live in NiFi's managed-authorizer files.
 - the chart can still seed local application groups and bootstrap the initial admin group.
+- the public HTTPS host still needs to be present in `web.proxyHosts` when users access NiFi through an Ingress or Route.
 
-This path is chart-prepared only. It still needs a real LDAP server before it can be called validated.
+Required values for the prepared path:
+
+- `auth.ldap.url`
+- `auth.ldap.managerSecret.name`
+- `auth.ldap.userSearch.base`
+- `auth.ldap.userSearch.filter`
+- `auth.ldap.groupSearch.base`
+- `auth.ldap.groupSearch.nameAttribute`
+- `auth.ldap.groupSearch.memberAttribute`
+
+Focused kind proof path:
+
+```bash
+make kind-auth-ldap-e2e
+```
+
+That focused gate currently proves:
+
+- LDAP-backed login against NiFi
+- LDAP login provider and LDAP user or group provider wiring
+- Initial Admin Identity bootstrap
+- authenticated non-admin denial behavior
+
+It does not yet prove broader LDAP group-policy seeding at runtime.
+
+### Bootstrap And Break-Glass
+
+Preferred bootstrap path:
+
+- set `authz.bootstrap.initialAdminGroup` to a provider-managed group name
+- seed that same group in `authz.applicationGroups`
+- bind NiFi policies to that group through `authz.policies`
+
+Fallback bootstrap path:
+
+- set `authz.bootstrap.initialAdminIdentity` only when the provider group path is not ready yet
+- keep that identity narrow and temporary if you later move to group-based administration
+
+If OIDC or LDAP settings are wrong and you lock yourself out:
+
+1. revert the Helm release to a known-good single-user baseline
+2. restore `auth.mode=singleUser` and `authz.mode=fileManaged`
+3. point back to the known working `nifi-auth` Secret
+4. wait for the managed restart to settle, then fix the enterprise auth overlay offline before reapplying it
+
+Managed-mode recovery example:
+
+```bash
+helm upgrade --install nifi charts/nifi \
+  -n nifi \
+  --reset-values \
+  -f examples/managed/values.yaml
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.lastOperation.message}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'
+make kind-health
+```
+
+Standalone recovery example:
+
+```bash
+helm upgrade --install nifi charts/nifi \
+  -n nifi \
+  --reset-values \
+  -f examples/standalone/values.yaml
+make kind-health
+```
 
 ## Problem Statement
 

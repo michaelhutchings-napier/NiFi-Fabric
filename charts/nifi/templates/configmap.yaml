@@ -1,3 +1,4 @@
+{{- include "nifi.authValidation" . }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -30,6 +31,7 @@ data:
     nifi.security.user.login.identity.provider=ldap-provider
     {{- end }}
     {{- if eq (include "nifi.authMode" .) "oidc" }}
+    nifi.security.user.login.identity.provider=
     nifi.security.user.oidc.discovery.url={{ required "auth.oidc.discoveryUrl is required when auth.mode=oidc" .Values.auth.oidc.discoveryUrl }}
     nifi.security.user.oidc.client.id={{ required "auth.oidc.clientId is required when auth.mode=oidc" .Values.auth.oidc.clientId }}
     nifi.security.user.oidc.client.secret=__OIDC_CLIENT_SECRET__

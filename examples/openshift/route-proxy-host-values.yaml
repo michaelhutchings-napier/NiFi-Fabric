@@ -1,0 +1,17 @@
+# Prepared OpenShift Route and proxy-host overlay for auth-enabled deployments.
+# Compose with examples/openshift/managed-values.yaml or examples/openshift/standalone-values.yaml.
+# For OIDC, also compose with examples/oidc-values.yaml and examples/oidc-group-claims-values.yaml.
+# This is prepared only. Replace the Route host with the real OpenShift hostname.
+
+openshift:
+  route:
+    enabled: true
+    host: nifi.apps.example.com
+    tls:
+      termination: passthrough
+      insecureEdgeTerminationPolicy: None
+
+web:
+  # NiFi must trust the public Route host used by the browser.
+  proxyHosts:
+  - nifi.apps.example.com

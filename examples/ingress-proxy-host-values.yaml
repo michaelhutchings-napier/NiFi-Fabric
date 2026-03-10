@@ -1,0 +1,20 @@
+# Prepared ingress and proxy-host overlay for auth-enabled deployments.
+# Compose with examples/managed/values.yaml or examples/standalone/values.yaml.
+# For OIDC, also compose with examples/oidc-values.yaml and examples/oidc-group-claims-values.yaml.
+# This is prepared only. Replace the ingress class, annotations, and hostnames for your controller.
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+  hosts:
+  - host: nifi.example.com
+    paths:
+    - path: /
+      pathType: Prefix
+
+web:
+  # NiFi must trust the external HTTPS host used by the browser.
+  proxyHosts:
+  - nifi.example.com

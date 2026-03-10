@@ -47,22 +47,57 @@ There are also prepared authentication overlays:
   - Enables `auth.mode=oidc`.
   - Compose with [managed/values.yaml](managed/values.yaml).
   - Pair with [oidc-group-claims-values.yaml](oidc-group-claims-values.yaml) for NiFi application groups, policies, and external proxy hosts.
-  - Requires a real OIDC provider and is not validated by the current kind gate.
+  - Use [oidc-kind-values.yaml](oidc-kind-values.yaml) for the focused kind OIDC evaluator.
 
 - [oidc-group-claims-values.yaml](oidc-group-claims-values.yaml)
   - Seeds NiFi application groups and file-managed policies for OIDC group claims.
   - Group names in the token must match these NiFi application group names exactly.
 
+- [oidc-kind-values.yaml](oidc-kind-values.yaml)
+  - Focused kind OIDC overlay.
+  - Keeps the flow internal to the cluster.
+  - Uses the documented `Initial Admin Identity` fallback for the first admin path.
+  - The focused runtime command is `make kind-auth-oidc-e2e`.
+
+- [oidc-external-url-values.yaml](oidc-external-url-values.yaml)
+  - Adds an ingress-backed public HTTPS host and matching `web.proxyHosts` entry for OIDC redirects.
+  - Compose with [oidc-values.yaml](oidc-values.yaml) and [oidc-group-claims-values.yaml](oidc-group-claims-values.yaml).
+
 - [ldap-values.yaml](ldap-values.yaml)
   - Enables `auth.mode=ldap` with `authz.mode=ldapSync`.
-  - Requires a real LDAP server and bind Secret.
-  - Not validated by the current kind gate.
+  - Use [ldap-kind-values.yaml](ldap-kind-values.yaml) for the focused kind LDAP evaluator.
+
+- [ldap-kind-values.yaml](ldap-kind-values.yaml)
+  - Focused kind LDAP overlay.
+  - Uses the documented `Initial Admin Identity` bootstrap path.
+  - The focused runtime command is `make kind-auth-ldap-e2e`.
+
+- [ingress-proxy-host-values.yaml](ingress-proxy-host-values.yaml)
+  - Generic ingress and `web.proxyHosts` overlay for auth-enabled browser access.
+  - Prepared only. Adjust hostnames, ingress class, and annotations for your environment.
+
+- [openshift/route-proxy-host-values.yaml](openshift/route-proxy-host-values.yaml)
+  - OpenShift passthrough Route host plus matching `web.proxyHosts`.
+  - Compose with OpenShift overlays and either OIDC or LDAP when the cluster is available.
 
 Only one authentication mode is supported at a time. The intended thin-platform combinations are:
 
 - `singleUser + fileManaged`
 - `oidc + externalClaimGroups`
 - `ldap + ldapSync`
+
+Preferred bootstrap:
+
+- `authz.bootstrap.initialAdminGroup`
+
+Fallback bootstrap:
+
+- `authz.bootstrap.initialAdminIdentity`
+
+Focused auth evaluator commands:
+
+- `make kind-auth-oidc-e2e`
+- `make kind-auth-ldap-e2e`
 
 ## Standalone
 

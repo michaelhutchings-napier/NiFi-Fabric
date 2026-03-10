@@ -6,6 +6,82 @@
 {{- $mode -}}
 {{- end -}}
 
+{{- define "nifi.authValidation" -}}
+{{- $authMode := include "nifi.authMode" . -}}
+{{- $authzMode := include "nifi.authzMode" . -}}
+{{- $seededGroups := fromYamlArray (include "nifi.baseGroupNamesYaml" .) -}}
+{{- if eq $authMode "oidc" -}}
+  {{- if not .Values.auth.oidc.discoveryUrl -}}
+    {{- fail "auth.oidc.discoveryUrl is required when auth.mode=oidc" -}}
+  {{- end -}}
+  {{- if not .Values.auth.oidc.clientId -}}
+    {{- fail "auth.oidc.clientId is required when auth.mode=oidc" -}}
+  {{- end -}}
+  {{- if not .Values.auth.oidc.clientSecret.existingSecret -}}
+    {{- fail "auth.oidc.clientSecret.existingSecret is required when auth.mode=oidc" -}}
+  {{- end -}}
+  {{- if not .Values.auth.oidc.claims.identifyingUser -}}
+    {{- fail "auth.oidc.claims.identifyingUser is required when auth.mode=oidc" -}}
+  {{- end -}}
+  {{- if not .Values.auth.oidc.claims.groups -}}
+    {{- fail "auth.oidc.claims.groups is required when auth.mode=oidc and must match the token groups claim name" -}}
+  {{- end -}}
+  {{- if and (eq $authzMode "externalClaimGroups") (eq (len .Values.authz.applicationGroups) 0) (not .Values.authz.bootstrap.initialAdminGroup) -}}
+    {{- fail "oidc + externalClaimGroups requires authz.applicationGroups and/or authz.bootstrap.initialAdminGroup so token groups can match seeded NiFi groups" -}}
+  {{- end -}}
+  {{- if and .Values.ingress.enabled (eq (len .Values.web.proxyHosts) 0) -}}
+    {{- fail "auth.mode=oidc with ingress.enabled requires web.proxyHosts to include the external HTTPS host[:port] used for browser redirects" -}}
+  {{- end -}}
+  {{- if and .Values.openshift.route.enabled .Values.openshift.route.host (eq (len .Values.web.proxyHosts) 0) -}}
+    {{- fail "auth.mode=oidc with openshift.route.host requires web.proxyHosts to include the public Route host[:port]" -}}
+  {{- end -}}
+{{- end -}}
+{{- if eq $authMode "ldap" -}}
+  {{- if not .Values.auth.ldap.url -}}
+    {{- fail "auth.ldap.url is required when auth.mode=ldap" -}}
+  {{- end -}}
+  {{- if not .Values.auth.ldap.managerSecret.name -}}
+    {{- fail "auth.ldap.managerSecret.name is required when auth.mode=ldap" -}}
+  {{- end -}}
+  {{- if not .Values.auth.ldap.userSearch.base -}}
+    {{- fail "auth.ldap.userSearch.base is required when auth.mode=ldap" -}}
+  {{- end -}}
+  {{- if not .Values.auth.ldap.userSearch.filter -}}
+    {{- fail "auth.ldap.userSearch.filter is required when auth.mode=ldap" -}}
+  {{- end -}}
+  {{- if not .Values.auth.ldap.groupSearch.base -}}
+    {{- fail "auth.ldap.groupSearch.base is required when auth.mode=ldap and authz.mode=ldapSync" -}}
+  {{- end -}}
+  {{- if not .Values.auth.ldap.groupSearch.nameAttribute -}}
+    {{- fail "auth.ldap.groupSearch.nameAttribute is required when auth.mode=ldap and authz.mode=ldapSync" -}}
+  {{- end -}}
+  {{- if not .Values.auth.ldap.groupSearch.memberAttribute -}}
+    {{- fail "auth.ldap.groupSearch.memberAttribute is required when auth.mode=ldap and authz.mode=ldapSync" -}}
+  {{- end -}}
+{{- end -}}
+{{- if and (or (eq $authMode "oidc") (eq $authMode "ldap")) (not .Values.authz.bootstrap.initialAdminGroup) (not .Values.authz.bootstrap.initialAdminIdentity) -}}
+  {{- fail "enterprise auth modes require authz.bootstrap.initialAdminGroup or authz.bootstrap.initialAdminIdentity so the first admin path is explicit" -}}
+{{- end -}}
+{{- range $index, $policy := .Values.authz.policies -}}
+  {{- if not $policy.resource -}}
+    {{- fail (printf "authz.policies[%d].resource is required" $index) -}}
+  {{- end -}}
+  {{- if eq (len $policy.actions) 0 -}}
+    {{- fail (printf "authz.policies[%d].actions must contain at least one action" $index) -}}
+  {{- end -}}
+  {{- if eq (len $policy.groups) 0 -}}
+    {{- fail (printf "authz.policies[%d].groups must contain at least one NiFi group name" $index) -}}
+  {{- end -}}
+  {{- if eq $authzMode "externalClaimGroups" -}}
+    {{- range $group := $policy.groups -}}
+      {{- if not (has $group $seededGroups) -}}
+        {{- fail (printf "authz.policies[%d].groups contains %q, but oidc + externalClaimGroups requires every policy group to be present in authz.applicationGroups or authz.bootstrap.initialAdminGroup" $index $group) -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "nifi.authzMode" -}}
 {{- $mode := default "fileManaged" .Values.authz.mode -}}
 {{- if and (ne $mode "fileManaged") (ne $mode "ldapSync") (ne $mode "externalClaimGroups") -}}
@@ -101,11 +177,14 @@ file-user-group-provider
 {{- end -}}
 
 {{- define "nifi.usersXml" -}}
+{{- $ldapSync := eq (include "nifi.authzMode" .) "ldapSync" -}}
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <tenants>
     <groups>
+{{- if not $ldapSync }}
 {{- range (fromYamlArray (include "nifi.baseGroupNamesYaml" .)) }}
         <group identifier="{{ include "nifi.stableId" (printf "group:%s" .) }}" name="{{ include "nifi.xmlEscape" . }}"/>
+{{- end }}
 {{- end }}
     </groups>
     <users>
@@ -138,29 +217,69 @@ file-user-group-provider
   (dict "resource" "/controller" "action" "W")) -}}
 {{- end -}}
 
+{{- define "nifi.baseAdminPolicyKeysYaml" -}}
+{{- $keys := list -}}
+{{- range $policy := (fromYamlArray (include "nifi.baseAdminPoliciesYaml" .)) }}
+{{- $keys = append $keys (printf "%s|%s" $policy.resource $policy.action) -}}
+{{- end }}
+{{- toYaml $keys -}}
+{{- end -}}
+
 {{- define "nifi.authorizationsXml" -}}
-<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+{{- if eq (include "nifi.authzMode" .) "ldapSync" -}}
+{{- printf "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n" -}}
 <authorizations>
     <policies>
+    </policies>
+</authorizations>
+{{- else -}}
+{{- $baseAdminPolicyKeys := fromYamlArray (include "nifi.baseAdminPolicyKeysYaml" .) -}}
+{{- $bootstrapAdminGroup := .Values.authz.bootstrap.initialAdminGroup -}}
+{{- $policySpecs := dict -}}
 {{- if or .Values.authz.bootstrap.initialAdminGroup (include "nifi.adminIdentityForFiles" .) }}
 {{- range $policy := (fromYamlArray (include "nifi.baseAdminPoliciesYaml" .)) }}
-        <policy identifier="{{ include "nifi.stableId" (printf "policy:%s:%s:admin" $policy.resource $policy.action) }}" resource="{{ $policy.resource }}" action="{{ $policy.action }}">
-{{ include "nifi.adminBindingXml" $ }}
-        </policy>
+{{- $key := printf "%s|%s" $policy.resource $policy.action -}}
+{{- $_ := set $policySpecs $key (dict "resource" $policy.resource "action" $policy.action "includeAdmin" true "includeNode" false "groups" (list)) -}}
 {{- end }}
 {{- end }}
-        <policy identifier="{{ include "nifi.stableId" "policy:/controller:R:node" }}" resource="/controller" action="R">
-            <user identifier="__NODE_IDENTITY_ID__"/>
-        </policy>
-        <policy identifier="{{ include "nifi.stableId" "policy:/proxy:W:node" }}" resource="/proxy" action="W">
-            <user identifier="__NODE_IDENTITY_ID__"/>
-        </policy>
+{{- range $policy := (list (dict "resource" "/controller" "action" "R") (dict "resource" "/proxy" "action" "W")) }}
+{{- $key := printf "%s|%s" $policy.resource $policy.action -}}
+{{- $entry := get $policySpecs $key | default (dict "resource" $policy.resource "action" $policy.action "includeAdmin" false "includeNode" false "groups" (list)) -}}
+{{- $_ := set $entry "includeNode" true -}}
+{{- $_ := set $policySpecs $key $entry -}}
+{{- end }}
 {{- range .Values.authz.policies }}
 {{- $policy := . -}}
 {{- $resource := required "authz.policies[].resource is required" $policy.resource -}}
 {{- range $action := $policy.actions }}
-        <policy identifier="{{ include "nifi.stableId" (printf "policy:%s:%s:%v" $resource $action $policy.groups) }}" resource="{{ $resource }}" action="{{ $action }}">
+{{- $key := printf "%s|%s" $resource $action -}}
+{{- $entry := get $policySpecs $key | default (dict "resource" $resource "action" $action "includeAdmin" false "includeNode" false "groups" (list)) -}}
+{{- $policyGroups := default (list) (get $entry "groups") -}}
 {{- range $group := $policy.groups }}
+{{- if and $bootstrapAdminGroup (eq $group $bootstrapAdminGroup) (has (printf "%s|%s" $resource $action) $baseAdminPolicyKeys) -}}
+{{- else -}}
+{{- $policyGroups = append $policyGroups $group -}}
+{{- end -}}
+{{- end }}
+{{- $_ := set $entry "groups" (uniq $policyGroups) -}}
+{{- $_ := set $policySpecs $key $entry -}}
+{{- end }}
+{{- end }}
+{{- printf "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n" -}}
+<authorizations>
+    <policies>
+{{- range $key := (keys $policySpecs | sortAlpha) }}
+{{- $entry := get $policySpecs $key -}}
+{{- $policyGroups := sortAlpha (uniq (default (list) (get $entry "groups"))) -}}
+{{- if or (get $entry "includeAdmin") (get $entry "includeNode") (gt (len $policyGroups) 0) }}
+        <policy identifier="{{ include "nifi.stableId" (printf "policy:%s:%s:admin=%t:node=%t:groups=%v" (get $entry "resource") (get $entry "action") (get $entry "includeAdmin") (get $entry "includeNode") $policyGroups) }}" resource="{{ get $entry "resource" }}" action="{{ get $entry "action" }}">
+{{- if get $entry "includeNode" }}
+            <user identifier="__NODE_IDENTITY_ID__"/>
+{{- end }}
+{{- if get $entry "includeAdmin" }}
+{{ include "nifi.adminBindingXml" $ }}
+{{- end }}
+{{- range $group := $policyGroups }}
             <group identifier="{{ include "nifi.stableId" (printf "group:%s" $group) }}"/>
 {{- end }}
         </policy>
@@ -168,6 +287,7 @@ file-user-group-provider
 {{- end }}
     </policies>
 </authorizations>
+{{- end -}}
 {{- end -}}
 
 {{- define "nifi.authorizersXml" -}}
@@ -177,6 +297,12 @@ file-user-group-provider
         <identifier>{{ include "nifi.fileUserGroupProviderIdentifier" . }}</identifier>
         <class>org.apache.nifi.authorization.FileUserGroupProvider</class>
         <property name="Users File">./conf/users.xml</property>
+{{- if and (eq (include "nifi.authzMode" .) "ldapSync") .Values.authz.bootstrap.initialAdminIdentity }}
+        <property name="Initial User Identity 1">{{ include "nifi.xmlEscape" .Values.authz.bootstrap.initialAdminIdentity }}</property>
+{{- end }}
+{{- if eq (include "nifi.authzMode" .) "ldapSync" }}
+        <property name="Initial User Identity 2">__NODE_IDENTITY__</property>
+{{- end }}
     </userGroupProvider>
 {{- if eq (include "nifi.authzMode" .) "ldapSync" }}
     <userGroupProvider>
@@ -242,14 +368,18 @@ file-user-group-provider
 {{- end -}}
 
 {{- define "nifi.loginIdentityProvidersXml" -}}
+{{- $authMode := include "nifi.authMode" . -}}
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <loginIdentityProviders>
+{{- if eq $authMode "singleUser" }}
     <provider>
         <identifier>single-user-provider</identifier>
         <class>org.apache.nifi.authentication.single.user.SingleUserLoginIdentityProvider</class>
         <property name="Username"/>
         <property name="Password"/>
     </provider>
+{{- end }}
+{{- if eq $authMode "ldap" }}
     <provider>
         <identifier>ldap-provider</identifier>
         <class>org.apache.nifi.ldap.LdapProvider</class>
@@ -274,5 +404,6 @@ file-user-group-provider
         <property name="Identity Strategy">{{ .Values.auth.ldap.identityStrategy }}</property>
         <property name="Authentication Expiration">{{ .Values.auth.ldap.authenticationExpiration }}</property>
     </provider>
+{{- end }}
 </loginIdentityProviders>
 {{- end -}}

@@ -1,0 +1,23 @@
+# Prepared OIDC external URL overlay.
+# Compose with:
+# - examples/managed/values.yaml
+# - examples/oidc-values.yaml
+# - examples/oidc-group-claims-values.yaml
+# - optionally examples/ingress-proxy-host-values.yaml
+# Replace the public hostname with the real HTTPS URL your IdP redirects back to.
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+  hosts:
+  - host: nifi.example.com
+    paths:
+    - path: /
+      pathType: Prefix
+
+web:
+  # This must match the public HTTPS host[:port] used during the OIDC login redirect.
+  proxyHosts:
+  - nifi.example.com

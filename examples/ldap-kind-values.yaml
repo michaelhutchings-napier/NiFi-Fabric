@@ -1,0 +1,27 @@
+# Focused kind overlay for the LDAP evaluator gate.
+# Compose with:
+# - examples/managed/values.yaml
+# - examples/ldap-values.yaml
+#
+# This keeps the flow internal to the cluster and uses a local plain-LDAP test server.
+
+replicaCount: 1
+
+auth:
+  ldap:
+    url: ldap://ldap.nifi.svc.cluster.local:389
+    authenticationStrategy: SIMPLE
+    identityStrategy: USE_USERNAME
+    managerSecret:
+      name: nifi-ldap-bind
+
+authz:
+  applicationGroups: []
+  bootstrap:
+    initialAdminGroup: ""
+    initialAdminIdentity: alice
+  policies: []
+
+nifi:
+  jvmHeapInit: 512m
+  jvmHeapMax: 512m

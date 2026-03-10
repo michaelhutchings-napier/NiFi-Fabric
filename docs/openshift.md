@@ -217,6 +217,34 @@ OpenShift-specific caution for OIDC:
 - real Route or external hostnames may need explicit `web.proxyHosts` values so NiFi sees the public HTTPS host during login redirects
 - that behavior is not yet validated on a real OpenShift cluster
 
+Prepared auth exposure overlays:
+
+- `examples/oidc-values.yaml`
+- `examples/oidc-group-claims-values.yaml`
+- `examples/oidc-external-url-values.yaml`
+- `examples/ldap-values.yaml`
+- `examples/openshift/route-proxy-host-values.yaml`
+
+Recommended OIDC Route composition:
+
+- `examples/openshift/managed-values.yaml`
+- `examples/oidc-values.yaml`
+- `examples/oidc-group-claims-values.yaml`
+- `examples/openshift/route-proxy-host-values.yaml`
+
+Recommended LDAP Route composition:
+
+- `examples/openshift/managed-values.yaml`
+- `examples/ldap-values.yaml`
+- `examples/openshift/route-proxy-host-values.yaml`
+
+Important runtime assumptions:
+
+- the Route host used by browsers must be present in `web.proxyHosts`
+- OIDC token group names must match the seeded NiFi application groups exactly
+- `authz.bootstrap.initialAdminGroup` is the preferred first-admin path
+- `authz.bootstrap.initialAdminIdentity` remains the fallback if group bootstrap is not ready yet
+
 ## OpenShift-Oriented Example Values
 
 Starting overlays:
@@ -230,6 +258,18 @@ These overlays currently:
 - relax the fixed kind-style UID and GID settings
 - render a passthrough Route
 - leave StorageClass selection explicit to the cluster operator
+- keep auth in chart-managed NiFi config rather than controller logic
+
+If OIDC or LDAP bootstrap is wrong and you are locked out, recover by reverting to the single-user baseline first:
+
+```bash
+helm upgrade --install nifi charts/nifi \
+  -n nifi \
+  --reset-values \
+  -f examples/openshift/managed-values.yaml
+```
+
+Then reapply the enterprise auth overlay only after the public Route host and provider settings are corrected.
 
 ## Managed-Mode Install Steps
 
@@ -285,6 +325,27 @@ External Secret mode:
 helm upgrade --install nifi charts/nifi \
   -n nifi \
   -f examples/openshift/managed-values.yaml
+```
+
+OIDC with passthrough Route host:
+
+```bash
+helm upgrade --install nifi charts/nifi \
+  -n nifi \
+  -f examples/openshift/managed-values.yaml \
+  -f examples/oidc-values.yaml \
+  -f examples/oidc-group-claims-values.yaml \
+  -f examples/openshift/route-proxy-host-values.yaml
+```
+
+LDAP with passthrough Route host:
+
+```bash
+helm upgrade --install nifi charts/nifi \
+  -n nifi \
+  -f examples/openshift/managed-values.yaml \
+  -f examples/ldap-values.yaml \
+  -f examples/openshift/route-proxy-host-values.yaml
 ```
 
 Cert-manager mode:

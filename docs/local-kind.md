@@ -6,7 +6,8 @@ This repository now includes concrete local workflows for:
 - a managed-mode install with the thin `OnDelete` rollout controller
 - watched config and TLS drift verification against that managed controller
 - managed hibernation and restore verification against that same controller
-- chart-prepared OIDC and LDAP auth overlays that still require a real IdP or LDAP server
+- focused OIDC auth runtime validation on kind
+- focused LDAP auth runtime validation on kind
 
 ## What This Flow Does
 
@@ -28,7 +29,10 @@ Recommended example files:
 - hibernation example: [examples/managed/nificluster-hibernated.yaml](../examples/managed/nificluster-hibernated.yaml)
 - prepared OIDC auth overlay: [examples/oidc-values.yaml](../examples/oidc-values.yaml)
 - prepared OIDC group-claims overlay: [examples/oidc-group-claims-values.yaml](../examples/oidc-group-claims-values.yaml)
+- prepared OIDC external URL overlay: [examples/oidc-external-url-values.yaml](../examples/oidc-external-url-values.yaml)
 - prepared LDAP overlay: [examples/ldap-values.yaml](../examples/ldap-values.yaml)
+- prepared ingress and proxy-host overlay: [examples/ingress-proxy-host-values.yaml](../examples/ingress-proxy-host-values.yaml)
+- prepared OpenShift Route and proxy-host overlay: [examples/openshift/route-proxy-host-values.yaml](../examples/openshift/route-proxy-host-values.yaml)
 
 ## Authn And Authz Scope
 
@@ -47,9 +51,92 @@ Current supported pairs:
 - `oidc + externalClaimGroups`
 - `ldap + ldapSync`
 
-The current kind alpha gate still proves only the single-user evaluator path.
+What is proven on kind now:
 
-OIDC and LDAP overlays render and document the intended NiFi configuration, but they still require a real IdP or LDAP server before they can be called validated.
+- `singleUser + fileManaged` in the main alpha gate
+- focused OIDC login wiring, group-claim prerequisites, Initial Admin Identity fallback bootstrap, and non-admin denial with `make kind-auth-oidc-e2e`
+- focused LDAP login wiring, LDAP provider wiring, Initial Admin Identity bootstrap, and non-admin denial with `make kind-auth-ldap-e2e`
+
+What is still only prepared:
+
+- OIDC custom non-admin policy bindings from `authz.policies`
+- LDAP broader group-policy seeding beyond the focused bootstrap path
+- ingress-backed or Route-backed auth runtime behavior
+
+Render-time validation now fails fast for:
+
+- unsupported auth/authz pairings
+- missing OIDC discovery, client, or group-claim settings
+- missing LDAP provider settings
+- missing enterprise admin bootstrap configuration
+- OIDC external exposure without `web.proxyHosts`
+
+### External URL And Proxy Host Guidance
+
+NiFi still serves HTTPS itself. External access must preserve that model:
+
+- ingress example: [examples/ingress-proxy-host-values.yaml](../examples/ingress-proxy-host-values.yaml)
+- OIDC external URL example: [examples/oidc-external-url-values.yaml](../examples/oidc-external-url-values.yaml)
+- OpenShift Route example: [examples/openshift/route-proxy-host-values.yaml](../examples/openshift/route-proxy-host-values.yaml)
+
+For OIDC:
+
+- the browser-facing HTTPS host must be present in `web.proxyHosts`
+- the OIDC redirect will fail or loop if NiFi does not trust that public host
+- token group names must match `authz.applicationGroups` exactly
+
+For LDAP:
+
+- login stays NiFi-native
+- policy bindings still use NiFi group names in `authz.policies`
+- if users reach NiFi through an ingress or Route, set `web.proxyHosts` to the public HTTPS host
+
+Prepared render checks:
+
+```bash
+helm template nifi charts/nifi \
+  -f examples/managed/values.yaml \
+  -f examples/oidc-values.yaml \
+  -f examples/oidc-group-claims-values.yaml \
+  -f examples/oidc-external-url-values.yaml
+```
+
+```bash
+helm template nifi charts/nifi \
+  -f examples/managed/values.yaml \
+  -f examples/ldap-values.yaml \
+  -f examples/ingress-proxy-host-values.yaml
+```
+
+### Bootstrap And Break-Glass
+
+Preferred bootstrap:
+
+- `authz.bootstrap.initialAdminGroup`
+
+Fallback bootstrap:
+
+- `authz.bootstrap.initialAdminIdentity`
+
+If an OIDC or LDAP overlay locks you out, recover by rendering the last known-good single-user baseline again:
+
+```bash
+helm upgrade --install nifi charts/nifi \
+  -n nifi \
+  --reset-values \
+  -f examples/managed/values.yaml
+make kind-health
+```
+
+Use the standalone baseline instead when you are not running managed mode:
+
+```bash
+helm upgrade --install nifi charts/nifi \
+  -n nifi \
+  --reset-values \
+  -f examples/standalone/values.yaml
+make kind-health
+```
 
 ## Private Alpha Workflow
 
@@ -85,6 +172,17 @@ There is also a focused cert-manager evaluator path:
 ```bash
 make kind-cert-manager-e2e
 ```
+
+Focused auth evaluator paths:
+
+```bash
+make kind-auth-oidc-e2e
+make kind-auth-ldap-e2e
+```
+
+`make kind-auth-oidc-e2e` bootstraps Keycloak, deploys NiFi in `oidc + externalClaimGroups`, proves OIDC login wiring, proves exact group-name seeding prerequisites, and uses the documented `Initial Admin Identity` fallback for the first admin path.
+
+`make kind-auth-ldap-e2e` bootstraps LDAP, deploys NiFi in `ldap + ldapSync`, proves LDAP login and provider wiring, and uses the documented `Initial Admin Identity` bootstrap path.
 
 ## Prerequisites
 

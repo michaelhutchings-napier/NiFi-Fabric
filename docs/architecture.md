@@ -70,7 +70,9 @@ Helm does not own runtime sequencing decisions after the rendered workload exist
 Authentication and authorization stay chart-first:
 
 - Helm selects one NiFi authentication mode at a time and renders the corresponding NiFi config files.
+- Helm enforces one strict auth/authz pairing at a time through render-time validation.
 - Helm renders the authorizer composition, application group seed, and file-managed policy seed.
+- Helm renders proxy-host and external exposure settings needed for OIDC or LDAP browser access.
 - The controller does not provision users, write back identity state, or participate in authentication flows.
 
 ### Controller Responsibilities
