@@ -175,6 +175,8 @@ One-command evaluator install:
 make install-standalone
 ```
 
+The installer checks `kind`, `kubectl`, `helm`, and `docker`, creates or reuses the local kind cluster, and prints the next health and debug commands on success or failure.
+
 Primary example:
 
 - [examples/standalone/values.yaml](examples/standalone/values.yaml)
@@ -196,6 +198,8 @@ One-command evaluator install:
 ```bash
 make install-managed
 ```
+
+The installer checks `kind`, `kubectl`, `helm`, and `docker`, then installs the CRD, controller, managed Helm release, and `NiFiCluster` before printing the next health and debug commands.
 
 Primary examples:
 
@@ -242,6 +246,69 @@ The project is intentionally hybrid:
 - NiFi 2 native Kubernetes capabilities remain the source of truth for cluster coordination and shared state behavior.
 
 The result should be easier to reason about than a large kitchen-sink operator, easier to run under GitOps, and easier to evolve as NiFi 2.x improves.
+
+## Authentication And Authorization
+
+The chart now treats authentication and authorization as separate concerns while staying inside NiFi's native model:
+
+- one authentication mode at a time:
+  - `auth.mode=singleUser`
+  - `auth.mode=oidc`
+  - `auth.mode=ldap`
+- one matching authorization mode at a time:
+  - `singleUser + fileManaged`
+  - `oidc + externalClaimGroups`
+  - `ldap + ldapSync`
+
+This stays intentionally strict. The chart does not try to model every NiFi authentication permutation.
+
+Provider-first summary:
+
+- OIDC uses NiFi's native OIDC properties in `nifi.properties`.
+- LDAP uses NiFi's native LDAP login identity provider and LDAP user or group provider model.
+- file-managed authorization stays in NiFi's native managed-authorizer files.
+- the chart can seed NiFi application group names and bind policies to those groups.
+- initial admin bootstrap prefers `authz.bootstrap.initialAdminGroup`; `authz.bootstrap.initialAdminIdentity` remains the fallback path.
+- the controller remains uninvolved in authentication and authorization decisions.
+
+What is proven today:
+
+- the existing kind evaluator path still targets `singleUser + fileManaged`
+
+What is prepared, not validated:
+
+- OIDC with external group claims
+- LDAP login and LDAP group sync
+- any real IdP, LDAP, or enterprise SSO runtime behavior
+
+Prepared overlays:
+
+- [examples/oidc-values.yaml](examples/oidc-values.yaml)
+- [examples/oidc-group-claims-values.yaml](examples/oidc-group-claims-values.yaml)
+- [examples/ldap-values.yaml](examples/ldap-values.yaml)
+
+### OIDC Group-Based Authorization
+
+`auth.mode=oidc` keeps authentication provider-first and avoids per-user provisioning.
+
+- NiFi authenticates users through OIDC.
+- NiFi reads one identifying user claim and one groups claim from the token.
+- the chart seeds NiFi application group names locally.
+- file-managed policies bind to those group names.
+- token group names must match the seeded NiFi application groups exactly.
+
+Use [examples/oidc-values.yaml](examples/oidc-values.yaml) with [examples/oidc-group-claims-values.yaml](examples/oidc-group-claims-values.yaml) as the starting point.
+
+### LDAP Sync
+
+`auth.mode=ldap` uses NiFi's native LDAP login provider plus LDAP user or group sync.
+
+- NiFi authenticates the user against LDAP.
+- NiFi syncs users and groups from LDAP.
+- file-managed policies still live in NiFi's managed-authorizer files.
+- the chart can still seed local application groups and bootstrap the initial admin group.
+
+This path is chart-prepared only. It still needs a real LDAP server before it can be called validated.
 
 ## Problem Statement
 
@@ -442,6 +509,8 @@ One-command evaluator install:
 ```bash
 make install-managed-cert-manager
 ```
+
+This installer adds a `cmctl` prerequisite check, bootstraps cert-manager and the evaluator issuer flow, then installs the same managed chart and controller path with the cert-manager overlay.
 
 Bootstrap cert-manager and the evaluator issuer flow on kind:
 

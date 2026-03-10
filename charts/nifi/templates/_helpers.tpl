@@ -43,7 +43,10 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $hosts = append $hosts (printf "%s-%d.%s-headless.%s.svc.cluster.local:%v" $fullname $ordinal $fullname $root.Release.Namespace $root.Values.ports.https) -}}
 {{- end -}}
 {{- $hosts = append $hosts (printf "%s.%s.svc.cluster.local:%v" $fullname $root.Release.Namespace $root.Values.ports.https) -}}
-{{- join "," $hosts -}}
+{{- range $host := $root.Values.web.proxyHosts -}}
+{{- $hosts = append $hosts $host -}}
+{{- end -}}
+{{- join "," (uniq $hosts) -}}
 {{- end -}}
 
 {{- define "nifi.tlsMode" -}}

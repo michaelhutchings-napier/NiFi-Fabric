@@ -56,6 +56,7 @@ Helm owns:
 - all Services and headless Services
 - PVC templates and volume mounts
 - `ConfigMap` templates for NiFi configuration
+- templated NiFi authentication and authorization files
 - references to TLS and authentication Secrets
 - `PodDisruptionBudget`
 - `ServiceMonitor`
@@ -65,6 +66,12 @@ Helm owns:
 - optional cert-manager resources or references
 
 Helm does not own runtime sequencing decisions after the rendered workload exists.
+
+Authentication and authorization stay chart-first:
+
+- Helm selects one NiFi authentication mode at a time and renders the corresponding NiFi config files.
+- Helm renders the authorizer composition, application group seed, and file-managed policy seed.
+- The controller does not provision users, write back identity state, or participate in authentication flows.
 
 ### Controller Responsibilities
 

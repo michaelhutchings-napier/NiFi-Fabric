@@ -22,9 +22,38 @@ data:
     nifi.state.management.provider.cluster=kubernetes-provider
     nifi.security.autoreload.enabled={{ ternary "true" "false" .Values.tls.autoReload.enabled }}
     nifi.security.autoreload.interval={{ .Values.tls.autoReload.interval }}
+    nifi.security.user.authorizer=managed-authorizer
+    {{- if eq (include "nifi.authMode" .) "singleUser" }}
+    nifi.security.user.login.identity.provider=single-user-provider
+    {{- end }}
+    {{- if eq (include "nifi.authMode" .) "ldap" }}
+    nifi.security.user.login.identity.provider=ldap-provider
+    {{- end }}
+    {{- if eq (include "nifi.authMode" .) "oidc" }}
+    nifi.security.user.oidc.discovery.url={{ required "auth.oidc.discoveryUrl is required when auth.mode=oidc" .Values.auth.oidc.discoveryUrl }}
+    nifi.security.user.oidc.client.id={{ required "auth.oidc.clientId is required when auth.mode=oidc" .Values.auth.oidc.clientId }}
+    nifi.security.user.oidc.client.secret=__OIDC_CLIENT_SECRET__
+    nifi.security.user.oidc.claim.identifying.user={{ .Values.auth.oidc.claims.identifyingUser }}
+    nifi.security.user.oidc.claim.groups={{ .Values.auth.oidc.claims.groups }}
+    nifi.security.user.oidc.additional.scopes={{ join "," .Values.auth.oidc.additionalScopes }}
+    {{- if .Values.auth.oidc.preferredJwsAlgorithm }}
+    nifi.security.user.oidc.preferred.jwsalgorithm={{ .Values.auth.oidc.preferredJwsAlgorithm }}
+    {{- end }}
+    {{- range $key, $value := .Values.auth.oidc.extraProperties }}
+    {{ $key }}={{ $value }}
+    {{- end }}
+    {{- end }}
     nifi.flowfile.repository.directory=./flowfile_repository
     nifi.content.repository.directory.default=./content_repository
     nifi.provenance.repository.directory.default=./provenance_repository
     {{- range $key, $value := .Values.config.extraProperties }}
     {{ $key }}={{ $value }}
     {{- end }}
+  authorizers.xml: |
+{{ include "nifi.authorizersXml" . | indent 4 }}
+  login-identity-providers.xml: |
+{{ include "nifi.loginIdentityProvidersXml" . | indent 4 }}
+  users.xml: |
+{{ include "nifi.usersXml" . | indent 4 }}
+  authorizations.xml: |
+{{ include "nifi.authorizationsXml" . | indent 4 }}

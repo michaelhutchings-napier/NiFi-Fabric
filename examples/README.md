@@ -41,6 +41,29 @@ There is also one optional TLS-source overlay:
   - For kind evaluator setup, run `make kind-bootstrap-cert-manager` first.
   - The focused fresh-kind evaluation command is `make kind-cert-manager-e2e`.
 
+There are also prepared authentication overlays:
+
+- [oidc-values.yaml](oidc-values.yaml)
+  - Enables `auth.mode=oidc`.
+  - Compose with [managed/values.yaml](managed/values.yaml).
+  - Pair with [oidc-group-claims-values.yaml](oidc-group-claims-values.yaml) for NiFi application groups, policies, and external proxy hosts.
+  - Requires a real OIDC provider and is not validated by the current kind gate.
+
+- [oidc-group-claims-values.yaml](oidc-group-claims-values.yaml)
+  - Seeds NiFi application groups and file-managed policies for OIDC group claims.
+  - Group names in the token must match these NiFi application group names exactly.
+
+- [ldap-values.yaml](ldap-values.yaml)
+  - Enables `auth.mode=ldap` with `authz.mode=ldapSync`.
+  - Requires a real LDAP server and bind Secret.
+  - Not validated by the current kind gate.
+
+Only one authentication mode is supported at a time. The intended thin-platform combinations are:
+
+- `singleUser + fileManaged`
+- `oidc + externalClaimGroups`
+- `ldap + ldapSync`
+
 ## Standalone
 
 - [standalone/values.yaml](standalone/values.yaml)

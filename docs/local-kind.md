@@ -6,6 +6,7 @@ This repository now includes concrete local workflows for:
 - a managed-mode install with the thin `OnDelete` rollout controller
 - watched config and TLS drift verification against that managed controller
 - managed hibernation and restore verification against that same controller
+- chart-prepared OIDC and LDAP auth overlays that still require a real IdP or LDAP server
 
 ## What This Flow Does
 
@@ -25,6 +26,30 @@ Recommended example files:
 - managed `NiFiCluster`: [examples/managed/nificluster.yaml](../examples/managed/nificluster.yaml)
 - rollout trigger overlay: [examples/managed/rollout-trigger-values.yaml](../examples/managed/rollout-trigger-values.yaml)
 - hibernation example: [examples/managed/nificluster-hibernated.yaml](../examples/managed/nificluster-hibernated.yaml)
+- prepared OIDC auth overlay: [examples/oidc-values.yaml](../examples/oidc-values.yaml)
+- prepared OIDC group-claims overlay: [examples/oidc-group-claims-values.yaml](../examples/oidc-group-claims-values.yaml)
+- prepared LDAP overlay: [examples/ldap-values.yaml](../examples/ldap-values.yaml)
+
+## Authn And Authz Scope
+
+The chart now splits authentication and authorization cleanly:
+
+- one authentication mode at a time
+- one matching authorization mode at a time
+- no controller write-back
+- no bidirectional identity sync
+- no default per-user provisioning for OIDC
+- prefer `authz.bootstrap.initialAdminGroup`; use `initialAdminIdentity` only as a fallback
+
+Current supported pairs:
+
+- `singleUser + fileManaged`
+- `oidc + externalClaimGroups`
+- `ldap + ldapSync`
+
+The current kind alpha gate still proves only the single-user evaluator path.
+
+OIDC and LDAP overlays render and document the intended NiFi configuration, but they still require a real IdP or LDAP server before they can be called validated.
 
 ## Private Alpha Workflow
 
@@ -102,6 +127,9 @@ Each installer:
 - installs CRDs, controller, and `NiFiCluster` only when that mode needs them
 - installs the chart
 - prints the next health and debug commands
+- checks `kind`, `kubectl`, `helm`, and `docker` first
+- checks `cmctl` only for the cert-manager installer path
+- prints the most useful failure commands for events, controller logs, `NiFiCluster` status, and controller metrics
 
 ## Standalone Commands
 

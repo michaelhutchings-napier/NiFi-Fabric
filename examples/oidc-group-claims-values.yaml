@@ -1,0 +1,34 @@
+# Prepared OIDC group-claims authorization overlay.
+# Compose on top of examples/managed/values.yaml and examples/oidc-values.yaml.
+# Group names in the IdP token must match these NiFi application group names exactly.
+
+authz:
+  bootstrap:
+    initialAdminGroup: nifi-platform-admins
+  applicationGroups:
+  - nifi-platform-admins
+  - nifi-flow-operators
+  - nifi-flow-observers
+  policies:
+  - resource: /flow
+    actions:
+    - R
+    groups:
+    - nifi-flow-observers
+    - nifi-flow-operators
+    - nifi-platform-admins
+  - resource: /controller
+    actions:
+    - R
+    groups:
+    - nifi-flow-operators
+    - nifi-platform-admins
+  - resource: /controller
+    actions:
+    - W
+    groups:
+    - nifi-platform-admins
+
+web:
+  proxyHosts:
+  - nifi.apps.example.com

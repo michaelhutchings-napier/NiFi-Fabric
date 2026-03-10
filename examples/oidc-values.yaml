@@ -1,0 +1,22 @@
+# Prepared OIDC authentication overlay.
+# Compose with examples/managed/values.yaml and optionally examples/oidc-group-claims-values.yaml.
+# This is chart-prepared for real IdP evaluation. It is not validated by the current kind alpha gate.
+
+auth:
+  mode: oidc
+  oidc:
+    discoveryUrl: https://idp.example.com/realms/nifi/.well-known/openid-configuration
+    clientId: nifi-fabric
+    clientSecret:
+      existingSecret: nifi-oidc
+      key: clientSecret
+    claims:
+      identifyingUser: email
+      groups: groups
+    additionalScopes:
+    - openid
+    - profile
+    - email
+
+authz:
+  mode: externalClaimGroups

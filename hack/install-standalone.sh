@@ -3,9 +3,12 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${ROOT_DIR}/hack/install-common.sh"
 KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-nifi-fabric}"
 NAMESPACE="${NAMESPACE:-nifi}"
 HELM_RELEASE="${HELM_RELEASE:-nifi}"
+CONTROLLER_NAMESPACE="${CONTROLLER_NAMESPACE:-nifi-system}"
+CONTROLLER_DEPLOYMENT="${CONTROLLER_DEPLOYMENT:-nifi-fabric-controller-manager}"
 
 run_make() {
   make -C "${ROOT_DIR}" "$@"
@@ -13,28 +16,35 @@ run_make() {
 
 ensure_kind_cluster() {
   if ! kind get clusters 2>/dev/null | grep -qx "${KIND_CLUSTER_NAME}"; then
-    echo "==> Creating kind cluster ${KIND_CLUSTER_NAME}"
+    info "Creating kind cluster ${KIND_CLUSTER_NAME}"
     run_make kind-up
   else
-    echo "==> Reusing kind cluster ${KIND_CLUSTER_NAME}"
+    info "Reusing kind cluster ${KIND_CLUSTER_NAME}"
   fi
 
   kubectl config use-context "kind-${KIND_CLUSTER_NAME}" >/dev/null 2>&1 || true
 }
 
-echo "==> Installing standalone NiFi-Fabric evaluator path"
+trap 'print_failure_help "${NAMESPACE}" "${HELM_RELEASE}" "${CONTROLLER_NAMESPACE}" "${CONTROLLER_DEPLOYMENT}"' ERR
+
+phase "Checking prerequisites"
+check_prereqs
+
+phase "Installing standalone NiFi-Fabric evaluator path"
 ensure_kind_cluster
+
+phase "Loading NiFi image into kind"
 run_make kind-load-nifi-image
+
+phase "Creating TLS and auth Secrets"
 run_make kind-secrets
+
+phase "Installing standalone Helm release"
 run_make helm-install-standalone
 
-cat <<EOF
-
-Standalone install submitted.
-
-Next commands:
-  make kind-health
-  kubectl -n ${NAMESPACE} get pods
-  kubectl -n ${NAMESPACE} get sts ${HELM_RELEASE}
-  kubectl -n ${NAMESPACE} get secrets
-EOF
+print_success_footer "standalone install submitted" \
+  "make kind-health" \
+  "kubectl -n ${NAMESPACE} get pods" \
+  "kubectl -n ${NAMESPACE} get sts ${HELM_RELEASE}" \
+  "kubectl -n ${NAMESPACE} get secrets" \
+  "kubectl -n ${NAMESPACE} get events --sort-by=.lastTimestamp | tail -n 50"

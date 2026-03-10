@@ -199,6 +199,24 @@ You can compose:
 
 But that should still be treated as OpenShift-prepared only until a real cluster run is recorded.
 
+## Authentication And Authorization Notes
+
+OpenShift does not change the chart or controller boundary for auth:
+
+- authentication remains chart-first NiFi configuration
+- authorization remains NiFi-native managed-authorizer configuration
+- the controller remains uninvolved
+
+Prepared, not validated, on OpenShift:
+
+- `auth.mode=oidc` with `authz.mode=externalClaimGroups`
+- `auth.mode=ldap` with `authz.mode=ldapSync`
+
+OpenShift-specific caution for OIDC:
+
+- real Route or external hostnames may need explicit `web.proxyHosts` values so NiFi sees the public HTTPS host during login redirects
+- that behavior is not yet validated on a real OpenShift cluster
+
 ## OpenShift-Oriented Example Values
 
 Starting overlays:

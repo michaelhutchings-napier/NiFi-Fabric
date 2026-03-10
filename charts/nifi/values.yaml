@@ -72,10 +72,72 @@ tls:
         key: ""
 
 auth:
+  mode: singleUser
   singleUser:
     existingSecret: nifi-auth
     usernameKey: username
     passwordKey: password
+  oidc:
+    discoveryUrl: ""
+    clientId: ""
+    clientSecret:
+      existingSecret: ""
+      key: clientSecret
+    preferredJwsAlgorithm: ""
+    additionalScopes:
+    - openid
+    - profile
+    - email
+    claims:
+      identifyingUser: email
+      groups: groups
+    extraProperties: {}
+  ldap:
+    url: ""
+    authenticationStrategy: START_TLS
+    identityStrategy: USE_DN
+    authenticationExpiration: 12 hours
+    referralStrategy: FOLLOW
+    connectTimeout: 10 secs
+    readTimeout: 10 secs
+    pageSize: ""
+    syncInterval: 30 mins
+    groupMembershipEnforceCaseSensitivity: false
+    managerSecret:
+      name: ""
+      dnKey: managerDn
+      passwordKey: managerPassword
+    tls:
+      clientAuth: NONE
+      protocol: TLS
+      shutdownGracefully: false
+    userSearch:
+      base: ""
+      filter: "(sAMAccountName={0})"
+      scope: ONE_LEVEL
+      objectClass: person
+      identityAttribute: ""
+      groupNameAttribute: ""
+      groupNameReferencedGroupAttribute: ""
+    groupSearch:
+      base: ""
+      filter: ""
+      scope: ONE_LEVEL
+      objectClass: group
+      nameAttribute: ""
+      memberAttribute: ""
+      memberReferencedUserAttribute: ""
+
+authz:
+  mode: fileManaged
+  bootstrap:
+    initialAdminGroup: ""
+    initialAdminIdentity: ""
+  applicationGroups: []
+  policies: []
+
+web:
+  proxyHosts: []
 
 ingress:
   enabled: false

@@ -99,15 +99,60 @@ spec:
               name: {{ include "nifi.sensitivePropsSecretName" . | quote }}
               key: {{ include "nifi.sensitivePropsSecretKey" . | quote }}
           {{- end }}
+        - name: AUTH_MODE
+          value: {{ include "nifi.authMode" . | quote }}
+        {{- if eq (include "nifi.authMode" .) "singleUser" }}
         - name: SINGLE_USER_CREDENTIALS_USERNAME
           valueFrom:
             secretKeyRef:
-              name: {{ required "auth.singleUser.existingSecret is required" .Values.auth.singleUser.existingSecret | quote }}
+              name: {{ include "nifi.singleUserUsernameSecretName" . | quote }}
               key: {{ .Values.auth.singleUser.usernameKey | quote }}
+        {{- end }}
+        {{- if eq (include "nifi.authMode" .) "oidc" }}
+        - name: OIDC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "nifi.oidcClientSecretName" . | quote }}
+              key: {{ include "nifi.oidcClientSecretKey" . | quote }}
+        {{- end }}
+        {{- if eq (include "nifi.authMode" .) "ldap" }}
+        - name: LDAP_MANAGER_DN
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "nifi.ldapManagerSecretName" . | quote }}
+              key: {{ .Values.auth.ldap.managerSecret.dnKey | quote }}
+        - name: LDAP_MANAGER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "nifi.ldapManagerSecretName" . | quote }}
+              key: {{ .Values.auth.ldap.managerSecret.passwordKey | quote }}
+        {{- end }}
         command:
         - /bin/sh
         - -ec
         - |
+          stable_id() {
+            printf '%s' "$1" | sha256sum | awk '{print $1}' | sed 's/^\(........\)\(....\)\(....\)\(....\)\(............\).*/\1-\2-\3-\4-\5/'
+          }
+
+          xml_escape() {
+            printf '%s' "$1" \
+              | sed -e 's/&/\&amp;/g' \
+                    -e 's/</\&lt;/g' \
+                    -e 's/>/\&gt;/g' \
+                    -e 's/"/\&quot;/g' \
+                    -e "s/'/\&apos;/g"
+          }
+
+          replace_token() {
+            file="$1"
+            token="$2"
+            value="$3"
+            escaped_value="${value//\\/\\\\}"
+            escaped_value="${escaped_value//&/\\&}"
+            sed -i "s|${token}|${escaped_value}|g" "${file}"
+          }
+
           replace_property() {
             key="$1"
             value="$2"
@@ -119,6 +164,10 @@ spec:
           }
 
           cp -R /opt/nifi/nifi-current/conf/* /work-conf/
+          cp /config/authorizers.xml /work-conf/authorizers.xml
+          cp /config/login-identity-providers.xml /work-conf/login-identity-providers.xml
+          cp /config/users.xml /work-conf/users.xml
+          cp /config/authorizations.xml /work-conf/authorizations.xml
           sed -i "s|^java.arg.2=.*$|java.arg.2=-Xms{{ .Values.nifi.jvmHeapInit }}|" /work-conf/bootstrap.conf
           sed -i "s|^java.arg.3=.*$|java.arg.3=-Xmx{{ .Values.nifi.jvmHeapMax }}|" /work-conf/bootstrap.conf
           while IFS= read -r line; do
@@ -138,13 +187,58 @@ spec:
           replace_property "nifi.security.truststoreType" "PKCS12"
           replace_property "nifi.security.truststorePasswd" "${TRUSTSTORE_PASSWORD}"
           NODE_IDENTITY="$(openssl pkcs12 -in {{ .Values.tls.mountPath }}/{{ .Values.tls.keystoreKey }} -passin pass:${KEYSTORE_PASSWORD} -clcerts -nokeys | openssl x509 -noout -subject -nameopt RFC2253 | sed 's/^subject=//' | sed 's/,/, /g')"
-          sed -i -e "s|<property name=\"Initial User Identity 1\"></property>|<property name=\"Initial User Identity 1\">${SINGLE_USER_CREDENTIALS_USERNAME}</property>|" /work-conf/authorizers.xml
-          sed -i -e "/<property name=\"Initial User Identity 1\">${SINGLE_USER_CREDENTIALS_USERNAME}<\/property>/a\\
-          \\        <property name=\"Initial User Identity 2\">${NODE_IDENTITY}<\/property>" /work-conf/authorizers.xml
-          sed -i -e "s|<property name=\"Initial Admin Identity\"></property>|<property name=\"Initial Admin Identity\">${SINGLE_USER_CREDENTIALS_USERNAME}</property>|" /work-conf/authorizers.xml
-          sed -i -e "s|<property name=\"Node Identity 1\"></property>|<property name=\"Node Identity 1\">${NODE_IDENTITY}</property>|" /work-conf/authorizers.xml
-          replace_property "nifi.security.user.authorizer" "managed-authorizer"
-          replace_property "nifi.security.user.login.identity.provider" "single-user-provider"
+          NODE_IDENTITY_ESCAPED="$(xml_escape "${NODE_IDENTITY}")"
+          NODE_IDENTITY_ID="$(stable_id "${NODE_IDENTITY}")"
+          replace_token /work-conf/users.xml "__NODE_IDENTITY__" "${NODE_IDENTITY_ESCAPED}"
+          replace_token /work-conf/users.xml "__NODE_IDENTITY_ID__" "${NODE_IDENTITY_ID}"
+          replace_token /work-conf/authorizations.xml "__NODE_IDENTITY_ID__" "${NODE_IDENTITY_ID}"
+          replace_token /work-conf/authorizers.xml "__NODE_IDENTITY__" "${NODE_IDENTITY_ESCAPED}"
+
+          if [ "${AUTH_MODE}" = "singleUser" ]; then
+            SINGLE_USER_IDENTITY_ESCAPED="$(xml_escape "${SINGLE_USER_CREDENTIALS_USERNAME}")"
+            SINGLE_USER_IDENTITY_ID="$(stable_id "${SINGLE_USER_CREDENTIALS_USERNAME}")"
+            replace_token /work-conf/users.xml "__SINGLE_USER_IDENTITY__" "${SINGLE_USER_IDENTITY_ESCAPED}"
+            replace_token /work-conf/users.xml "__ADMIN_IDENTITY_ID__" "${SINGLE_USER_IDENTITY_ID}"
+            replace_token /work-conf/authorizations.xml "__ADMIN_IDENTITY_ID__" "${SINGLE_USER_IDENTITY_ID}"
+            replace_token /work-conf/authorizers.xml "__SINGLE_USER_IDENTITY__" "${SINGLE_USER_IDENTITY_ESCAPED}"
+          else
+            replace_token /work-conf/users.xml "__SINGLE_USER_IDENTITY__" ""
+            replace_token /work-conf/authorizers.xml "__SINGLE_USER_IDENTITY__" ""
+          fi
+
+          if grep -q "__ADMIN_IDENTITY_ID__" /work-conf/users.xml; then
+            if grep -q '__ADMIN_IDENTITY_ID__' /work-conf/users.xml; then
+              admin_identity="$(xmlstarlet sel -t -v "/tenants/users/user[@identifier='__ADMIN_IDENTITY_ID__']/@identity" /work-conf/users.xml 2>/dev/null || true)"
+              if [ -n "${admin_identity}" ] && [ "${admin_identity}" != "__SINGLE_USER_IDENTITY__" ]; then
+                replace_token /work-conf/users.xml "__ADMIN_IDENTITY_ID__" "$(stable_id "${admin_identity}")"
+                replace_token /work-conf/authorizations.xml "__ADMIN_IDENTITY_ID__" "$(stable_id "${admin_identity}")"
+                replace_token /work-conf/authorizers.xml "__INITIAL_ADMIN_IDENTITY__" "${admin_identity}"
+              fi
+            fi
+          fi
+
+          if [ "${AUTH_MODE}" = "oidc" ]; then
+            replace_property "nifi.security.user.oidc.client.secret" "${OIDC_CLIENT_SECRET}"
+          fi
+
+          if [ "${AUTH_MODE}" = "ldap" ]; then
+            LDAP_MANAGER_DN_ESCAPED="$(xml_escape "${LDAP_MANAGER_DN}")"
+            LDAP_MANAGER_PASSWORD_ESCAPED="$(xml_escape "${LDAP_MANAGER_PASSWORD}")"
+            replace_token /work-conf/authorizers.xml "__LDAP_MANAGER_DN__" "${LDAP_MANAGER_DN_ESCAPED}"
+            replace_token /work-conf/authorizers.xml "__LDAP_MANAGER_PASSWORD__" "${LDAP_MANAGER_PASSWORD_ESCAPED}"
+            replace_token /work-conf/login-identity-providers.xml "__LDAP_MANAGER_DN__" "${LDAP_MANAGER_DN_ESCAPED}"
+            replace_token /work-conf/login-identity-providers.xml "__LDAP_MANAGER_PASSWORD__" "${LDAP_MANAGER_PASSWORD_ESCAPED}"
+          else
+            replace_token /work-conf/authorizers.xml "__LDAP_MANAGER_DN__" ""
+            replace_token /work-conf/authorizers.xml "__LDAP_MANAGER_PASSWORD__" ""
+            replace_token /work-conf/login-identity-providers.xml "__LDAP_MANAGER_DN__" ""
+            replace_token /work-conf/login-identity-providers.xml "__LDAP_MANAGER_PASSWORD__" ""
+          fi
+
+          replace_token /work-conf/authorizers.xml "__KEYSTORE_PASSWORD__" "$(xml_escape "${KEYSTORE_PASSWORD}")"
+          replace_token /work-conf/authorizers.xml "__TRUSTSTORE_PASSWORD__" "$(xml_escape "${TRUSTSTORE_PASSWORD}")"
+          replace_token /work-conf/login-identity-providers.xml "__KEYSTORE_PASSWORD__" "$(xml_escape "${KEYSTORE_PASSWORD}")"
+          replace_token /work-conf/login-identity-providers.xml "__TRUSTSTORE_PASSWORD__" "$(xml_escape "${TRUSTSTORE_PASSWORD}")"
           replace_property "nifi.sensitive.props.key" "${NIFI_SENSITIVE_PROPS_KEY}"
           replace_property "nifi.web.http.host" ""
           replace_property "nifi.web.http.port" ""
@@ -191,7 +285,9 @@ spec:
         - /bin/sh
         - -ec
         - |
+          {{- if eq (include "nifi.authMode" .) "singleUser" }}
           /opt/nifi/nifi-current/bin/nifi.sh set-single-user-credentials "${SINGLE_USER_CREDENTIALS_USERNAME}" "${SINGLE_USER_CREDENTIALS_PASSWORD}"
+          {{- end }}
           /opt/nifi/nifi-current/bin/nifi.sh run &
           nifi_pid="$!"
           tail -F --pid="${nifi_pid}" /opt/nifi/nifi-current/logs/nifi-app.log &
@@ -199,16 +295,20 @@ spec:
         securityContext:
           {{- toYaml .Values.securityContext | nindent 10 }}
         env:
+        - name: AUTH_MODE
+          value: {{ include "nifi.authMode" . | quote }}
+        {{- if eq (include "nifi.authMode" .) "singleUser" }}
         - name: SINGLE_USER_CREDENTIALS_USERNAME
           valueFrom:
             secretKeyRef:
-              name: {{ required "auth.singleUser.existingSecret is required" .Values.auth.singleUser.existingSecret | quote }}
+              name: {{ include "nifi.singleUserUsernameSecretName" . | quote }}
               key: {{ .Values.auth.singleUser.usernameKey | quote }}
         - name: SINGLE_USER_CREDENTIALS_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: {{ required "auth.singleUser.existingSecret is required" .Values.auth.singleUser.existingSecret | quote }}
+              name: {{ include "nifi.singleUserUsernameSecretName" . | quote }}
               key: {{ .Values.auth.singleUser.passwordKey | quote }}
+        {{- end }}
         ports:
         - name: https
           containerPort: {{ .Values.ports.https }}

@@ -10,8 +10,12 @@ controllerManaged:
   enabled: false
 
 auth:
+  mode: singleUser
   singleUser:
     existingSecret: nifi-auth
+
+authz:
+  mode: fileManaged
 
 tls:
   mode: externalSecret

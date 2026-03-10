@@ -1,0 +1,46 @@
+# Prepared LDAP authentication and authorization overlay.
+# Compose with examples/managed/values.yaml.
+# This path needs a real LDAP server and bind credentials before it can be validated.
+
+auth:
+  mode: ldap
+  ldap:
+    url: ldaps://ldap.example.com:636
+    authenticationStrategy: LDAPS
+    managerSecret:
+      name: nifi-ldap-bind
+      dnKey: managerDn
+      passwordKey: managerPassword
+    userSearch:
+      base: ou=People,dc=example,dc=com
+      filter: (uid={0})
+      scope: SUBTREE
+      objectClass: inetOrgPerson
+      identityAttribute: uid
+    groupSearch:
+      base: ou=Groups,dc=example,dc=com
+      scope: SUBTREE
+      objectClass: groupOfNames
+      nameAttribute: cn
+      memberAttribute: member
+
+authz:
+  mode: ldapSync
+  bootstrap:
+    initialAdminGroup: nifi-platform-admins
+  applicationGroups:
+  - nifi-platform-admins
+  - nifi-flow-operators
+  policies:
+  - resource: /flow
+    actions:
+    - R
+    groups:
+    - nifi-flow-operators
+    - nifi-platform-admins
+  - resource: /controller
+    actions:
+    - R
+    - W
+    groups:
+    - nifi-platform-admins
