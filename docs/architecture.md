@@ -57,6 +57,7 @@ Helm owns:
 - PVC templates and volume mounts
 - `ConfigMap` templates for NiFi configuration
 - templated NiFi authentication and authorization files
+- prepared Flow Registry Client catalog rendering for external Git-based providers
 - references to TLS and authentication Secrets
 - `PodDisruptionBudget`
 - `ServiceMonitor`
@@ -64,6 +65,13 @@ Helm owns:
 - Ingress and OpenShift Route guidance or templates when included
 - RBAC required by NiFi to use Kubernetes coordination and state features
 - optional cert-manager resources or references
+
+Helm also owns NiFi image selection and compatibility overlays:
+
+- the chart defaults to a small proven baseline image tag
+- examples can override `image.tag` for focused compatibility proofs
+- the controller does not branch behavior by NiFi minor version
+- newer NiFi versions should only be claimed after a focused runtime proof is recorded
 
 Helm does not own runtime sequencing decisions after the rendered workload exists.
 
@@ -74,6 +82,13 @@ Authentication and authorization stay chart-first:
 - Helm renders the authorizer composition, application group seed, and file-managed policy seed.
 - Helm renders proxy-host and external exposure settings needed for OIDC or LDAP browser access.
 - The controller does not provision users, write back identity state, or participate in authentication flows.
+
+Flow Registry Client preparation also stays chart-first:
+
+- Helm can render validated prepared definitions for GitHub, GitLab, Bitbucket, and Azure DevOps Flow Registry Clients.
+- Helm does not auto-create those clients in NiFi.
+- The controller does not manage registry clients, imported flows, or synchronization.
+- There are no flow CRDs.
 
 ### Controller Responsibilities
 

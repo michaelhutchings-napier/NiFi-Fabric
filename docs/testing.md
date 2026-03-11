@@ -80,6 +80,7 @@ kind-based integration should cover:
 - a focused fresh-kind `make kind-cert-manager-e2e` path for cert-manager validation without changing the main alpha gate
 - a focused `make kind-auth-oidc-e2e` path for OIDC runtime validation without pulling in the main lifecycle gate
 - a focused `make kind-auth-ldap-e2e` path for LDAP runtime validation without pulling in the main lifecycle gate
+- a focused `make kind-nifi-2-8-e2e` path for a newer NiFi 2.x managed compatibility proof without rerunning the full alpha gate
 - preloading the NiFi runtime image into the fresh kind node so alpha validation is not gated by an in-cluster registry pull
 - phase-level fresh-kind reruns:
   - `make kind-e2e-rollout`
@@ -127,10 +128,12 @@ Current alpha note:
 - the repo now has a green fresh-kind private-alpha workflow
 - the repo now also has a green fresh-kind `make kind-cert-manager-e2e` workflow
 - the repo now also has green focused `make kind-auth-oidc-e2e` and `make kind-auth-ldap-e2e` workflows
+- the repo now also has a green focused `make kind-nifi-2-8-e2e` workflow for the newer NiFi 2.x proof target
 - CI should treat `make kind-alpha-e2e` as the gate and use the phase-level targets for faster diagnosis
 - evaluator-facing examples and quickstarts should stay aligned with that same gate
 - cert-manager mode should still render in CI via `helm template`
 - the focused cert-manager path is an additional evaluation workflow, not a replacement for `make kind-alpha-e2e`
 - the focused auth paths are additional evaluator workflows, not replacements for `make kind-alpha-e2e`
+- the focused newer-version path is an additional compatibility workflow, not a replacement for `make kind-alpha-e2e`
 - cert-manager itself remains a cluster dependency and should stay outside the NiFi chart
 - CI diagnostics should include compact `NiFiCluster` status, compact `StatefulSet` status, pod revision or UID state, recent events, controller logs, and a controller metrics snapshot before falling back to large YAML dumps

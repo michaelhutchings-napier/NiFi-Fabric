@@ -31,6 +31,10 @@ Recommended example files:
 - prepared OIDC group-claims overlay: [examples/oidc-group-claims-values.yaml](../examples/oidc-group-claims-values.yaml)
 - prepared OIDC external URL overlay: [examples/oidc-external-url-values.yaml](../examples/oidc-external-url-values.yaml)
 - prepared LDAP overlay: [examples/ldap-values.yaml](../examples/ldap-values.yaml)
+- prepared GitHub Flow Registry Client overlay: [examples/github-flow-registry-values.yaml](../examples/github-flow-registry-values.yaml)
+- prepared GitLab Flow Registry Client overlay: [examples/gitlab-flow-registry-values.yaml](../examples/gitlab-flow-registry-values.yaml)
+- prepared Bitbucket Flow Registry Client overlay: [examples/bitbucket-flow-registry-values.yaml](../examples/bitbucket-flow-registry-values.yaml)
+- prepared Azure DevOps Flow Registry Client overlay: [examples/azure-devops-flow-registry-values.yaml](../examples/azure-devops-flow-registry-values.yaml)
 - prepared ingress and proxy-host overlay: [examples/ingress-proxy-host-values.yaml](../examples/ingress-proxy-host-values.yaml)
 - prepared OpenShift Route and proxy-host overlay: [examples/openshift/route-proxy-host-values.yaml](../examples/openshift/route-proxy-host-values.yaml)
 
@@ -62,6 +66,7 @@ What is still only prepared:
 - OIDC custom non-admin policy bindings from `authz.policies`
 - LDAP broader group-policy seeding beyond the focused bootstrap path
 - ingress-backed or Route-backed auth runtime behavior
+- external Flow Registry Client runtime against GitHub, GitLab, Bitbucket, or Azure DevOps
 
 Render-time validation now fails fast for:
 
@@ -107,6 +112,40 @@ helm template nifi charts/nifi \
   -f examples/ldap-values.yaml \
   -f examples/ingress-proxy-host-values.yaml
 ```
+
+Prepared Flow Registry Client render checks:
+
+```bash
+helm template nifi charts/nifi \
+  -f examples/managed/values.yaml \
+  -f examples/github-flow-registry-values.yaml
+```
+
+```bash
+helm template nifi charts/nifi \
+  -f examples/managed/values.yaml \
+  -f examples/gitlab-flow-registry-values.yaml
+```
+
+```bash
+helm template nifi charts/nifi \
+  -f examples/managed/values.yaml \
+  -f examples/bitbucket-flow-registry-values.yaml
+```
+
+```bash
+helm template nifi charts/nifi \
+  -f examples/managed/values.yaml \
+  -f examples/azure-devops-flow-registry-values.yaml
+```
+
+Flow Registry Client scope:
+
+- classic NiFi Registry is not the preferred path in this repo
+- Git-based Flow Registry Clients are the prepared direction
+- the chart renders a validated in-pod catalog only
+- it does not auto-create clients in NiFi
+- there is no controller-managed flow import or synchronization
 
 ### Bootstrap And Break-Glass
 
@@ -196,7 +235,7 @@ make kind-auth-ldap-e2e
 - python3
 - Go
 
-`keytool` is optional. If it is not installed locally, `hack/create-kind-secrets.sh` runs `keytool` in a disposable `apache/nifi:2.0.0` container.
+`keytool` is optional. If it is not installed locally, `hack/create-kind-secrets.sh` falls back to a short-lived in-cluster `keytool` step using the already-loaded NiFi image.
 
 ## One-Command Evaluator Installs
 
@@ -752,7 +791,7 @@ The auth Secret contains:
 ## Notes
 
 - The helper script uses a self-signed CA and a server certificate valid for the chart Service and headless Service DNS names.
-- The helper script creates both PKCS12 stores. If the workstation does not have `keytool`, it runs `keytool` in a disposable `apache/nifi:2.0.0` container.
+- The helper script creates both PKCS12 stores. If the workstation does not have `keytool`, it falls back to a short-lived in-cluster `keytool` step so the truststore still contains Java trust anchors.
 - The health checker executes `curl` inside each NiFi pod so the TLS hostname and NiFi node identity stay aligned.
 - The chart default still leaves `nifi.security.autoreload.enabled=false` for the standalone path, but the managed example used for TLS policy verification enables autoreload explicitly.
 - The checker uses the exported `ca.crt` rather than `curl -k`.

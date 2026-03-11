@@ -1,0 +1,21 @@
+# Prepared Azure DevOps Flow Registry Client overlay.
+# Compose with standalone or managed values.
+# This renders a validated catalog entry only. It does not auto-create the client in NiFi.
+
+flowRegistryClients:
+  enabled: true
+  clients:
+  - name: azure-devops-flows
+    provider: azureDevOps
+    description: Azure DevOps-backed Flow Registry Client catalog entry
+    repository:
+      name: nifi-flows
+      path: flows
+      branch: main
+    parameterContextValues: retain
+    azureDevOps:
+      apiUrl: https://dev.azure.com
+      organization: example-org
+      project: data-platform
+      webClientServiceName: azure-devops-web-client
+      oauth2AccessTokenProviderName: azure-devops-oauth2-provider

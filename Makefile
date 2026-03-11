@@ -12,7 +12,7 @@ ENVTEST_K8S_VERSION ?= 1.31.0
 CONTROLLER_IMAGE ?= nifi-fabric-controller:dev
 NIFI_IMAGE ?= apache/nifi:2.0.0
 
-.PHONY: fmt test test-unit test-envtest helm-lint run setup-envtest envtest-use kind-up kind-down kind-secrets kind-health kind-config-drift kind-tls-drift kind-tls-config-drift kind-tls-restart-e2e kind-hibernate kind-restore kind-alpha-e2e kind-e2e-rollout kind-e2e-config-drift kind-e2e-tls kind-e2e-hibernate kind-bootstrap-cert-manager kind-cert-manager-secrets kind-cert-manager-e2e kind-auth-oidc-e2e kind-auth-ldap-e2e docker-build-controller kind-load-controller kind-load-nifi-image deploy-controller undeploy-controller install-crd helm-install-standalone helm-install-managed apply-managed install-standalone install-managed install-managed-cert-manager
+.PHONY: fmt test test-unit test-envtest helm-lint run setup-envtest envtest-use kind-up kind-down kind-secrets kind-health kind-config-drift kind-tls-drift kind-tls-config-drift kind-tls-restart-e2e kind-hibernate kind-restore kind-alpha-e2e kind-e2e-rollout kind-e2e-config-drift kind-e2e-tls kind-e2e-hibernate kind-bootstrap-cert-manager kind-cert-manager-secrets kind-cert-manager-e2e kind-auth-oidc-e2e kind-auth-ldap-e2e kind-nifi-2-8-e2e docker-build-controller kind-load-controller kind-load-nifi-image deploy-controller undeploy-controller install-crd helm-install-standalone helm-install-managed apply-managed install-standalone install-managed install-managed-cert-manager
 
 fmt:
 	$(GO) fmt ./...
@@ -47,7 +47,7 @@ kind-down:
 	$(KIND) delete cluster --name $(KIND_CLUSTER_NAME)
 
 kind-load-nifi-image:
-	docker exec $(KIND_CLUSTER_NAME)-control-plane ctr -n k8s.io images pull --platform linux/amd64 docker.io/$(NIFI_IMAGE)
+	bash hack/load-kind-image.sh $(KIND_CLUSTER_NAME) $(NIFI_IMAGE)
 
 kind-secrets:
 	bash hack/create-kind-secrets.sh $(NAMESPACE) $(HELM_RELEASE) nifi-tls nifi-auth
@@ -102,6 +102,9 @@ kind-auth-oidc-e2e:
 
 kind-auth-ldap-e2e:
 	bash hack/kind-auth-ldap-e2e.sh
+
+kind-nifi-2-8-e2e:
+	bash hack/kind-nifi-2-8-e2e.sh
 
 docker-build-controller:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -o bin/manager ./main.go

@@ -66,6 +66,12 @@ make kind-auth-oidc-e2e
 make kind-auth-ldap-e2e
 ```
 
+Focused newer-version path:
+
+```bash
+make kind-nifi-2-8-e2e
+```
+
 CI entrypoints:
 
 - GitHub Actions workflow `alpha-e2e`
@@ -78,6 +84,7 @@ What is proven:
 
 - standalone chart install on kind
 - managed install on kind
+- focused managed compatibility proof for `apache/nifi:2.8.0` on kind
 - per-pod NiFi health gate
 - managed revision rollout
 - watched config-drift rollout
@@ -93,8 +100,9 @@ What is not proven:
 - AKS runtime validation
 - OpenShift runtime validation
 - production-hardening guidance
-- NiFi image versions beyond the current tested tag
+- NiFi image versions beyond the current tested set
 - cert-manager as part of the main `make kind-alpha-e2e` gate
+- live external Flow Registry Client runtime against GitHub, GitLab, Bitbucket, or Azure DevOps
 
 Supported evaluator paths:
 
@@ -108,6 +116,32 @@ Supported evaluator paths:
 - OpenShift readiness guide for future evaluation with [docs/openshift.md](docs/openshift.md)
 
 Known limitations are called out below and in [docs/local-kind.md](docs/local-kind.md).
+
+## Flow Registry Client Direction
+
+This project prepares NiFi for modern external Flow Registry Client usage rather than classic NiFi Registry.
+
+- classic `NiFiRegistryFlowRegistryClient` is deprecated in current NiFi component docs
+- Git-based Flow Registry Clients are the preferred direction for this thin platform
+- the chart can render validated prepared definitions for:
+  - GitHub
+  - GitLab
+  - Bitbucket
+  - Azure DevOps
+- the controller remains completely out of registry and flow management
+- there are no flow CRDs and no automatic synchronization
+
+What is chart-prepared:
+
+- validated provider-specific client definitions rendered into the release
+- a mounted in-pod catalog under `flowRegistryClients.mountPath`
+- example overlays for each supported Git provider
+
+What is intentionally not implemented:
+
+- automatic client creation in NiFi
+- controller-managed flow import or sync
+- classic NiFi Registry as the primary path
 
 ## AKS Readiness
 
@@ -161,7 +195,7 @@ Exact local prerequisites for the current private alpha:
 Optional:
 
 - `keytool`
-  - if it is missing, `hack/create-kind-secrets.sh` runs `keytool` in a disposable `apache/nifi:2.0.0` container
+  - if it is missing, `hack/create-kind-secrets.sh` falls back to a short-lived in-cluster `keytool` step using the already-loaded NiFi image
 
 ## Install Paths
 
@@ -304,6 +338,7 @@ What is prepared, not yet runtime-proven:
 - LDAP custom group-policy seeding beyond the focused bootstrap path
 - ingress-backed or Route-backed auth runtime behavior
 - any IdP or LDAP deployment outside the focused kind evaluators
+- GitHub, GitLab, Bitbucket, or Azure DevOps Flow Registry Client runtime
 
 Prepared overlays:
 
@@ -407,6 +442,36 @@ Fallback bootstrap path:
 
 - set `authz.bootstrap.initialAdminIdentity` only when the provider group path is not ready yet
 - keep that identity narrow and temporary if you later move to group-based administration
+
+## Flow Registry Client Preparation
+
+The chart now has a thin, prepared-only Flow Registry Client catalog.
+
+- enable it with `flowRegistryClients.enabled=true`
+- render one or more provider definitions under `flowRegistryClients.clients`
+- inspect the rendered catalog in the pod at `flowRegistryClients.mountPath`
+- use those validated definitions as the input to manual NiFi UI or API configuration
+
+Supported prepared providers:
+
+- GitHub
+- GitLab
+- Bitbucket
+- Azure DevOps
+
+Prepared example overlays:
+
+- [examples/github-flow-registry-values.yaml](examples/github-flow-registry-values.yaml)
+- [examples/gitlab-flow-registry-values.yaml](examples/gitlab-flow-registry-values.yaml)
+- [examples/bitbucket-flow-registry-values.yaml](examples/bitbucket-flow-registry-values.yaml)
+- [examples/azure-devops-flow-registry-values.yaml](examples/azure-devops-flow-registry-values.yaml)
+
+This remains intentionally thin:
+
+- no flow CRDs
+- no automatic flow synchronization
+- no controller participation
+- no classic NiFi Registry-first design
 
 If OIDC or LDAP settings are wrong and you lock yourself out:
 
@@ -596,7 +661,7 @@ Current alpha status:
 - `make kind-alpha-e2e` is green end to end and is the private-alpha gate
 - failures dump `NiFiCluster`, `StatefulSet`, pod revision and UID state, controller logs, and relevant events
 - CI can upload those diagnostics from `ARTIFACT_DIR` on failure
-- the fresh kind workflow preloads `apache/nifi:2.0.0` into the kind node before Helm install so bootstrap does not depend on an in-cluster registry pull
+- the fresh kind workflows preload the selected NiFi image into the kind node before Helm install so bootstrap does not depend on an in-cluster registry pull
 
 Implementation note for this slice:
 
@@ -867,7 +932,8 @@ The focused cert-manager path additionally covers:
 
 | Area | Current private-alpha coverage | Notes |
 | --- | --- | --- |
-| NiFi image | `apache/nifi:2.0.0` | current tested image tag |
+| NiFi image baseline | `apache/nifi:2.0.0` | full private-alpha gate proven with `make kind-alpha-e2e` |
+| NiFi image focused newer proof | `apache/nifi:2.8.0` | 2-replica managed install + health gate + config-drift restart proven with `make kind-nifi-2-8-e2e` |
 | Kubernetes runtime | `kindest/node:v1.31.0` | single control-plane kind cluster |
 | Managed rollout model | proven | `StatefulSet` with `OnDelete` |
 | Persistent storage assumptions | proven on kind | PVC retention on scale-down and delete |
@@ -877,7 +943,7 @@ The focused cert-manager path additionally covers:
 | OpenShift readiness guide | prepared | see [docs/openshift.md](docs/openshift.md) and `examples/openshift/*` |
 | OpenShift runtime validation | not yet covered by automated gate | friendly secondary target, still pending real cluster testing |
 | Production guidance | not yet covered | private-alpha only |
-| Alternate NiFi image tags | not yet covered | no compatibility claim beyond `2.0.0` |
+| Other NiFi 2.x tags | prepared only | no runtime compatibility claim beyond `2.0.0` and `2.8.0` |
 
 ## Private Alpha Release
 
@@ -911,6 +977,7 @@ What is not yet proven for this release:
 - OpenShift remains a secondary compatibility target behind AKS-first behavior and kind validation.
 - OpenShift now has a readiness guide, Route template, and example overlays, but there is still no validated OpenShift runtime result in this repository.
 - AKS now has a readiness guide and example overlays, but there is still no validated AKS runtime result in this repository.
+- the compatibility matrix is intentionally small; only `2.0.0` and `2.8.0` have runtime proof in this repository today
 - the repo directory name and Go module name are not yet fully aligned for a public release decision.
 - `make kind-alpha-e2e` currently assumes the alpha chart image stays aligned with `make kind-load-nifi-image`; update both together if the NiFi image tag changes.
 - cert-manager mode assumes the issuer writes `ca.crt`; without that, the chart's stable `truststore.p12` expectation is not satisfied.
@@ -931,6 +998,7 @@ Version and tag guidance:
 
 - use explicit pre-release tags such as `v0.1.0-alpha.1`
 - tag only from commits that pass `make kind-alpha-e2e`
+- if the release notes claim newer NiFi compatibility, also run and record `make kind-nifi-2-8-e2e` or the equivalent focused proof path
 - keep chart and controller version bumps aligned
 - call out the tested NiFi image and kind/Kubernetes assumptions in the release notes
 
@@ -952,6 +1020,7 @@ Private-alpha release checklist:
 - confirm standalone, managed, and cert-manager overlay `helm template` renders are green
 - confirm `make kind-alpha-e2e` is green
 - confirm `make kind-cert-manager-e2e` is green
+- confirm any claimed newer NiFi image proof path, such as `make kind-nifi-2-8-e2e`, is green
 - tag from the exact passing commit
 - record the tested NiFi image tag and kind node image in the release notes
 - confirm private repository visibility and image registry settings before sharing evaluator instructions
@@ -1097,7 +1166,7 @@ Fallback diagnostic signal:
 - if all pods are `Ready` and each pod's secured API is reachable but the cluster summary is still lagging, report that as `startup in progress`
 - future managed rollout logic should requeue on that condition rather than advancing a restart or hibernation step
 
-The kind helper stores `ca.crt` in the TLS Secret and also creates a PKCS12 truststore, using local `keytool` when available or a disposable `apache/nifi:2.0.0` container when it is not.
+The kind helper stores `ca.crt` in the TLS Secret and also creates a PKCS12 truststore, using local `keytool` when available or a short-lived in-cluster `keytool` fallback when it is not.
 
 Useful local commands:
 

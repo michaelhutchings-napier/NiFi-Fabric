@@ -80,6 +80,32 @@ There are also prepared authentication overlays:
   - OpenShift passthrough Route host plus matching `web.proxyHosts`.
   - Compose with OpenShift overlays and either OIDC or LDAP when the cluster is available.
 
+There are also prepared Flow Registry Client overlays:
+
+- [github-flow-registry-values.yaml](github-flow-registry-values.yaml)
+  - Prepared GitHub Flow Registry Client catalog entry.
+  - Renders a validated definition only; it does not auto-create the client in NiFi.
+
+- [gitlab-flow-registry-values.yaml](gitlab-flow-registry-values.yaml)
+  - Prepared GitLab Flow Registry Client catalog entry.
+  - Renders a validated definition only; it does not auto-create the client in NiFi.
+
+- [bitbucket-flow-registry-values.yaml](bitbucket-flow-registry-values.yaml)
+  - Prepared Bitbucket Flow Registry Client catalog entry.
+  - Renders a validated definition only; it does not auto-create the client in NiFi.
+
+- [azure-devops-flow-registry-values.yaml](azure-devops-flow-registry-values.yaml)
+  - Prepared Azure DevOps Flow Registry Client catalog entry.
+  - Renders a validated definition only; it does not auto-create the client in NiFi.
+
+There is also one focused NiFi version compatibility overlay:
+
+- [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml)
+  - Overrides the chart image tag to `apache/nifi:2.8.0`.
+  - Uses `replicaCount: 2` for the focused single-node kind compatibility proof.
+  - Compose with either [standalone/values.yaml](standalone/values.yaml) or [managed/values.yaml](managed/values.yaml).
+  - The focused managed proof command is `make kind-nifi-2-8-e2e`.
+
 Only one authentication mode is supported at a time. The intended thin-platform combinations are:
 
 - `singleUser + fileManaged`
@@ -98,6 +124,14 @@ Focused auth evaluator commands:
 
 - `make kind-auth-oidc-e2e`
 - `make kind-auth-ldap-e2e`
+- `make kind-nifi-2-8-e2e`
+
+Flow Registry Client notes:
+
+- classic NiFi Registry is not the preferred direction here
+- Git-based Flow Registry Clients are preferred
+- the chart renders a prepared catalog under `flowRegistryClients.mountPath`
+- there is no controller-managed flow import or synchronization
 
 ## Standalone
 

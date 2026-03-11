@@ -4,6 +4,8 @@ podAnnotations: {}
 
 image:
   repository: apache/nifi
+  # Private-alpha runtime proof currently covers 2.0.0 and a focused 2.8.0 path.
+  # Use examples/nifi-2.8.0-values.yaml for the newer compatibility overlay.
   tag: "2.0.0"
   pullPolicy: IfNotPresent
 
@@ -228,3 +230,8 @@ config:
   # This chart writes a baseline nifi.properties and lets the official image patch pod-specific values at startup.
   # In certManager mode the chart renders Certificate resources and still expects stable password refs.
   extraProperties: {}
+
+flowRegistryClients:
+  enabled: false
+  mountPath: /opt/nifi/fabric/flow-registry-clients
+  clients: []

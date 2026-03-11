@@ -1,0 +1,25 @@
+# Prepared Bitbucket Flow Registry Client overlay.
+# Compose with standalone or managed values.
+# This renders a validated catalog entry only. It does not auto-create the client in NiFi.
+
+flowRegistryClients:
+  enabled: true
+  clients:
+  - name: bitbucket-flows
+    provider: bitbucket
+    description: Bitbucket-backed Flow Registry Client catalog entry
+    repository:
+      workspace: example-workspace
+      name: nifi-flows
+      path: flows
+      branch: main
+    parameterContextValues: retain
+    bitbucket:
+      formFactor: cloud
+      apiUrl: https://api.bitbucket.org/2.0
+      webClientServiceName: bitbucket-web-client
+      auth:
+        type: accessToken
+        accessTokenSecret:
+          name: bitbucket-flow-registry
+          key: token

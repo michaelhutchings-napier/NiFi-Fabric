@@ -1,0 +1,18 @@
+{{- if .Values.flowRegistryClients.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nifi.fullname" . }}-flow-registry-clients
+  labels:
+    {{- include "nifi.labels" . | nindent 4 }}
+data:
+  clients.yaml: |
+{{ include "nifi.flowRegistryClientDefinitions" . | indent 4 }}
+  README.txt: |
+    This ConfigMap is a chart-rendered catalog of NiFi Flow Registry Client definitions.
+    It is intentionally prepared-only:
+    - the chart does not auto-create registry clients in NiFi
+    - the controller does not manage registry clients or flows
+    - there are no flow CRDs and no automatic synchronization
+    Use these validated definitions as the starting point for manual NiFi UI or API configuration.
+{{- end }}

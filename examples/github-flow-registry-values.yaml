@@ -1,0 +1,23 @@
+# Prepared GitHub Flow Registry Client overlay.
+# Compose with standalone or managed values.
+# This renders a validated catalog entry only. It does not auto-create the client in NiFi.
+
+flowRegistryClients:
+  enabled: true
+  clients:
+  - name: github-flows
+    provider: github
+    description: GitHub-backed Flow Registry Client catalog entry
+    repository:
+      owner: example-org
+      name: nifi-flows
+      path: flows
+      branch: main
+    parameterContextValues: retain
+    github:
+      apiUrl: https://api.github.com
+      auth:
+        type: personalAccessToken
+        personalAccessTokenSecret:
+          name: github-flow-registry
+          key: token

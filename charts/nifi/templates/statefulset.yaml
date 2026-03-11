@@ -369,6 +369,11 @@ spec:
         - name: tls
           mountPath: {{ .Values.tls.mountPath }}
           readOnly: true
+        {{- if .Values.flowRegistryClients.enabled }}
+        - name: flow-registry-clients
+          mountPath: {{ .Values.flowRegistryClients.mountPath }}
+          readOnly: true
+        {{- end }}
       volumes:
       - name: config-template
         configMap:
@@ -380,6 +385,11 @@ spec:
       - name: tls
         secret:
           secretName: {{ include "nifi.tlsSecretName" . }}
+      {{- if .Values.flowRegistryClients.enabled }}
+      - name: flow-registry-clients
+        configMap:
+          name: {{ include "nifi.fullname" . }}-flow-registry-clients
+      {{- end }}
       {{- if not .Values.persistence.enabled }}
       - name: database-repository
         emptyDir: {}

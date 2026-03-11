@@ -1,0 +1,21 @@
+# Prepared GitLab Flow Registry Client overlay.
+# Compose with standalone or managed values.
+# This renders a validated catalog entry only. It does not auto-create the client in NiFi.
+
+flowRegistryClients:
+  enabled: true
+  clients:
+  - name: gitlab-flows
+    provider: gitlab
+    description: GitLab-backed Flow Registry Client catalog entry
+    repository:
+      namespace: example-group
+      name: nifi-flows
+      path: flows
+      branch: main
+    parameterContextValues: retain
+    gitlab:
+      apiUrl: https://gitlab.example.com/api/v4
+      accessTokenSecret:
+        name: gitlab-flow-registry
+        key: token
