@@ -1,0 +1,30 @@
+# Focused fast overlay for the product chart.
+# Keep this additive to the standard platform values and use it only for
+# focused runtime proof paths, not the baseline lifecycle gate.
+nifi:
+  replicaCount: 2
+
+  pdb:
+    enabled: false
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  persistence:
+    databaseRepository:
+      size: 1Gi
+    flowfileRepository:
+      size: 1Gi
+    contentRepository:
+      size: 2Gi
+    provenanceRepository:
+      size: 2Gi
+
+  nifi:
+    jvmHeapInit: 384m
+    jvmHeapMax: 384m

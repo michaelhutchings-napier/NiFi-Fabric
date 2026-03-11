@@ -77,6 +77,8 @@ Helm template tests should cover:
 kind-based integration should cover:
 
 - a single fresh-kind `make kind-alpha-e2e` path for private-alpha validation
+- a focused fresh-kind `make kind-platform-managed-fast-e2e` path that installs the one-release platform chart in managed mode and proves CRD, controller, app, and `NiFiCluster` startup on the fast profile
+- a focused fresh-kind `make kind-platform-managed-cert-manager-fast-e2e` path that verifies the platform chart fails clearly before cert-manager exists, then succeeds once cert-manager is bootstrapped, all on the fast profile
 - additive focused fast-profile reruns that keep NiFi multi-node but reduce the shape to the smallest stable two-node footprint for local kind validation
 - a separate `make kind-bootstrap-cert-manager` path that installs cert-manager from the official Helm chart source and bootstraps the evaluator issuer flow without modifying the NiFi chart
 - a focused fresh-kind `make kind-cert-manager-e2e` path for cert-manager validation without changing the main alpha gate
@@ -133,6 +135,7 @@ Current alpha note:
 
 - the repo now has a green fresh-kind private-alpha workflow
 - the repo now has a render-validated `charts/nifi-platform` install path for one-release standalone, managed, and managed-cert-manager installs
+- the repo now also has green focused `make kind-platform-managed-fast-e2e` and `make kind-platform-managed-cert-manager-fast-e2e` workflows for the product-chart install path
 - the repo now also has green fresh-kind `make kind-cert-manager-e2e` and `make kind-cert-manager-nifi-2-8-e2e` workflows
 - the repo now also has a green focused `make kind-cert-manager-nifi-2-8-fast-e2e` workflow for cert-manager on NiFi `2.8.0` with the fast profile
 - the repo now also has green focused `make kind-auth-oidc-e2e` and `make kind-auth-ldap-e2e` workflows

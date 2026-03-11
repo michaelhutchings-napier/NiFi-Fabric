@@ -81,9 +81,20 @@ helm upgrade --install nifi charts/nifi-platform \
 
 Current proof boundary:
 
-- proven on kind: the existing app-chart managed runtime and focused evaluator paths
+- proven on kind: the existing app-chart managed runtime and focused evaluator paths, plus focused `charts/nifi-platform` managed and managed-cert-manager runtime installs
 - proven by render validation: the one-release `charts/nifi-platform` install contract
 - still advanced or evaluator-only: manual CRD, controller, and `NiFiCluster` assembly with `kubectl apply`
+
+Focused product-chart runtime proof commands:
+
+```bash
+make kind-platform-managed-fast-e2e
+make kind-platform-managed-fast-e2e-reuse
+make kind-platform-managed-cert-manager-fast-e2e
+make kind-platform-managed-cert-manager-fast-e2e-reuse
+```
+
+These are now the primary runtime-proof commands for the one-release product install path. The lower-level app-chart-focused commands remain useful for direct chart or controller debugging.
 
 ## Authn And Authz Scope
 

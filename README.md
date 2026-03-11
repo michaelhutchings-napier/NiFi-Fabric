@@ -91,6 +91,13 @@ Fast profile note:
 - use the fast-profile targets for focused proof and rapid iteration only
 - keep `make kind-alpha-e2e` and the phase-level alpha targets as the baseline lifecycle gate
 
+Focused product-chart runtime proof paths:
+
+```bash
+make kind-platform-managed-fast-e2e
+make kind-platform-managed-cert-manager-fast-e2e
+```
+
 CI entrypoints:
 
 - GitHub Actions workflow `alpha-e2e`
@@ -103,6 +110,8 @@ What is proven:
 
 - standalone chart install on kind
 - managed install on kind
+- focused `charts/nifi-platform` managed install on kind
+- focused `charts/nifi-platform` managed-cert-manager install on kind
 - focused managed compatibility proof for `apache/nifi:2.8.0` on kind
 - per-pod NiFi health gate
 - managed revision rollout
@@ -129,6 +138,8 @@ Supported evaluator paths:
 
 - standalone quickstart
 - managed quickstart
+- product-chart managed runtime quickstart
+- product-chart managed-cert-manager runtime quickstart
 - focused cert-manager quickstart
 - focused OIDC auth quickstart
 - focused LDAP auth quickstart
@@ -258,7 +269,7 @@ Product install prerequisites:
 
 What is proven vs prepared for this install model:
 
-- proven runtime: the existing app chart plus managed controller path on kind, including the focused cert-manager and NiFi `2.8.0` proofs
+- proven runtime: the existing app chart plus managed controller path on kind, including the focused cert-manager and NiFi `2.8.0` proofs, and focused `charts/nifi-platform` managed and managed-cert-manager installs
 - proven render contract: `charts/nifi-platform` renders standalone, managed, and managed-cert-manager in one release
 - prepared but not runtime-proven yet: a full kind or cloud lifecycle run driven directly through `charts/nifi-platform`
 
@@ -269,6 +280,17 @@ Advanced paths still supported:
 - focused kind harnesses under `make kind-*`
 
 Example files are indexed in [examples/README.md](examples/README.md).
+
+Focused product-chart runtime proof commands:
+
+```bash
+make kind-platform-managed-fast-e2e
+make kind-platform-managed-fast-e2e-reuse
+make kind-platform-managed-cert-manager-fast-e2e
+make kind-platform-managed-cert-manager-fast-e2e-reuse
+```
+
+The app-chart-focused commands remain available and useful when you need lower-level chart or harness debugging.
 
 ## Evaluator Standalone Quickstart
 

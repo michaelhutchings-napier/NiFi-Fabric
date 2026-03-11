@@ -54,6 +54,12 @@ There is also one optional focused fast overlay:
   - Sets `replicaCount: 2`, lowers heap and pod resources, shrinks PVC sizes, and disables the PDB for focused reruns.
   - Compose it with focused kind overlays only. Do not use it as a replacement for the proven baseline profiles or `make kind-alpha-e2e`.
 
+- [platform-fast-values.yaml](platform-fast-values.yaml)
+  - Product-chart equivalent of the focused fast overlay.
+  - Nests the same smaller multi-node shape under `nifi.*` for `charts/nifi-platform`.
+  - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml) or [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml).
+  - The primary focused runtime commands are `make kind-platform-managed-fast-e2e` and `make kind-platform-managed-cert-manager-fast-e2e`.
+
 There are also prepared authentication overlays:
 
 - [oidc-values.yaml](oidc-values.yaml)
@@ -176,11 +182,13 @@ Flow Registry Client notes:
   - Minimal one-release product-chart values for managed mode.
   - Installs the CRD, controller, RBAC, app chart, and `NiFiCluster` in one Helm release.
   - Requires the controller image to be reachable by the target cluster.
+  - The primary focused runtime proof commands are `make kind-platform-managed-fast-e2e` and `make kind-platform-managed-fast-e2e-reuse`.
 
 - [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml)
   - Minimal one-release product-chart values for managed mode when cert-manager already exists in the cluster.
   - cert-manager remains a prerequisite and is not bundled by this chart.
   - Requires the stable `nifi-tls-params` Secret for the PKCS12 password and `nifi.sensitive.props.key`.
+  - The primary focused runtime proof commands are `make kind-platform-managed-cert-manager-fast-e2e` and `make kind-platform-managed-cert-manager-fast-e2e-reuse`.
 
 - [managed/values.yaml](managed/values.yaml)
   - Minimal app-chart values for managed mode.
