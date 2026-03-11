@@ -1,0 +1,21 @@
+NiFi-Fabric platform install
+
+- `mode={{ include "nifi-platform.mode" . }}` controls whether this release installs standalone app resources only or the managed platform layer as well.
+- `charts/nifi-platform` is the product-facing chart.
+- `charts/nifi` remains the reusable app chart.
+
+{{- if eq (include "nifi-platform.managedMode" .) "true" }}
+Managed mode details:
+
+- this release installed the `NiFiCluster` CRD, controller RBAC and Deployment, the `nifi` app subchart, and a `NiFiCluster`
+- the controller targets StatefulSet `{{ include "nifi-platform.targetRefName" . }}` in namespace `{{ .Release.Namespace }}`
+- the controller runs in namespace `{{ include "nifi-platform.controllerNamespace" . }}`
+{{- if eq (include "nifi-platform.mode" .) "managed-cert-manager" }}
+- cert-manager is a prerequisite and is not installed by this chart
+{{- end }}
+{{- else }}
+Standalone mode details:
+
+- this release installed only the reusable `nifi` app chart resources
+- no controller or `NiFiCluster` was installed
+{{- end }}

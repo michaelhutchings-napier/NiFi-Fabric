@@ -1,0 +1,44 @@
+mode: standalone
+
+controller:
+  namespace:
+    name: nifi-system
+    create: true
+  serviceAccount:
+    name: ""
+  image:
+    repository: nifi-fabric-controller
+    tag: dev
+    pullPolicy: IfNotPresent
+  args:
+    - --leader-elect
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+cluster:
+  create: true
+  name: ""
+  targetRef:
+    name: ""
+  desiredState: Running
+  suspend: false
+  restartTriggers:
+    configMaps: []
+    secrets: []
+  restartPolicy:
+    tlsDrift: AutoreloadThenRestartOnFailure
+  rollout:
+    minReadySeconds: 30
+    podReadyTimeout: 10m
+    clusterHealthTimeout: 15m
+  hibernation:
+    offloadTimeout: 5m
+  safety:
+    requireClusterHealthy: true
+
+nifi: {}

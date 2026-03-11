@@ -4,10 +4,11 @@
 
 ## Project Summary
 
-This repository packages two evaluator paths around the same NiFi 2-first design:
+This repository now packages two Helm entry points around the same NiFi 2-first design:
 
-- a standalone Helm chart for teams that want plain Kubernetes resources and no controller dependency
-- an optional managed mode where a thin controller handles rollout safety, TLS drift policy, and hibernation against that same chart-managed `StatefulSet`
+- `charts/nifi-platform` is the primary product chart for one-release installs
+- `charts/nifi` remains the reusable standalone-first app chart for lower-level or advanced assembly
+- managed mode still uses the same thin controller for rollout safety, TLS drift policy, and hibernation against the chart-managed `StatefulSet`
 
 It is intentionally not a NiFiKop clone. The current private-alpha focus is a small, explainable platform layer that another engineer can install, evaluate, and debug on kind without first learning a large custom API.
 
@@ -59,6 +60,13 @@ Focused cert-manager path:
 make kind-cert-manager-e2e
 ```
 
+Focused cert-manager path on NiFi `2.8.0`:
+
+```bash
+make kind-cert-manager-nifi-2-8-e2e
+make kind-cert-manager-nifi-2-8-fast-e2e
+```
+
 Focused auth paths:
 
 ```bash
@@ -71,6 +79,17 @@ Focused newer-version path:
 ```bash
 make kind-nifi-2-8-e2e
 ```
+
+Focused `2.8.0` Flow Registry Client path:
+
+```bash
+make kind-flow-registry-gitlab-e2e
+```
+
+Fast profile note:
+
+- use the fast-profile targets for focused proof and rapid iteration only
+- keep `make kind-alpha-e2e` and the phase-level alpha targets as the baseline lifecycle gate
 
 CI entrypoints:
 
@@ -94,6 +113,7 @@ What is proven:
 - focused cert-manager evaluator path on kind
 - focused OIDC evaluator path on kind
 - focused LDAP evaluator path on kind
+- focused GitLab Flow Registry Client runtime proof on NiFi `2.8.0`
 
 What is not proven:
 
@@ -102,7 +122,8 @@ What is not proven:
 - production-hardening guidance
 - NiFi image versions beyond the current tested set
 - cert-manager as part of the main `make kind-alpha-e2e` gate
-- live external Flow Registry Client runtime against GitHub, GitLab, Bitbucket, or Azure DevOps
+- live external Flow Registry Client runtime against GitHub, Bitbucket, or Azure DevOps
+- full hosted GitLab runtime beyond the focused GitLab-compatible evaluator path
 
 Supported evaluator paths:
 
@@ -199,20 +220,57 @@ Optional:
 
 ## Install Paths
 
-Recommended evaluator entrypoints:
+Primary product install path:
 
-- Standalone quickstart
-  - one-command kind installer for Helm-only evaluation
-- Managed quickstart
-  - one-command kind installer for the controller, `NiFiCluster`, and lifecycle orchestration
-- Managed + cert-manager quickstart
-  - one-command kind installer for managed mode with separate cert-manager bootstrap
-- Full private-alpha gate
-  - use when you want the entire proven workflow on a fresh kind cluster
+- use `charts/nifi-platform` for the standard customer-facing install story
+- provide one values file
+- run one Helm install
+- get the app chart and, in managed modes, the CRD, controller, RBAC, and `NiFiCluster` in the same release
+
+Exact one-command product installs:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  -n nifi \
+  --create-namespace \
+  -f examples/platform-standalone-values.yaml
+```
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  -n nifi \
+  --create-namespace \
+  -f examples/platform-managed-values.yaml
+```
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  -n nifi \
+  --create-namespace \
+  -f examples/platform-managed-cert-manager-values.yaml
+```
+
+Product install prerequisites:
+
+- `charts/nifi-platform` does not create the auth or TLS parameter Secrets for you
+- managed mode still requires the controller image to be reachable by the target cluster
+- cert-manager remains a cluster dependency and is not bundled by the product chart
+
+What is proven vs prepared for this install model:
+
+- proven runtime: the existing app chart plus managed controller path on kind, including the focused cert-manager and NiFi `2.8.0` proofs
+- proven render contract: `charts/nifi-platform` renders standalone, managed, and managed-cert-manager in one release
+- prepared but not runtime-proven yet: a full kind or cloud lifecycle run driven directly through `charts/nifi-platform`
+
+Advanced paths still supported:
+
+- direct `charts/nifi` standalone installs
+- manual CRD or controller assembly for evaluator and development workflows
+- focused kind harnesses under `make kind-*`
 
 Example files are indexed in [examples/README.md](examples/README.md).
 
-## Standalone Quickstart
+## Evaluator Standalone Quickstart
 
 One-command evaluator install:
 
@@ -236,7 +294,7 @@ make helm-install-standalone
 make kind-health
 ```
 
-## Managed Quickstart
+## Evaluator Managed Quickstart
 
 One-command evaluator install:
 
@@ -245,6 +303,8 @@ make install-managed
 ```
 
 The installer checks `kind`, `kubectl`, `helm`, and `docker`, then installs the CRD, controller, managed Helm release, and `NiFiCluster` before printing the next health and debug commands.
+
+This remains the advanced evaluator assembly path. The primary customer-facing install path is the single-release `charts/nifi-platform` chart shown above.
 
 Primary examples:
 
@@ -338,7 +398,8 @@ What is prepared, not yet runtime-proven:
 - LDAP custom group-policy seeding beyond the focused bootstrap path
 - ingress-backed or Route-backed auth runtime behavior
 - any IdP or LDAP deployment outside the focused kind evaluators
-- GitHub, GitLab, Bitbucket, or Azure DevOps Flow Registry Client runtime
+- GitHub, Bitbucket, or Azure DevOps Flow Registry Client runtime
+- full hosted GitLab runtime beyond the focused kind evaluator
 
 Prepared overlays:
 
@@ -445,12 +506,12 @@ Fallback bootstrap path:
 
 ## Flow Registry Client Preparation
 
-The chart now has a thin, prepared-only Flow Registry Client catalog.
+The chart now has a thin, chart-first Flow Registry Client catalog.
 
 - enable it with `flowRegistryClients.enabled=true`
 - render one or more provider definitions under `flowRegistryClients.clients`
 - inspect the rendered catalog in the pod at `flowRegistryClients.mountPath`
-- use those validated definitions as the input to manual NiFi UI or API configuration
+- use `clients.yaml` or `clients.json` as the input to manual NiFi UI or API configuration
 
 Supported prepared providers:
 
@@ -463,8 +524,19 @@ Prepared example overlays:
 
 - [examples/github-flow-registry-values.yaml](examples/github-flow-registry-values.yaml)
 - [examples/gitlab-flow-registry-values.yaml](examples/gitlab-flow-registry-values.yaml)
+- [examples/gitlab-flow-registry-kind-values.yaml](examples/gitlab-flow-registry-kind-values.yaml)
 - [examples/bitbucket-flow-registry-values.yaml](examples/bitbucket-flow-registry-values.yaml)
 - [examples/azure-devops-flow-registry-values.yaml](examples/azure-devops-flow-registry-values.yaml)
+
+Focused runtime proof:
+
+- `make kind-flow-registry-gitlab-e2e`
+- deploys NiFi `2.8.0` with the prepared GitLab Flow Registry Client overlay
+- bootstraps a lightweight GitLab-compatible evaluator service on kind
+- creates the GitLab Flow Registry Client through NiFi's own REST API
+- verifies bucket listing through NiFi runtime without any controller participation
+- `KIND_CLUSTER_NAME=nifi-fabric-flow-registry-gitlab make kind-flow-registry-gitlab-e2e-reuse`
+  reruns the same focused proof against an existing kind cluster
 
 This remains intentionally thin:
 
@@ -557,16 +629,18 @@ NiFi native capabilities remain responsible for:
 
 | Mode | Installed components | Best for | Trade-off |
 | --- | --- | --- | --- |
-| Standalone chart | Helm chart only | teams that want plain Helm or simple GitOps | no controller-managed status, rollout safety, or hibernation |
-| Managed mode | Helm chart + controller + `NiFiCluster` | teams that want safe orchestration and explicit status | requires a thin operational CR and documented controller ownership boundaries |
+| Platform standalone | `charts/nifi-platform` driving the `charts/nifi` app chart only | one-release installs without controller-managed lifecycle behavior | still requires prerequisite Secrets and does not add managed status or rollout safety |
+| Platform managed | `charts/nifi-platform`, CRD, controller, RBAC, `charts/nifi`, and `NiFiCluster` | the standard customer-facing managed install path | requires the thin operational CR and a reachable controller image |
+| Direct app chart | `charts/nifi` only | lower-level standalone use, advanced composition, or evaluator assembly | controller, CRD, and `NiFiCluster` remain your responsibility |
 
-Managed mode is opt-in. The chart remains installable by itself.
+Managed mode is opt-in. The app chart remains installable by itself.
 
 ## MVP Scope
 
 The MVP includes:
 
-- a standalone Helm chart for NiFi 2.x on Kubernetes
+- a top-level product chart for one-release installs
+- a reusable standalone-first Helm app chart for NiFi 2.x on Kubernetes
 - an optional namespaced controller
 - one namespaced CRD: `NiFiCluster`
 - cert-manager integration assumptions
@@ -639,9 +713,10 @@ After the design pack, the repository should grow into:
 What is runnable now:
 
 - the standalone Helm chart can render and deploy a minimal real NiFi 2 cluster on kind
+- the new `charts/nifi-platform` chart can render standalone, managed, and managed-cert-manager installs in one release
 - the repo has a single alpha workflow entrypoint: `make kind-alpha-e2e`
 - the repo has phase-level fresh-kind alpha targets for rollout, config drift, TLS, and hibernation debugging
-- the repo has a focused fresh-kind cert-manager evaluation path: `make kind-cert-manager-e2e`
+- the repo has focused cert-manager evaluation paths on kind: `make kind-cert-manager-e2e`, `make kind-cert-manager-fast-e2e`, `make kind-cert-manager-nifi-2-8-e2e`, and `make kind-cert-manager-nifi-2-8-fast-e2e`
 - the chart wires Kubernetes leader election and ConfigMap-backed cluster state settings through explicit NiFi configuration rather than hidden controller behavior
 - the chart mounts persistent repositories, config, Services, and probes suitable for a kind-focused local workflow
 - the repo includes a repeatable health-check flow that separates pod readiness, secured API reachability, and actual cluster convergence
@@ -927,6 +1002,8 @@ The focused cert-manager path additionally covers:
 - `Certificate` readiness and target Secret population
 - content-only cert renewal with the current TLS observation policy
 - restart-required TLS config change while the chart still sources TLS from cert-manager
+- the same proof is now runtime-covered on NiFi `2.8.0` through `make kind-cert-manager-nifi-2-8-e2e`
+- the same proof is now also runtime-covered on NiFi `2.8.0` through the focused fast path `make kind-cert-manager-nifi-2-8-fast-e2e`
 
 ## Compatibility
 
@@ -934,10 +1011,12 @@ The focused cert-manager path additionally covers:
 | --- | --- | --- |
 | NiFi image baseline | `apache/nifi:2.0.0` | full private-alpha gate proven with `make kind-alpha-e2e` |
 | NiFi image focused newer proof | `apache/nifi:2.8.0` | 2-replica managed install + health gate + config-drift restart proven with `make kind-nifi-2-8-e2e` |
+| GitLab Flow Registry Client on `2.8.0` | proven on kind with a GitLab-compatible evaluator service | `make kind-flow-registry-gitlab-e2e` proves chart-prepared client definition, NiFi client creation, and bucket listing |
 | Kubernetes runtime | `kindest/node:v1.31.0` | single control-plane kind cluster |
 | Managed rollout model | proven | `StatefulSet` with `OnDelete` |
 | Persistent storage assumptions | proven on kind | PVC retention on scale-down and delete |
-| Cert-manager evaluator path | proven | separate `make kind-cert-manager-e2e` path |
+| Cert-manager evaluator path on NiFi `2.0.0` | proven | separate `make kind-cert-manager-e2e` path |
+| Cert-manager evaluator path on NiFi `2.8.0` | proven | separate `make kind-cert-manager-nifi-2-8-e2e` and `make kind-cert-manager-nifi-2-8-fast-e2e` paths |
 | AKS readiness guide | prepared | see [docs/aks.md](docs/aks.md) and `examples/aks/*` |
 | AKS runtime validation | not yet covered by automated gate | target platform, still pending real cluster testing |
 | OpenShift readiness guide | prepared | see [docs/openshift.md](docs/openshift.md) and `examples/openshift/*` |

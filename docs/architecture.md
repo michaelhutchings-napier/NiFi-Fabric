@@ -4,27 +4,31 @@
 
 `NiFi-Fabric` separates declarative resource rendering from runtime safety orchestration.
 
-- Helm renders and upgrades the standard Kubernetes resources needed to run NiFi 2.x.
+- The product-facing `charts/nifi-platform` chart installs the standard managed platform in one Helm release.
+- The reusable `charts/nifi` chart renders and upgrades the standard Kubernetes resources needed to run NiFi 2.x.
 - The optional controller watches the rendered workload and applies lifecycle rules that require live cluster state and ordered actions.
 - NiFi 2 native Kubernetes support handles coordination, state participation, cluster membership behavior, and TLS autoreload capability.
 
-This design keeps the operational API small and allows teams to use the chart without adopting the controller.
+This design keeps the operational API small and allows teams to use the app chart without adopting the controller, while giving the standard managed path a single product install surface.
 
 ## Component Diagram
 
 ```mermaid
 flowchart LR
-    GitOps[GitOps Tool or Helm CLI] --> Chart[Helm Chart]
-    Chart --> CR[NiFiCluster CR optional]
-    Chart --> STS[StatefulSet]
-    Chart --> SVC[Services]
-    Chart --> PVC[PVCs]
-    Chart --> CM[ConfigMaps]
-    Chart --> SEC[Secret References]
-    Chart --> MON[ServiceMonitor]
-    Chart --> PDB[PodDisruptionBudget]
+    GitOps[GitOps Tool or Helm CLI] --> PlatformChart[charts/nifi-platform]
+    PlatformChart --> AppChart[charts/nifi]
+    PlatformChart --> CRD[NiFiCluster CRD]
+    PlatformChart --> CR[NiFiCluster CR optional]
+    PlatformChart --> Controller[Thin Controller]
+    AppChart --> STS[StatefulSet]
+    AppChart --> SVC[Services]
+    AppChart --> PVC[PVCs]
+    AppChart --> CM[ConfigMaps]
+    AppChart --> SEC[Secret References]
+    AppChart --> MON[ServiceMonitor]
+    AppChart --> PDB[PodDisruptionBudget]
 
-    Controller[Thin Controller] --> CR
+    Controller --> CR
     Controller --> STS
     Controller --> Pods[Pods]
     Controller --> CM
@@ -50,7 +54,20 @@ flowchart LR
 
 ### Helm Responsibilities
 
-Helm owns:
+Helm owns both install layers, with a deliberate split:
+
+- `charts/nifi-platform` owns the top-level product install surface for the standard managed path
+- `charts/nifi` owns the reusable NiFi workload and config rendering layer
+
+`charts/nifi-platform` owns:
+
+- packaging the `NiFiCluster` CRD
+- controller namespace creation when requested
+- controller ServiceAccount, RBAC, and Deployment
+- managed-mode `NiFiCluster` creation
+- dependency wiring for the reusable `charts/nifi` app chart
+
+`charts/nifi` owns:
 
 - `StatefulSet`
 - all Services and headless Services
@@ -66,12 +83,16 @@ Helm owns:
 - RBAC required by NiFi to use Kubernetes coordination and state features
 - optional cert-manager resources or references
 
+The platform chart does not absorb app templating, and the app chart does not absorb controller or CRD ownership.
+
 Helm also owns NiFi image selection and compatibility overlays:
 
 - the chart defaults to a small proven baseline image tag
 - examples can override `image.tag` for focused compatibility proofs
+- examples can also provide additive focused test overlays that reduce replica count, heap, pod resources, and PVC sizes for local kind validation without changing the proven baseline profiles
 - the controller does not branch behavior by NiFi minor version
 - newer NiFi versions should only be claimed after a focused runtime proof is recorded
+- the private-alpha baseline gate remains the authoritative lifecycle proof; focused fast overlays are for narrower reruns only
 
 Helm does not own runtime sequencing decisions after the rendered workload exists.
 
@@ -117,9 +138,24 @@ NiFi native behavior owns:
 
 The controller may call the NiFi API to request offload or disconnect actions, but the semantics of cluster membership and node state remain NiFi behavior.
 
+## Product Install Model
+
+There are now two supported Helm entry points with different purposes:
+
+- `charts/nifi-platform` is the default customer-facing install chart
+- `charts/nifi` remains the lower-level app chart for standalone or advanced assembly
+
+The standard managed install path is:
+
+1. install `charts/nifi-platform` once
+2. let that release install the CRD, controller, app chart, and `NiFiCluster`
+3. provide prerequisite Secrets and any cluster dependency such as cert-manager separately when needed
+
+Advanced or evaluator flows may still install the pieces manually, but that is no longer the primary product story.
+
 ## Controller-Owned Mutations In Managed Mode
 
-Managed mode is explicit. When `controllerManaged.enabled=true` in the chart and a `NiFiCluster` exists, the controller owns only these mutations:
+Managed mode is explicit. When `controllerManaged.enabled=true` in the app chart and a `NiFiCluster` exists, the controller owns only these mutations:
 
 - writes to `NiFiCluster.status`
 - pod deletions used to advance a controlled `OnDelete` rollout
@@ -137,10 +173,11 @@ For GitOps users, the important implication is narrow and documented:
 
 ### Install
 
-1. GitOps or Helm applies the chart.
-2. Helm renders the `StatefulSet`, Services, PVCs, config, and references to TLS material.
-3. NiFi nodes start and form a cluster using Kubernetes-native coordination.
-4. If managed mode is enabled, the controller resolves the target workload and sets initial status conditions.
+1. GitOps or Helm applies either the platform chart or the standalone app chart.
+2. For the standard managed path, the platform chart installs the CRD, controller resources, app chart, and `NiFiCluster` in one release.
+3. The app chart renders the `StatefulSet`, Services, PVCs, config, and references to TLS material.
+4. NiFi nodes start and form a cluster using Kubernetes-native coordination.
+5. If managed mode is enabled, the controller resolves the target workload and sets initial status conditions.
 
 ### Config Drift
 
@@ -189,7 +226,8 @@ Current implementation note:
 
 NiFiKop is useful as a source of operational lessons, especially around rollout safety and NiFi lifecycle handling. This project intentionally diverges in three ways:
 
-- the chart remains first-class and standalone
+- the app chart remains first-class and standalone
+- the platform chart gives the standard managed path a single product install surface without expanding controller scope
 - the operational API stays thin and does not try to model all NiFi concerns
 - NiFi 2 native Kubernetes behavior replaces features that older designs had to recreate
 

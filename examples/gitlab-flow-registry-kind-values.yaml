@@ -1,0 +1,22 @@
+# Focused kind runtime overlay for GitLab Flow Registry Client proof on NiFi 2.8.0.
+# Compose with examples/managed/values.yaml and examples/nifi-2.8.0-values.yaml.
+# This uses the in-cluster GitLab-compatible evaluator service deployed by
+# hack/deploy-gitlab-flow-registry-mock.sh.
+
+flowRegistryClients:
+  enabled: true
+  clients:
+  - name: gitlab-flows-kind
+    provider: gitlab
+    description: Kind-focused GitLab Flow Registry Client runtime proof
+    repository:
+      namespace: example-group
+      name: nifi-flows
+      path: flows
+      branch: main
+    parameterContextValues: retain
+    gitlab:
+      apiUrl: http://gitlab-mock.nifi.svc.cluster.local:8080
+      accessTokenSecret:
+        name: gitlab-flow-registry
+        key: token

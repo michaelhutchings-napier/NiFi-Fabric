@@ -1,6 +1,6 @@
 # Focused compatibility overlay for the newer NiFi 2.x proof path.
 # Compose with either examples/standalone/values.yaml or examples/managed/values.yaml.
-# Keep this at 2 replicas on single-node kind so the proof stays lightweight and repeatable.
+# Keep this at 2 replicas so the focused proof stays lightweight while still exercising a multi-node NiFi cluster.
 replicaCount: 2
 
 image:

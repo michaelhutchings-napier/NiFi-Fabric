@@ -12,9 +12,18 @@ CONTROLLER_NAMESPACE="${CONTROLLER_NAMESPACE:-nifi-system}"
 CONTROLLER_DEPLOYMENT="${CONTROLLER_DEPLOYMENT:-nifi-fabric-controller-manager}"
 NIFI_IMAGE="${NIFI_IMAGE:-apache/nifi:2.8.0}"
 VERSION_VALUES_FILE="${VERSION_VALUES_FILE:-examples/nifi-2.8.0-values.yaml}"
+SKIP_KIND_BOOTSTRAP="${SKIP_KIND_BOOTSTRAP:-false}"
+FAST_PROFILE="${FAST_PROFILE:-false}"
+FAST_VALUES_FILE="${FAST_VALUES_FILE:-examples/test-fast-values.yaml}"
 
 run_make() {
   make -C "${ROOT_DIR}" "$@"
+}
+
+configure_kind_kubeconfig() {
+  local kubeconfig_path="${TMPDIR:-/tmp}/${KIND_CLUSTER_NAME}.kubeconfig"
+  kind get kubeconfig --name "${KIND_CLUSTER_NAME}" >"${kubeconfig_path}"
+  export KUBECONFIG="${kubeconfig_path}"
 }
 
 require_condition_true() {
@@ -25,6 +34,23 @@ require_condition_true() {
     echo "expected condition ${type}=True, got ${actual:-<empty>}" >&2
     return 1
   fi
+}
+
+wait_for_condition_true() {
+  local type="$1"
+  local timeout_seconds="${2:-300}"
+  local deadline=$(( $(date +%s) + timeout_seconds ))
+
+  while true; do
+    if require_condition_true "${type}" >/dev/null 2>&1; then
+      return 0
+    fi
+    if (( $(date +%s) >= deadline )); then
+      require_condition_true "${type}"
+      return 1
+    fi
+    sleep 5
+  done
 }
 
 pod_uid_snapshot() {
@@ -75,51 +101,75 @@ ensure_fresh_cluster() {
 
 trap 'print_failure_help "${NAMESPACE}" "${HELM_RELEASE}" "${CONTROLLER_NAMESPACE}" "${CONTROLLER_DEPLOYMENT}"' ERR
 
+helm_values_args=(
+  -f "${ROOT_DIR}/examples/managed/values.yaml"
+  -f "${ROOT_DIR}/${VERSION_VALUES_FILE}"
+)
+
+profile_label=""
+if [[ "${FAST_PROFILE}" == "true" ]]; then
+  helm_values_args+=(-f "${ROOT_DIR}/${FAST_VALUES_FILE}")
+  profile_label=" with fast profile"
+fi
+
 phase "Checking prerequisites"
 check_prereqs
 
-phase "Creating fresh kind cluster for NiFi ${NIFI_IMAGE##*:}"
-ensure_fresh_cluster
+if [[ "${SKIP_KIND_BOOTSTRAP}" == "true" ]]; then
+  phase "Reusing existing kind cluster for NiFi ${NIFI_IMAGE##*:}"
+  configure_kind_kubeconfig
+else
+  phase "Creating fresh kind cluster for NiFi ${NIFI_IMAGE##*:}"
+  ensure_fresh_cluster
+  configure_kind_kubeconfig
+fi
 
-phase "Loading NiFi image into kind"
-run_make kind-load-nifi-image KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NIFI_IMAGE="${NIFI_IMAGE}"
+if [[ "${SKIP_KIND_BOOTSTRAP}" == "true" ]]; then
+  phase "Reusing existing NiFi image and Secrets"
+else
+  phase "Loading NiFi image into kind"
+  run_make kind-load-nifi-image KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NIFI_IMAGE="${NIFI_IMAGE}"
 
-phase "Creating TLS and auth Secrets"
-run_make kind-secrets KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NAMESPACE="${NAMESPACE}" HELM_RELEASE="${HELM_RELEASE}" NIFI_IMAGE="${NIFI_IMAGE}"
+  phase "Creating TLS and auth Secrets"
+  run_make kind-secrets KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NAMESPACE="${NAMESPACE}" HELM_RELEASE="${HELM_RELEASE}" NIFI_IMAGE="${NIFI_IMAGE}"
+fi
 
-phase "Installing CRD"
-run_make install-crd
+if [[ "${SKIP_KIND_BOOTSTRAP}" == "true" ]]; then
+  phase "Reusing existing CRD and controller"
+else
+  phase "Installing CRD"
+  run_make install-crd
 
-phase "Building and loading controller image"
-run_make docker-build-controller
-run_make kind-load-controller KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}"
+  phase "Building and loading controller image"
+  run_make docker-build-controller
+  run_make kind-load-controller KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}"
 
-phase "Deploying controller"
-run_make deploy-controller
-kubectl -n "${CONTROLLER_NAMESPACE}" rollout status deployment/"${CONTROLLER_DEPLOYMENT}" --timeout=5m
+  phase "Deploying controller"
+  run_make deploy-controller
+  kubectl -n "${CONTROLLER_NAMESPACE}" rollout status deployment/"${CONTROLLER_DEPLOYMENT}" --timeout=5m
+fi
 
-phase "Installing managed NiFi ${NIFI_IMAGE##*:} release"
+phase "Installing managed NiFi ${NIFI_IMAGE##*:} release${profile_label}"
 helm upgrade --install "${HELM_RELEASE}" "${ROOT_DIR}/charts/nifi" \
   --namespace "${NAMESPACE}" \
   --create-namespace \
-  -f "${ROOT_DIR}/examples/managed/values.yaml" \
-  -f "${ROOT_DIR}/${VERSION_VALUES_FILE}"
+  "${helm_values_args[@]}"
 
 phase "Applying NiFiCluster"
 kubectl apply -f "${ROOT_DIR}/examples/managed/nificluster.yaml"
 
 phase "Verifying cluster health"
 run_make kind-health KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NAMESPACE="${NAMESPACE}" HELM_RELEASE="${HELM_RELEASE}"
-require_condition_true TargetResolved
-require_condition_true Available
+wait_for_condition_true TargetResolved
+wait_for_condition_true Available
 
 phase "Triggering managed config drift rollout"
 before_rollout="$(pod_uid_snapshot)"
 run_make kind-config-drift NAMESPACE="${NAMESPACE}" HELM_RELEASE="${HELM_RELEASE}"
 wait_for_pods_changed "${before_rollout}"
 run_make kind-health KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NAMESPACE="${NAMESPACE}" HELM_RELEASE="${HELM_RELEASE}"
-require_condition_true TargetResolved
-require_condition_true Available
+wait_for_condition_true TargetResolved
+wait_for_condition_true Available
 
 print_success_footer "NiFi ${NIFI_IMAGE##*:} managed compatibility proof completed" \
   "make kind-health KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}" \

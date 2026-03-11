@@ -2,7 +2,8 @@
 
 This repository now includes concrete local workflows for:
 
-- a standalone NiFi 2 chart install
+- a one-release platform-chart install
+- a standalone NiFi 2 app-chart install
 - a managed-mode install with the thin `OnDelete` rollout controller
 - watched config and TLS drift verification against that managed controller
 - managed hibernation and restore verification against that same controller
@@ -13,7 +14,7 @@ This repository now includes concrete local workflows for:
 
 - creates a kind cluster
 - creates a PKCS12 TLS Secret and a single-user auth Secret
-- installs either the standalone or managed chart path
+- installs either the product chart path or the lower-level standalone or managed app-chart path
 - validates the cluster with a repeatable health check that distinguishes Kubernetes readiness from NiFi convergence
 - optionally builds and deploys the controller inside kind for managed rollout verification
 
@@ -21,9 +22,13 @@ This flow is intentionally local-development oriented. It is not a production de
 
 Recommended example files:
 
+- platform standalone values: [examples/platform-standalone-values.yaml](../examples/platform-standalone-values.yaml)
+- platform managed values: [examples/platform-managed-values.yaml](../examples/platform-managed-values.yaml)
+- platform managed cert-manager values: [examples/platform-managed-cert-manager-values.yaml](../examples/platform-managed-cert-manager-values.yaml)
 - standalone Helm values: [examples/standalone/values.yaml](../examples/standalone/values.yaml)
 - managed Helm values: [examples/managed/values.yaml](../examples/managed/values.yaml)
 - optional cert-manager TLS overlay: [examples/cert-manager-values.yaml](../examples/cert-manager-values.yaml)
+- optional focused fast overlay: [examples/test-fast-values.yaml](../examples/test-fast-values.yaml)
 - managed `NiFiCluster`: [examples/managed/nificluster.yaml](../examples/managed/nificluster.yaml)
 - rollout trigger overlay: [examples/managed/rollout-trigger-values.yaml](../examples/managed/rollout-trigger-values.yaml)
 - hibernation example: [examples/managed/nificluster-hibernated.yaml](../examples/managed/nificluster-hibernated.yaml)
@@ -33,10 +38,52 @@ Recommended example files:
 - prepared LDAP overlay: [examples/ldap-values.yaml](../examples/ldap-values.yaml)
 - prepared GitHub Flow Registry Client overlay: [examples/github-flow-registry-values.yaml](../examples/github-flow-registry-values.yaml)
 - prepared GitLab Flow Registry Client overlay: [examples/gitlab-flow-registry-values.yaml](../examples/gitlab-flow-registry-values.yaml)
+- focused GitLab Flow Registry runtime overlay: [examples/gitlab-flow-registry-kind-values.yaml](../examples/gitlab-flow-registry-kind-values.yaml)
 - prepared Bitbucket Flow Registry Client overlay: [examples/bitbucket-flow-registry-values.yaml](../examples/bitbucket-flow-registry-values.yaml)
 - prepared Azure DevOps Flow Registry Client overlay: [examples/azure-devops-flow-registry-values.yaml](../examples/azure-devops-flow-registry-values.yaml)
 - prepared ingress and proxy-host overlay: [examples/ingress-proxy-host-values.yaml](../examples/ingress-proxy-host-values.yaml)
 - prepared OpenShift Route and proxy-host overlay: [examples/openshift/route-proxy-host-values.yaml](../examples/openshift/route-proxy-host-values.yaml)
+
+## Product Chart vs App Chart
+
+Use `charts/nifi-platform` for the standard customer-facing install path.
+
+- one Helm release
+- one values file
+- standalone mode installs the reusable `charts/nifi` app chart
+- managed mode installs the CRD, controller, RBAC, app chart, and `NiFiCluster` in the same release
+- managed-cert-manager mode keeps cert-manager external and requires it to exist already
+
+Use `charts/nifi` directly only when you want standalone app-only installs or advanced manual assembly.
+
+Exact one-command product installs:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  -n nifi \
+  --create-namespace \
+  -f examples/platform-standalone-values.yaml
+```
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  -n nifi \
+  --create-namespace \
+  -f examples/platform-managed-values.yaml
+```
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  -n nifi \
+  --create-namespace \
+  -f examples/platform-managed-cert-manager-values.yaml
+```
+
+Current proof boundary:
+
+- proven on kind: the existing app-chart managed runtime and focused evaluator paths
+- proven by render validation: the one-release `charts/nifi-platform` install contract
+- still advanced or evaluator-only: manual CRD, controller, and `NiFiCluster` assembly with `kubectl apply`
 
 ## Authn And Authz Scope
 
@@ -66,7 +113,8 @@ What is still only prepared:
 - OIDC custom non-admin policy bindings from `authz.policies`
 - LDAP broader group-policy seeding beyond the focused bootstrap path
 - ingress-backed or Route-backed auth runtime behavior
-- external Flow Registry Client runtime against GitHub, GitLab, Bitbucket, or Azure DevOps
+- external Flow Registry Client runtime against GitHub, Bitbucket, or Azure DevOps
+- full hosted GitLab runtime beyond the focused kind evaluator
 
 Render-time validation now fails fast for:
 
@@ -139,13 +187,39 @@ helm template nifi charts/nifi \
   -f examples/azure-devops-flow-registry-values.yaml
 ```
 
+Focused GitLab Flow Registry runtime render check:
+
+```bash
+helm template nifi charts/nifi \
+  -f examples/managed/values.yaml \
+  -f examples/nifi-2.8.0-values.yaml \
+  -f examples/gitlab-flow-registry-kind-values.yaml
+```
+
 Flow Registry Client scope:
 
 - classic NiFi Registry is not the preferred path in this repo
-- Git-based Flow Registry Clients are the prepared direction
-- the chart renders a validated in-pod catalog only
+- Git-based Flow Registry Clients are the preferred direction
+- the chart renders a validated in-pod catalog as both `clients.yaml` and `clients.json`
 - it does not auto-create clients in NiFi
 - there is no controller-managed flow import or synchronization
+
+Focused GitLab runtime proof:
+
+```bash
+make kind-flow-registry-gitlab-e2e
+```
+
+Focused GitLab runtime proof rerun against an existing cluster:
+
+```bash
+KIND_CLUSTER_NAME=nifi-fabric-flow-registry-gitlab make kind-flow-registry-gitlab-e2e-reuse
+```
+
+- uses NiFi `2.8.0`
+- deploys a lightweight GitLab-compatible evaluator service on kind
+- creates the GitLab Flow Registry Client through NiFi's own REST API
+- verifies bucket listing through NiFi runtime
 
 ### Bootstrap And Break-Glass
 
@@ -212,6 +286,15 @@ There is also a focused cert-manager evaluator path:
 make kind-cert-manager-e2e
 ```
 
+And the newer NiFi line has its own focused cert-manager evaluator path:
+
+```bash
+make kind-cert-manager-nifi-2-8-e2e
+make kind-cert-manager-nifi-2-8-fast-e2e
+```
+
+`make kind-cert-manager-nifi-2-8-fast-e2e` keeps the same cert-manager evaluator scope on `apache/nifi:2.8.0`, but composes it with the fast two-node overlay for rapid focused proof and local iteration.
+
 Focused auth evaluator paths:
 
 ```bash
@@ -222,6 +305,44 @@ make kind-auth-ldap-e2e
 `make kind-auth-oidc-e2e` bootstraps Keycloak, deploys NiFi in `oidc + externalClaimGroups`, proves OIDC login wiring, proves exact group-name seeding prerequisites, and uses the documented `Initial Admin Identity` fallback for the first admin path.
 
 `make kind-auth-ldap-e2e` bootstraps LDAP, deploys NiFi in `ldap + ldapSync`, proves LDAP login and provider wiring, and uses the documented `Initial Admin Identity` bootstrap path.
+
+## Fast Vs Baseline
+
+Use the fast profile when you are iterating on focused kind workflows and do not need to reprove the full private-alpha lifecycle baseline.
+
+- fast profile:
+  - keeps NiFi multi-node at 2 replicas
+  - lowers heap, pod resources, and PVC sizes through [examples/test-fast-values.yaml](../examples/test-fast-values.yaml)
+  - is now proven for the focused cert-manager path on `apache/nifi:2.8.0`
+  - is intended for focused `kind-*` reruns only
+- baseline profile:
+  - keeps the existing proven overlays unchanged
+  - remains required for `make kind-alpha-e2e` and the phase-level alpha lifecycle targets
+  - should be used whenever shared lifecycle, rollout, hibernation, or controller logic changes
+
+Focused fast commands:
+
+```bash
+make kind-nifi-2-8-fast-e2e
+make kind-cert-manager-fast-e2e
+make kind-cert-manager-nifi-2-8-fast-e2e
+make kind-auth-oidc-fast-e2e
+make kind-auth-ldap-fast-e2e
+make kind-flow-registry-gitlab-fast-e2e
+```
+
+Focused fast reruns against an existing cluster:
+
+```bash
+make kind-nifi-2-8-fast-e2e-reuse
+make kind-cert-manager-fast-e2e-reuse
+make kind-cert-manager-nifi-2-8-fast-e2e-reuse
+make kind-auth-oidc-fast-e2e-reuse
+make kind-auth-ldap-fast-e2e-reuse
+make kind-flow-registry-gitlab-fast-e2e-reuse
+```
+
+Reuse commands assume the kind cluster already exists with the expected bootstrap for that workflow. If controller or shared lifecycle code changed, prefer the fresh baseline path instead of a reuse rerun.
 
 ## Prerequisites
 
@@ -540,7 +661,7 @@ The focused end-to-end evaluator path then uses the same issuer contract:
 make kind-cert-manager-e2e
 ```
 
-That path installs cert-manager if needed, bootstraps the `nifi-ca` `ClusterIssuer`, deploys the managed chart with the cert-manager overlay, verifies renewal without restart, and then verifies a restart-required TLS config change.
+Those paths install cert-manager if needed, bootstrap the `nifi-ca` `ClusterIssuer`, deploy the managed chart with the cert-manager overlay, verify renewal without restart, and then verify a restart-required TLS config change.
 
 The chart now defaults cert-manager mode to a non-empty certificate subject:
 
@@ -578,24 +699,17 @@ helm upgrade --install nifi charts/nifi \
   -f examples/cert-manager-values.yaml
 ```
 
-Managed install:
+Managed product install:
 
 ```bash
-make kind-bootstrap-cert-manager
-make kind-cert-manager-secrets
-make install-crd
-make docker-build-controller
-make kind-load-controller
-make deploy-controller
-kubectl -n nifi-system rollout status deployment/nifi-fabric-controller-manager --timeout=5m
-helm upgrade --install nifi charts/nifi \
+helm upgrade --install nifi charts/nifi-platform \
   -n nifi \
   --create-namespace \
-  -f examples/managed/values.yaml \
-  -f examples/cert-manager-values.yaml
-kubectl apply -f examples/managed/nificluster.yaml
+  -f examples/platform-managed-cert-manager-values.yaml
 make kind-health
 ```
+
+Advanced manual assembly remains available below when you want to install the controller and `NiFiCluster` as separate steps.
 
 Expected behavior:
 

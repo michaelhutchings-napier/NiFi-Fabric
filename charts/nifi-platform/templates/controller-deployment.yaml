@@ -1,0 +1,37 @@
+{{- if eq (include "nifi-platform.managedMode" .) "true" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nifi-platform.controllerName" . }}
+  namespace: {{ include "nifi-platform.controllerNamespace" . }}
+  labels:
+    {{- include "nifi-platform.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "nifi-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: controller
+  template:
+    metadata:
+      labels:
+        {{- include "nifi-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: controller
+    spec:
+      serviceAccountName: {{ include "nifi-platform.controllerServiceAccountName" . }}
+      containers:
+        - name: manager
+          image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag }}"
+          imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
+          args:
+            {{- range .Values.controller.args }}
+            - {{ . | quote }}
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: 8080
+            - name: probes
+              containerPort: 8081
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+{{- end }}

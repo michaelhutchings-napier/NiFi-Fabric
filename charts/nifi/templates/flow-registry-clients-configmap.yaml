@@ -8,6 +8,8 @@ metadata:
 data:
   clients.yaml: |
 {{ include "nifi.flowRegistryClientDefinitions" . | indent 4 }}
+  clients.json: |
+{{ include "nifi.flowRegistryClientDefinitions" . | fromYaml | toPrettyJson | indent 4 }}
   README.txt: |
     This ConfigMap is a chart-rendered catalog of NiFi Flow Registry Client definitions.
     It is intentionally prepared-only:

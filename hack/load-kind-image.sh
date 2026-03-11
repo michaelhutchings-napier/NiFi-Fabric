@@ -5,9 +5,15 @@ set -euo pipefail
 cluster_name="${1:?cluster name is required}"
 image="${2:?image is required}"
 attempts="${3:-3}"
+image_ref="docker.io/${image}"
+
+if docker exec "${cluster_name}-control-plane" ctr -n k8s.io images ls -q | grep -Fx "${image_ref}" >/dev/null 2>&1; then
+  echo "kind cluster ${cluster_name} already has ${image_ref}"
+  exit 0
+fi
 
 for attempt in $(seq 1 "${attempts}"); do
-  if docker exec "${cluster_name}-control-plane" ctr -n k8s.io images pull --platform linux/amd64 "docker.io/${image}"; then
+  if docker exec "${cluster_name}-control-plane" ctr -n k8s.io images pull --platform linux/amd64 "${image_ref}"; then
     exit 0
   fi
 

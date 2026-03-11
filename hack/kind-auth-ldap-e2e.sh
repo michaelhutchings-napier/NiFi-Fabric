@@ -12,6 +12,8 @@ LDAP_IMAGE="${LDAP_IMAGE:-osixia/openldap:1.5.0}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-}"
 START_EPOCH="$(date +%s)"
 SKIP_KIND_BOOTSTRAP="${SKIP_KIND_BOOTSTRAP:-false}"
+FAST_PROFILE="${FAST_PROFILE:-false}"
+FAST_VALUES_FILE="${FAST_VALUES_FILE:-examples/test-fast-values.yaml}"
 LOCALBIN="${LOCALBIN:-${ROOT_DIR}/bin}"
 KUBECTL_VERSION="${KUBECTL_VERSION:-v1.31.0}"
 
@@ -87,7 +89,13 @@ wait_for() {
 
 cleanup_namespaces() {
   kubectl delete namespace "${NAMESPACE}" --ignore-not-found --wait=true --timeout=5m >/dev/null 2>&1 || true
-  kubectl delete namespace "${SYSTEM_NAMESPACE}" --ignore-not-found --wait=true --timeout=5m >/dev/null 2>&1 || true
+  if [[ "${SKIP_KIND_BOOTSTRAP}" != "true" ]]; then
+    kubectl delete namespace "${SYSTEM_NAMESPACE}" --ignore-not-found --wait=true --timeout=5m >/dev/null 2>&1 || true
+  fi
+}
+
+controller_ready() {
+  kubectl -n "${SYSTEM_NAMESPACE}" get deployment/nifi-fabric-controller-manager >/dev/null 2>&1
 }
 
 wait_for_nifi_pod_ready() {
@@ -166,6 +174,18 @@ fail() {
 }
 
 trap 'fail "LDAP evaluator workflow aborted"' ERR
+
+helm_values_args=(
+  -f examples/managed/values.yaml
+  -f examples/ldap-values.yaml
+  -f examples/ldap-kind-values.yaml
+)
+
+profile_label=""
+if [[ "${FAST_PROFILE}" == "true" ]]; then
+  helm_values_args+=(-f "${FAST_VALUES_FILE}")
+  profile_label=" with fast profile"
+fi
 
 bootstrap_ldap() {
   kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -340,20 +360,22 @@ bootstrap_ldap
 kubectl -n "${NAMESPACE}" rollout status deployment/ldap --timeout=10m
 seed_ldap
 
-log_step "installing the controller and CRD"
+log_step "ensuring the controller and CRD"
 run_make install-crd
-run_make docker-build-controller
-run_make kind-load-controller
-run_make deploy-controller
+if [[ "${SKIP_KIND_BOOTSTRAP}" == "true" ]] && controller_ready; then
+  printf '    reusing existing controller deployment\n'
+else
+  run_make docker-build-controller
+  run_make kind-load-controller
+  run_make deploy-controller
+fi
 kubectl -n "${SYSTEM_NAMESPACE}" rollout status deployment/nifi-fabric-controller-manager --timeout=5m
 
-log_step "installing NiFi in ldap + ldapSync mode"
+log_step "installing NiFi in ldap + ldapSync mode${profile_label}"
 (cd "${ROOT_DIR}" && helm upgrade --install "${HELM_RELEASE}" charts/nifi \
   --namespace "${NAMESPACE}" \
   --create-namespace \
-  -f examples/managed/values.yaml \
-  -f examples/ldap-values.yaml \
-  -f examples/ldap-kind-values.yaml)
+  "${helm_values_args[@]}")
 kubectl apply -f "${ROOT_DIR}/examples/managed/nificluster.yaml"
 wait_for_nifi_pod_ready
 

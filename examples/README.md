@@ -1,8 +1,14 @@
 # Examples
 
-These are the four evaluator-facing examples for the current private alpha.
+These examples now cover both the product-facing platform chart and the lower-level app-chart or evaluator overlays.
 
-Recommended one-command evaluator installs:
+Primary one-command product installs:
+
+- standalone: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-standalone-values.yaml`
+- managed: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-values.yaml`
+- managed + cert-manager: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-cert-manager-values.yaml`
+
+Advanced evaluator installs still exist:
 
 - standalone: `make install-standalone`
 - managed: `make install-managed`
@@ -39,7 +45,14 @@ There is also one optional TLS-source overlay:
   - Use it on top of either the standalone or managed Helm values when cert-manager and the `nifi-ca` issuer bootstrap are already installed.
   - Still requires a separate Secret for the PKCS12 password and `nifi.sensitive.props.key`.
   - For kind evaluator setup, run `make kind-bootstrap-cert-manager` first.
-  - The focused fresh-kind evaluation command is `make kind-cert-manager-e2e`.
+  - The focused fresh-kind evaluation commands are `make kind-cert-manager-e2e`, `make kind-cert-manager-fast-e2e`, `make kind-cert-manager-nifi-2-8-e2e`, and `make kind-cert-manager-nifi-2-8-fast-e2e`.
+
+There is also one optional focused fast overlay:
+
+- [test-fast-values.yaml](test-fast-values.yaml)
+  - Reduces focused kind validation to a smaller but still multi-node NiFi shape.
+  - Sets `replicaCount: 2`, lowers heap and pod resources, shrinks PVC sizes, and disables the PDB for focused reruns.
+  - Compose it with focused kind overlays only. Do not use it as a replacement for the proven baseline profiles or `make kind-alpha-e2e`.
 
 There are also prepared authentication overlays:
 
@@ -90,6 +103,12 @@ There are also prepared Flow Registry Client overlays:
   - Prepared GitLab Flow Registry Client catalog entry.
   - Renders a validated definition only; it does not auto-create the client in NiFi.
 
+- [gitlab-flow-registry-kind-values.yaml](gitlab-flow-registry-kind-values.yaml)
+  - Focused kind GitLab Flow Registry Client runtime overlay.
+  - Compose with [managed/values.yaml](managed/values.yaml), [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml), and optionally [test-fast-values.yaml](test-fast-values.yaml).
+  - The focused runtime command is `make kind-flow-registry-gitlab-e2e`.
+  - The focused rerun command is `KIND_CLUSTER_NAME=nifi-fabric-flow-registry-gitlab make kind-flow-registry-gitlab-e2e-reuse`.
+
 - [bitbucket-flow-registry-values.yaml](bitbucket-flow-registry-values.yaml)
   - Prepared Bitbucket Flow Registry Client catalog entry.
   - Renders a validated definition only; it does not auto-create the client in NiFi.
@@ -102,9 +121,9 @@ There is also one focused NiFi version compatibility overlay:
 
 - [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml)
   - Overrides the chart image tag to `apache/nifi:2.8.0`.
-  - Uses `replicaCount: 2` for the focused single-node kind compatibility proof.
+  - Uses `replicaCount: 2` for the focused multi-node kind compatibility proof.
   - Compose with either [standalone/values.yaml](standalone/values.yaml) or [managed/values.yaml](managed/values.yaml).
-  - The focused managed proof command is `make kind-nifi-2-8-e2e`.
+  - The focused managed proof commands are `make kind-nifi-2-8-e2e` and `make kind-nifi-2-8-fast-e2e`.
 
 Only one authentication mode is supported at a time. The intended thin-platform combinations are:
 
@@ -125,28 +144,50 @@ Focused auth evaluator commands:
 - `make kind-auth-oidc-e2e`
 - `make kind-auth-ldap-e2e`
 - `make kind-nifi-2-8-e2e`
+- `make kind-flow-registry-gitlab-e2e`
+- `make kind-auth-oidc-fast-e2e`
+- `make kind-auth-ldap-fast-e2e`
+- `make kind-nifi-2-8-fast-e2e`
+- `make kind-flow-registry-gitlab-fast-e2e`
 
 Flow Registry Client notes:
 
 - classic NiFi Registry is not the preferred direction here
 - Git-based Flow Registry Clients are preferred
 - the chart renders a prepared catalog under `flowRegistryClients.mountPath`
+- the catalog is available as both `clients.yaml` and `clients.json`
 - there is no controller-managed flow import or synchronization
+- the focused kind proof covers the GitLab client path on NiFi `2.8.0` against a GitLab-compatible evaluator service
 
 ## Standalone
 
+- [platform-standalone-values.yaml](platform-standalone-values.yaml)
+  - Minimal one-release product-chart values for standalone mode.
+  - Use with `charts/nifi-platform`.
+  - The reusable app chart still comes from `charts/nifi`.
+
 - [standalone/values.yaml](standalone/values.yaml)
-  - Minimal Helm values for a standalone NiFi 2 install on kind.
+  - Minimal app-chart values for a standalone NiFi 2 install on kind.
   - Use with `make helm-install-standalone`.
 
 ## Managed
 
+- [platform-managed-values.yaml](platform-managed-values.yaml)
+  - Minimal one-release product-chart values for managed mode.
+  - Installs the CRD, controller, RBAC, app chart, and `NiFiCluster` in one Helm release.
+  - Requires the controller image to be reachable by the target cluster.
+
+- [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml)
+  - Minimal one-release product-chart values for managed mode when cert-manager already exists in the cluster.
+  - cert-manager remains a prerequisite and is not bundled by this chart.
+  - Requires the stable `nifi-tls-params` Secret for the PKCS12 password and `nifi.sensitive.props.key`.
+
 - [managed/values.yaml](managed/values.yaml)
-  - Minimal Helm values for managed mode.
+  - Minimal app-chart values for managed mode.
   - Use with `make helm-install-managed`.
 
 - [managed/nificluster.yaml](managed/nificluster.yaml)
-  - Minimal `NiFiCluster` for managed mode in the `Running` state.
+  - Minimal `NiFiCluster` for advanced manual managed assembly in the `Running` state.
   - Use with `make apply-managed`.
 
 ## Rollout Trigger

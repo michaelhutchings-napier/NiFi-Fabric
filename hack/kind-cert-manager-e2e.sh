@@ -16,6 +16,11 @@ LOCALBIN="${LOCALBIN:-${ROOT_DIR}/bin}"
 CMCTL_BIN="${CMCTL_BIN:-${LOCALBIN}/cmctl}"
 CMCTL_DOWNLOAD_URL="${CMCTL_DOWNLOAD_URL:-}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-}"
+NIFI_IMAGE="${NIFI_IMAGE:-apache/nifi:2.0.0}"
+VERSION_VALUES_FILE="${VERSION_VALUES_FILE:-}"
+SKIP_KIND_BOOTSTRAP="${SKIP_KIND_BOOTSTRAP:-false}"
+FAST_PROFILE="${FAST_PROFILE:-false}"
+FAST_VALUES_FILE="${FAST_VALUES_FILE:-examples/test-fast-values.yaml}"
 START_EPOCH="$(date +%s)"
 
 require_command() {
@@ -41,6 +46,20 @@ fail() {
 
 trap 'fail "cert-manager e2e aborted"' ERR
 
+helm_values_args=(
+  -f examples/managed/values.yaml
+  -f examples/cert-manager-values.yaml
+)
+
+profile_label=""
+if [[ -n "${VERSION_VALUES_FILE}" ]]; then
+  helm_values_args+=(-f "${VERSION_VALUES_FILE}")
+fi
+if [[ "${FAST_PROFILE}" == "true" ]]; then
+  helm_values_args+=(-f "${FAST_VALUES_FILE}")
+  profile_label=" with fast profile"
+fi
+
 wait_for() {
   local description="$1"
   local timeout="$2"
@@ -60,6 +79,17 @@ wait_for() {
 
 run_make() {
   (cd "${ROOT_DIR}" && KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" make "$@")
+}
+
+cleanup_nifi_namespaces() {
+  kubectl delete namespace "${NAMESPACE}" --ignore-not-found --wait=true --timeout=10m >/dev/null 2>&1 || true
+  if [[ "${SKIP_KIND_BOOTSTRAP}" != "true" ]]; then
+    kubectl delete namespace "${SYSTEM_NAMESPACE}" --ignore-not-found --wait=true --timeout=10m >/dev/null 2>&1 || true
+  fi
+}
+
+controller_ready() {
+  kubectl -n "${SYSTEM_NAMESPACE}" get deployment/nifi-fabric-controller-manager >/dev/null 2>&1
 }
 
 capture_cmd() {
@@ -182,6 +212,7 @@ dump_diagnostics() {
   echo
   echo "==> cert-manager diagnostics after failure at +$(elapsed)s"
   kubectl config use-context "kind-${KIND_CLUSTER_NAME}" >/dev/null 2>&1 || true
+  kubectl config current-context || true
   kubectl get ns || true
   kubectl -n "${CERT_MANAGER_NAMESPACE}" get deployment,pod,issuer,certificate,certificaterequest,clusterissuer || true
   kubectl -n "${NAMESPACE}" get nificluster,statefulset,pod,secret,certificate,certificaterequest || true
@@ -198,8 +229,10 @@ dump_diagnostics() {
   kubectl -n "${NAMESPACE}" get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,REV:.metadata.labels.controller-revision-hash,UID:.metadata.uid,DEL:.metadata.deletionTimestamp || true
   kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 100 || true
   kubectl -n "${CERT_MANAGER_NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 100 || true
+  kubectl -n "${CERT_MANAGER_NAMESPACE}" logs deployment/cert-manager --tail=200 || true
   kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi-fabric-controller-manager --tail=300 || true
 
+  capture_cmd current-context kubectl config current-context
   capture_cmd cert-manager-workloads kubectl -n "${CERT_MANAGER_NAMESPACE}" get deployment,pod,issuer,certificate,certificaterequest,clusterissuer -o wide
   capture_cmd nificluster-yaml kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o yaml
   capture_cmd nificluster-status kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o jsonpath='{.status.lastOperation.phase}{"\n"}{.status.lastOperation.message}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'
@@ -209,11 +242,16 @@ dump_diagnostics() {
   capture_cmd pods-summary kubectl -n "${NAMESPACE}" get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,REV:.metadata.labels.controller-revision-hash,UID:.metadata.uid,DEL:.metadata.deletionTimestamp
   capture_cmd nifi-events bash -lc "kubectl -n '${NAMESPACE}' get events --sort-by=.lastTimestamp | tail -n 200"
   capture_cmd cert-manager-events bash -lc "kubectl -n '${CERT_MANAGER_NAMESPACE}' get events --sort-by=.lastTimestamp | tail -n 200"
+  capture_cmd cert-manager-logs kubectl -n "${CERT_MANAGER_NAMESPACE}" logs deployment/cert-manager --tail=500
   capture_cmd controller-logs kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi-fabric-controller-manager --tail=500
   capture_cmd controller-metrics bash -lc "kubectl -n '${SYSTEM_NAMESPACE}' port-forward deployment/nifi-fabric-controller-manager 18080:8080 >/tmp/nifi-cert-manager-metrics.log 2>&1 & pf=\$!; sleep 5; curl --silent --show-error --fail http://127.0.0.1:18080/metrics || true; kill \$pf >/dev/null 2>&1 || true; wait \$pf >/dev/null 2>&1 || true"
 }
 
-log_step "creating a fresh kind cluster for cert-manager evaluation"
+if [[ "${SKIP_KIND_BOOTSTRAP}" == "true" ]]; then
+  log_step "reusing existing kind cluster for cert-manager evaluation"
+else
+  log_step "creating a fresh kind cluster for cert-manager evaluation"
+fi
 require_command kind
 require_command kubectl
 require_command helm
@@ -221,33 +259,47 @@ require_command docker
 require_command curl
 require_command jq
 require_command go
-run_make kind-down || true
-run_make kind-up
+if [[ "${SKIP_KIND_BOOTSTRAP}" == "true" ]]; then
+  kubectl config use-context "kind-${KIND_CLUSTER_NAME}" >/dev/null
+else
+  run_make kind-down || true
+  run_make kind-up
+fi
 
-log_step "preloading the NiFi runtime image into kind"
-run_make kind-load-nifi-image
+log_step "clearing prior NiFi install state in the target namespaces"
+cleanup_nifi_namespaces
 
-log_step "installing cert-manager"
-KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" \
-CERT_MANAGER_NAMESPACE="${CERT_MANAGER_NAMESPACE}" \
-bash "${ROOT_DIR}/hack/kind-bootstrap-cert-manager.sh"
+if [[ "${SKIP_KIND_BOOTSTRAP}" == "true" ]]; then
+  log_step "reusing existing NiFi runtime image and cert-manager install"
+else
+  log_step "preloading the NiFi runtime image into kind"
+  run_make kind-load-nifi-image NIFI_IMAGE="${NIFI_IMAGE}"
+
+  log_step "installing cert-manager"
+  KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" \
+  CERT_MANAGER_NAMESPACE="${CERT_MANAGER_NAMESPACE}" \
+  bash "${ROOT_DIR}/hack/kind-bootstrap-cert-manager.sh"
+fi
 
 log_step "creating auth and TLS parameter Secrets"
 bash "${ROOT_DIR}/hack/create-kind-cert-manager-secrets.sh" "${NAMESPACE}" nifi-auth "${TLS_PARAMS_SECRET_NAME}"
 
-log_step "installing the controller and CRD"
+log_step "ensuring the controller and CRD"
 run_make install-crd
-run_make docker-build-controller
-run_make kind-load-controller
-run_make deploy-controller
+if [[ "${SKIP_KIND_BOOTSTRAP}" == "true" ]] && controller_ready; then
+  printf '    reusing existing controller deployment\n'
+else
+  run_make docker-build-controller
+  run_make kind-load-controller
+  run_make deploy-controller
+fi
 kubectl -n "${SYSTEM_NAMESPACE}" rollout status deployment/nifi-fabric-controller-manager --timeout=5m
 
-log_step "installing the managed chart with cert-manager TLS"
+log_step "installing the managed chart with cert-manager TLS${profile_label}"
 (cd "${ROOT_DIR}" && helm upgrade --install "${HELM_RELEASE}" charts/nifi \
   --namespace "${NAMESPACE}" \
   --create-namespace \
-  -f examples/managed/values.yaml \
-  -f examples/cert-manager-values.yaml)
+  "${helm_values_args[@]}")
 kubectl apply -f "${ROOT_DIR}/examples/managed/nificluster.yaml"
 
 log_step "verifying Certificate readiness and TLS Secret contents"
@@ -271,8 +323,7 @@ log_step "exercising restart-required TLS config drift with cert-manager TLS"
 pod_uids_before_rollout="$(pod_uid_snapshot)"
 (cd "${ROOT_DIR}" && helm upgrade --install "${HELM_RELEASE}" charts/nifi \
   --namespace "${NAMESPACE}" \
-  -f examples/managed/values.yaml \
-  -f examples/cert-manager-values.yaml \
+  "${helm_values_args[@]}" \
   --reuse-values \
   --set tls.mountPath=/opt/nifi/tls-alt)
 wait_for_tls_rollout_observed
@@ -282,6 +333,7 @@ assert_all_pods_changed "${pod_uids_before_rollout}" "restart-required TLS rollo
 
 echo
 echo "PASS: focused cert-manager workflow completed successfully in +$(elapsed)s"
+echo "  NiFi image: ${NIFI_IMAGE}"
 echo "  cert-manager install"
 echo "  managed chart with cert-manager Certificate"
 echo "  Certificate and Secret readiness"

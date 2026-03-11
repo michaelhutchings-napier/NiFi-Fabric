@@ -1,0 +1,6 @@
+dependencies:
+- name: nifi
+  repository: file://../nifi
+  version: 0.1.0
+digest: sha256:2371c9256bf7234432210ba10e8d1d940c17ab8d80edccf9c3e7e9f462ad00a1
+generated: "2026-03-11T23:58:30.179518884+01:00"

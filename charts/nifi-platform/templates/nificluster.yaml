@@ -1,0 +1,41 @@
+{{- if and (eq (include "nifi-platform.managedMode" .) "true") .Values.cluster.create }}
+apiVersion: platform.nifi.io/v1alpha1
+kind: NiFiCluster
+metadata:
+  name: {{ include "nifi-platform.clusterName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nifi-platform.labels" . | nindent 4 }}
+spec:
+  targetRef:
+    name: {{ include "nifi-platform.targetRefName" . }}
+  desiredState: {{ .Values.cluster.desiredState }}
+  suspend: {{ ternary "true" "false" .Values.cluster.suspend }}
+  restartTriggers:
+    configMaps:
+      {{- if .Values.cluster.restartTriggers.configMaps }}
+      {{- range .Values.cluster.restartTriggers.configMaps }}
+      - name: {{ .name | quote }}
+      {{- end }}
+      {{- else }}
+      - name: {{ printf "%s-config" (include "nifi-platform.nifiFullname" .) | quote }}
+      {{- end }}
+    secrets:
+      {{- if .Values.cluster.restartTriggers.secrets }}
+      {{- range .Values.cluster.restartTriggers.secrets }}
+      - name: {{ .name | quote }}
+      {{- end }}
+      {{- else }}
+      - name: {{ include "nifi-platform.tlsSecretName" . | quote }}
+      {{- end }}
+  restartPolicy:
+    tlsDrift: {{ .Values.cluster.restartPolicy.tlsDrift }}
+  rollout:
+    minReadySeconds: {{ .Values.cluster.rollout.minReadySeconds }}
+    podReadyTimeout: {{ .Values.cluster.rollout.podReadyTimeout | quote }}
+    clusterHealthTimeout: {{ .Values.cluster.rollout.clusterHealthTimeout | quote }}
+  hibernation:
+    offloadTimeout: {{ .Values.cluster.hibernation.offloadTimeout | quote }}
+  safety:
+    requireClusterHealthy: {{ ternary "true" "false" .Values.cluster.safety.requireClusterHealthy }}
+{{- end }}

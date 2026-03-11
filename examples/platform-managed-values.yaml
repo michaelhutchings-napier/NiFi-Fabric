@@ -1,0 +1,41 @@
+# Minimal product-chart managed example.
+mode: managed
+
+controller:
+  namespace:
+    name: nifi-system
+    create: true
+  image:
+    repository: nifi-fabric-controller
+    tag: dev
+    pullPolicy: IfNotPresent
+
+cluster:
+  desiredState: Running
+
+nifi:
+  replicaCount: 3
+
+  controllerManaged:
+    enabled: true
+
+  auth:
+    mode: singleUser
+    singleUser:
+      existingSecret: nifi-auth
+
+  authz:
+    mode: fileManaged
+
+  tls:
+    mode: externalSecret
+    existingSecret: nifi-tls
+    autoReload:
+      enabled: true
+
+  serviceMonitor:
+    enabled: false
+
+  nifi:
+    jvmHeapInit: 512m
+    jvmHeapMax: 512m

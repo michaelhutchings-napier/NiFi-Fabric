@@ -1,0 +1,49 @@
+# Minimal product-chart standalone example.
+mode: standalone
+
+nifi:
+  replicaCount: 3
+
+  image:
+    repository: apache/nifi
+    tag: "2.0.0"
+    pullPolicy: IfNotPresent
+
+  controllerManaged:
+    enabled: false
+
+  auth:
+    mode: singleUser
+    singleUser:
+      existingSecret: nifi-auth
+
+  authz:
+    mode: fileManaged
+
+  tls:
+    mode: externalSecret
+    existingSecret: nifi-tls
+
+  serviceMonitor:
+    enabled: false
+
+  nifi:
+    jvmHeapInit: 512m
+    jvmHeapMax: 512m
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 2Gi
+
+  persistence:
+    databaseRepository:
+      size: 1Gi
+    flowfileRepository:
+      size: 1Gi
+    contentRepository:
+      size: 2Gi
+    provenanceRepository:
+      size: 2Gi

@@ -1,0 +1,55 @@
+# Minimal product-chart managed example when cert-manager already exists in the cluster.
+mode: managed-cert-manager
+
+controller:
+  namespace:
+    name: nifi-system
+    create: true
+  image:
+    repository: nifi-fabric-controller
+    tag: dev
+    pullPolicy: IfNotPresent
+
+cluster:
+  desiredState: Running
+
+nifi:
+  replicaCount: 3
+
+  controllerManaged:
+    enabled: true
+
+  auth:
+    mode: singleUser
+    singleUser:
+      existingSecret: nifi-auth
+
+  authz:
+    mode: fileManaged
+
+  tls:
+    mode: certManager
+    autoReload:
+      enabled: true
+    certManager:
+      enabled: true
+      issuerRef:
+        name: nifi-ca
+        kind: ClusterIssuer
+        group: cert-manager.io
+      secretName: nifi-tls
+      pkcs12:
+        passwordSecretRef:
+          name: nifi-tls-params
+          key: pkcs12Password
+    sensitiveProps:
+      secretRef:
+        name: nifi-tls-params
+        key: sensitivePropsKey
+
+  serviceMonitor:
+    enabled: false
+
+  nifi:
+    jvmHeapInit: 512m
+    jvmHeapMax: 512m

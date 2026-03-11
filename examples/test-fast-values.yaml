@@ -1,0 +1,29 @@
+# Focused kind overlay for low-footprint multi-node reruns.
+# Keep this additive to the proven baseline profiles and use it only for
+# focused validation paths, not the main alpha or baseline gates.
+replicaCount: 2
+
+pdb:
+  enabled: false
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+persistence:
+  databaseRepository:
+    size: 1Gi
+  flowfileRepository:
+    size: 1Gi
+  contentRepository:
+    size: 2Gi
+  provenanceRepository:
+    size: 2Gi
+
+nifi:
+  jvmHeapInit: 384m
+  jvmHeapMax: 384m

@@ -13,6 +13,8 @@ PROBE_IMAGE="${PROBE_IMAGE:-python:3.12-slim}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-}"
 START_EPOCH="$(date +%s)"
 SKIP_KIND_BOOTSTRAP="${SKIP_KIND_BOOTSTRAP:-false}"
+FAST_PROFILE="${FAST_PROFILE:-false}"
+FAST_VALUES_FILE="${FAST_VALUES_FILE:-examples/test-fast-values.yaml}"
 LOCALBIN="${LOCALBIN:-${ROOT_DIR}/bin}"
 KUBECTL_VERSION="${KUBECTL_VERSION:-v1.31.0}"
 
@@ -93,7 +95,13 @@ wait_for() {
 
 cleanup_namespaces() {
   kubectl delete namespace "${NAMESPACE}" --ignore-not-found --wait=true --timeout=5m >/dev/null 2>&1 || true
-  kubectl delete namespace "${SYSTEM_NAMESPACE}" --ignore-not-found --wait=true --timeout=5m >/dev/null 2>&1 || true
+  if [[ "${SKIP_KIND_BOOTSTRAP}" != "true" ]]; then
+    kubectl delete namespace "${SYSTEM_NAMESPACE}" --ignore-not-found --wait=true --timeout=5m >/dev/null 2>&1 || true
+  fi
+}
+
+controller_ready() {
+  kubectl -n "${SYSTEM_NAMESPACE}" get deployment/nifi-fabric-controller-manager >/dev/null 2>&1
 }
 
 wait_for_nifi_pod_ready() {
@@ -194,6 +202,19 @@ fail() {
 }
 
 trap 'fail "OIDC evaluator workflow aborted"' ERR
+
+helm_values_args=(
+  -f examples/managed/values.yaml
+  -f examples/oidc-values.yaml
+  -f examples/oidc-group-claims-values.yaml
+  -f examples/oidc-kind-values.yaml
+)
+
+profile_label=""
+if [[ "${FAST_PROFILE}" == "true" ]]; then
+  helm_values_args+=(-f "${FAST_VALUES_FILE}")
+  profile_label=" with fast profile"
+fi
 
 bootstrap_keycloak() {
   kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -384,6 +405,7 @@ EOF
   kubectl -n "${NAMESPACE}" exec -i oidc-probe -- env \
     NIFI_BASE_URL="https://${HELM_RELEASE}-0.${HELM_RELEASE}-headless.${NAMESPACE}.svc.cluster.local:8443" \
     NIFI_AUTH_CONFIG_URL="https://${HELM_RELEASE}-0.${HELM_RELEASE}-headless.${NAMESPACE}.svc.cluster.local:8443/nifi-api/authentication/configuration" \
+    EXPECTED_REPLICAS="$(kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" -o jsonpath='{.spec.replicas}')" \
     python - <<'PY'
 import html
 import http.cookiejar
@@ -398,6 +420,7 @@ import urllib.request
 ctx = ssl._create_unverified_context()
 base_url = __import__("os").environ["NIFI_BASE_URL"]
 auth_config_url = __import__("os").environ["NIFI_AUTH_CONFIG_URL"]
+expected_replicas = int(__import__("os").environ["EXPECTED_REPLICAS"])
 
 def build_opener():
     return urllib.request.build_opener(
@@ -405,7 +428,7 @@ def build_opener():
         urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()),
     )
 
-def login_and_check(username, password, allowed_path, expected_code):
+def login(username, password):
     opener = build_opener()
     auth_config = json.loads(opener.open(auth_config_url, timeout=60).read().decode("utf-8"))
     start_url = auth_config["authenticationConfiguration"]["loginUri"]
@@ -431,7 +454,10 @@ def login_and_check(username, password, allowed_path, expected_code):
     form_action = urllib.parse.urljoin(final_url, html.unescape(action_match.group(1)))
     login_response = opener.open(form_action, data=urllib.parse.urlencode(form_values).encode("utf-8"), timeout=60)
     login_response.read()
+    return opener
 
+def login_and_check(username, password, allowed_path, expected_code):
+    opener = login(username, password)
     request = urllib.request.Request(base_url + allowed_path)
     try:
       api_response = opener.open(request, timeout=60)
@@ -443,8 +469,20 @@ def login_and_check(username, password, allowed_path, expected_code):
         raise SystemExit(f"{username} expected {expected_code} from {allowed_path}, got {code}")
     return code
 
+def check_cluster_summary(username, password, expected_count):
+    opener = login(username, password)
+    summary = json.loads(opener.open(base_url + "/nifi-api/flow/cluster/summary", timeout=60).read().decode("utf-8"))["clusterSummary"]
+    connected = int(summary.get("connectedNodeCount", -1))
+    total = int(summary.get("totalNodeCount", -1))
+    if connected != expected_count or total != expected_count:
+        raise SystemExit(
+            f"{username} expected connectedNodeCount=totalNodeCount={expected_count}, got connected={connected} total={total}"
+        )
+    return {"connectedNodeCount": connected, "totalNodeCount": total}
+
 results = {
     "alice_controller": login_and_check("alice", "ChangeMeChangeMe1!", "/nifi-api/controller/config", 200),
+    "alice_cluster_summary": check_cluster_summary("alice", "ChangeMeChangeMe1!", expected_replicas),
     "alice_flow": login_and_check("alice", "ChangeMeChangeMe1!", "/nifi-api/flow/process-groups/root", 200),
     "bob_flow": login_and_check("bob", "ChangeMeChangeMe1!", "/nifi-api/flow/process-groups/root", 403),
     "bob_controller": login_and_check("bob", "ChangeMeChangeMe1!", "/nifi-api/controller/config", 403),
@@ -482,21 +520,22 @@ log_step "bootstrapping Keycloak"
 bootstrap_keycloak
 kubectl -n "${NAMESPACE}" rollout status deployment/keycloak --timeout=10m
 
-log_step "installing the controller and CRD"
+log_step "ensuring the controller and CRD"
 run_make install-crd
-run_make docker-build-controller
-run_make kind-load-controller
-run_make deploy-controller
+if [[ "${SKIP_KIND_BOOTSTRAP}" == "true" ]] && controller_ready; then
+  printf '    reusing existing controller deployment\n'
+else
+  run_make docker-build-controller
+  run_make kind-load-controller
+  run_make deploy-controller
+fi
 kubectl -n "${SYSTEM_NAMESPACE}" rollout status deployment/nifi-fabric-controller-manager --timeout=5m
 
-log_step "installing NiFi in oidc + externalClaimGroups mode"
+log_step "installing NiFi in oidc + externalClaimGroups mode${profile_label}"
 (cd "${ROOT_DIR}" && helm upgrade --install "${HELM_RELEASE}" charts/nifi \
   --namespace "${NAMESPACE}" \
   --create-namespace \
-  -f examples/managed/values.yaml \
-  -f examples/oidc-values.yaml \
-  -f examples/oidc-group-claims-values.yaml \
-  -f examples/oidc-kind-values.yaml)
+  "${helm_values_args[@]}")
 kubectl apply -f "${ROOT_DIR}/examples/managed/nificluster.yaml"
 wait_for_nifi_pod_ready
 wait_for_oidc_runtime_ready

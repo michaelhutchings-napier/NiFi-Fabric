@@ -30,6 +30,22 @@ check_cert_manager_prereqs() {
   require_command cmctl
 }
 
+require_kind_cluster() {
+  local cluster_name="$1"
+  if ! kind get clusters | grep -qx "${cluster_name}"; then
+    echo "ERROR: kind cluster ${cluster_name} does not exist" >&2
+    exit 1
+  fi
+}
+
+configure_kind_cluster_access() {
+  local cluster_name="$1"
+  local kubeconfig_path="${TMPDIR:-/tmp}/${cluster_name}.kubeconfig"
+  require_kind_cluster "${cluster_name}"
+  kind get kubeconfig --name "${cluster_name}" >"${kubeconfig_path}"
+  export KUBECONFIG="${kubeconfig_path}"
+}
+
 print_failure_help() {
   local namespace="$1"
   local release="${2:-nifi}"

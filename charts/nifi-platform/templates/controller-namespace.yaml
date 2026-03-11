@@ -1,0 +1,8 @@
+{{- if and (eq (include "nifi-platform.managedMode" .) "true") .Values.controller.namespace.create (ne (include "nifi-platform.controllerNamespace" .) .Release.Namespace) }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "nifi-platform.controllerNamespace" . }}
+  labels:
+    {{- include "nifi-platform.labels" . | nindent 4 }}
+{{- end }}

@@ -5,13 +5,24 @@
 {{- define "nifi.flowRegistryClientClass" -}}
 {{- $provider := .provider -}}
 {{- if eq $provider "github" -}}
-org.apache.nifi.github.flow.GitHubFlowRegistryClient
+org.apache.nifi.github.GitHubFlowRegistryClient
 {{- else if eq $provider "gitlab" -}}
-org.apache.nifi.gitlab.flow.GitLabFlowRegistryClient
+org.apache.nifi.gitlab.GitLabFlowRegistryClient
 {{- else if eq $provider "bitbucket" -}}
-org.apache.nifi.bitbucket.flow.BitbucketFlowRegistryClient
+org.apache.nifi.atlassian.bitbucket.BitbucketFlowRegistryClient
 {{- else if eq $provider "azureDevOps" -}}
-org.apache.nifi.azure.devops.flow.AzureDevOpsFlowRegistryClient
+org.apache.nifi.azure.devops.AzureDevOpsFlowRegistryClient
+{{- end -}}
+{{- end -}}
+
+{{- define "nifi.flowRegistryParameterContextValues" -}}
+{{- $value := default "retain" . -}}
+{{- if eq $value "remove" -}}
+REMOVE
+{{- else if eq $value "ignoreChanges" -}}
+IGNORE_CHANGES
+{{- else -}}
+RETAIN
 {{- end -}}
 {{- end -}}
 
@@ -192,14 +203,16 @@ clients:
     {{- end }}
     {{- if eq $client.provider "gitlab" }}
       GitLab API URL: {{ $client.gitlab.apiUrl | quote }}
-      Namespace: {{ $client.repository.namespace | quote }}
-      Project Name: {{ $client.repository.name | quote }}
+      GitLab API Version: "V4"
+      Repository Namespace: {{ $client.repository.namespace | quote }}
+      Repository Name: {{ $client.repository.name | quote }}
+      Authentication Type: "ACCESS_TOKEN"
       {{- with $client.repository.path }}
       Repository Path: {{ . | quote }}
       {{- end }}
       Default Branch: {{ default "main" $client.repository.branch | quote }}
       Directory Filter Exclusion: {{ default "[.].*" $client.directoryFilterExclusion | quote }}
-      Parameter Context Values: {{ ternary "Ignore Changes" (ternary "Remove" "Retain" (eq $client.parameterContextValues "remove")) (eq $client.parameterContextValues "ignoreChanges") | quote }}
+      Parameter Context Values: {{ include "nifi.flowRegistryParameterContextValues" $client.parameterContextValues | trim | quote }}
       {{- with $client.sslContextServiceName }}
       SSL Context Service: {{ . | quote }}
       {{- end }}
