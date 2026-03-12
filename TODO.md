@@ -36,7 +36,13 @@ Completed in the scaffold:
    - cluster health and convergence state
 12. Keep automated scale-down disabled until disconnect, offload, delete, hibernation, and restore interactions are specified and proven together.
 13. Decide whether the current experimental scale-up cooldown defaults are sufficient before claiming enforced autoscaling as a recommended production feature.
-14. Add a focused autoscaling evaluator only after the recommendation and scale-up path need dedicated runtime proof beyond the existing managed fast gate.
+14. Keep the focused `make kind-autoscaling-scale-up-fast-e2e` path green while scale-up-only autoscaling remains experimental.
+15. Define how the unavailable-target blocking path should be fault-injected in kind if it needs runtime proof beyond the current unit and reconcile coverage.
+16. Specify safe automatic scale-down choreography before any implementation:
+   - disconnect and offload completion criteria
+   - ordinal and PVC handling
+   - interaction with hibernation and restore ownership
+   - recovery semantics after interrupted or failed scale-down work
 
 ## Current Managed Rollout Behavior
 

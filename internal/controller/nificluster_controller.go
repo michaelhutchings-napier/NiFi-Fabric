@@ -72,13 +72,21 @@ func (r *NiFiClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	cluster.Status.ObservedGeneration = cluster.Generation
 
 	result, reconcileErr := r.reconcileCluster(ctx, cluster)
-	if reconcileErr != nil {
-		return ctrl.Result{}, reconcileErr
-	}
 	r.syncAutoscalingStatus(ctx, cluster)
 
+	result, patchErr := r.patchStatus(ctx, original, cluster, result)
+	if patchErr != nil {
+		if reconcileErr != nil {
+			return ctrl.Result{}, fmt.Errorf("reconcile error: %v; patch status: %w", reconcileErr, patchErr)
+		}
+		return ctrl.Result{}, patchErr
+	}
+	if reconcileErr != nil {
+		return result, reconcileErr
+	}
+
 	logger.V(1).Info("reconciled NiFiCluster", "target", cluster.Spec.TargetRef.Name, "result", result)
-	return r.patchStatus(ctx, original, cluster, result)
+	return result, nil
 }
 
 func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *platformv1alpha1.NiFiCluster) (ctrl.Result, error) {

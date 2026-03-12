@@ -477,6 +477,100 @@ func TestReconcileEnforcedAutoscalingRespectsCooldown(t *testing.T) {
 	}
 }
 
+func TestMaybeExecuteAutoscalingScaleUpUsesLatestStatusForCooldown(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	lastScaleUp := metav1.NewTime(time.Now().UTC())
+	cluster.Status.Replicas.Desired = 3
+	cluster.Status.Autoscaling.LastScaleUpTime = &lastScaleUp
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		ScaleUp: platformv1alpha1.AutoscalingScaleUpPolicy{
+			Enabled: true,
+			Cooldown: metav1.Duration{
+				Duration: 10 * time.Minute,
+			},
+		},
+		MinReplicas: 4,
+		MaxReplicas: 5,
+	}
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		healthResponses: []healthResponse{{result: healthyResult(3)}},
+	}, cluster, statefulSet)
+	reconciler.AutoscalingCollector = &fakeAutoscalingCollector{
+		collection: autoscalingSignalCollection{
+			SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
+				Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
+				Available: true,
+				Message:   "queuedFlowFiles=24 queuedBytes=0 activeTimerDrivenThreads=10/10 backlog is actionable",
+			}},
+			QueuePressure: autoscalingQueuePressureSample{
+				Observed:                 true,
+				FlowFilesQueued:          24,
+				BytesQueuedObserved:      true,
+				ThreadCountsObserved:     true,
+				ActiveTimerDrivenThreads: 10,
+				MaxTimerDrivenThreads:    10,
+				Actionable:               true,
+			},
+		},
+	}
+
+	staleCluster := cluster.DeepCopy()
+	staleCluster.InitializeConditions()
+	staleCluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionTargetResolved,
+		Status:             metav1.ConditionTrue,
+		Reason:             "TargetFound",
+		Message:            "Target StatefulSet was resolved successfully",
+		LastTransitionTime: metav1.Now(),
+	})
+	staleCluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionAvailable,
+		Status:             metav1.ConditionTrue,
+		Reason:             "RolloutHealthy",
+		Message:            "Target StatefulSet and NiFi cluster health are converged",
+		LastTransitionTime: metav1.Now(),
+	})
+	staleCluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionProgressing,
+		Status:             metav1.ConditionFalse,
+		Reason:             "NoDrift",
+		Message:            "No rollout is currently in progress and no watched drift is active",
+		LastTransitionTime: metav1.Now(),
+	})
+	staleCluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionDegraded,
+		Status:             metav1.ConditionFalse,
+		Reason:             "AsExpected",
+		Message:            "No degradation detected",
+		LastTransitionTime: metav1.Now(),
+	})
+	staleCluster.Status.Autoscaling.LastScaleUpTime = nil
+
+	scaled, _, err := reconciler.maybeExecuteAutoscalingScaleUp(ctx, staleCluster, statefulSet.DeepCopy())
+	if err != nil {
+		t.Fatalf("maybeExecuteAutoscalingScaleUp returned error: %v", err)
+	}
+	if scaled {
+		t.Fatalf("expected cooldown to block scale-up when the API reader has a fresher lastScaleUpTime")
+	}
+	if !strings.HasPrefix(staleCluster.Status.Autoscaling.LastScalingDecision, "NoScaleUp: cooldown is") {
+		t.Fatalf("expected cooldown decision from fresh status, got %q", staleCluster.Status.Autoscaling.LastScalingDecision)
+	}
+
+	updatedStatefulSet := &appsv1.StatefulSet{}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: statefulSet.Name}, updatedStatefulSet); err != nil {
+		t.Fatalf("get updated StatefulSet: %v", err)
+	}
+	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != replicas {
+		t.Fatalf("expected stale reconcile input to leave replicas at %d, got %d", replicas, got)
+	}
+}
+
 func TestReconcileEnforcedAutoscalingClampsToOneStepFromMinimumRecommendation(t *testing.T) {
 	ctx := context.Background()
 	cluster := managedCluster()

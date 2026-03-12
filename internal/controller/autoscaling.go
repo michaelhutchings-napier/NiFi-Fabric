@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -43,11 +44,55 @@ func (r *NiFiClusterReconciler) syncAutoscalingStatus(ctx context.Context, clust
 		desired.LastEvaluationTime = &now
 	}
 	desired.LastScalingDecision = cluster.Status.Autoscaling.LastScalingDecision
+	if shouldRefreshAutoscalingDecision(cluster, desired) {
+		desired.LastScalingDecision = autoscalingNoScaleDecision(cluster, desired)
+	}
 	if cluster.Status.Autoscaling.LastScaleUpTime != nil {
 		desired.LastScaleUpTime = cluster.Status.Autoscaling.LastScaleUpTime.DeepCopy()
 	}
 	cluster.Status.Autoscaling = desired
 	recordAutoscalingSignalSamples(cluster, samples)
+}
+
+func shouldRefreshAutoscalingDecision(cluster *platformv1alpha1.NiFiCluster, status platformv1alpha1.AutoscalingStatus) bool {
+	if strings.HasPrefix(cluster.Status.Autoscaling.LastScalingDecision, "ScaleUp:") {
+		return false
+	}
+	if condition := cluster.GetCondition(platformv1alpha1.ConditionProgressing); conditionIsTrue(condition) && condition.Reason == "AutoscalingScaleUp" {
+		return false
+	}
+
+	policy := cluster.Spec.Autoscaling
+	if autoscalingMode(policy) != platformv1alpha1.AutoscalingModeEnforced {
+		return true
+	}
+	if !policy.ScaleUp.Enabled {
+		return true
+	}
+	if status.RecommendedReplicas == nil {
+		return true
+	}
+	return derefOptionalInt32(status.RecommendedReplicas) <= cluster.Status.Replicas.Desired
+}
+
+func autoscalingNoScaleDecision(cluster *platformv1alpha1.NiFiCluster, status platformv1alpha1.AutoscalingStatus) string {
+	policy := cluster.Spec.Autoscaling
+	switch autoscalingMode(policy) {
+	case platformv1alpha1.AutoscalingModeDisabled, platformv1alpha1.AutoscalingModeAdvisory:
+		return "NoScaleUp: autoscaling is not in enforced mode"
+	}
+
+	if !policy.ScaleUp.Enabled {
+		return "NoScaleUp: scale-up is not enabled"
+	}
+	if status.RecommendedReplicas == nil {
+		return fmt.Sprintf("NoScaleUp: recommendation is unavailable because %s", status.Reason)
+	}
+
+	if derefOptionalInt32(status.RecommendedReplicas) < cluster.Status.Replicas.Desired {
+		return "NoScaleUp: automatic scale-down is disabled"
+	}
+	return "NoScaleUp: recommended replicas are already satisfied"
 }
 
 func (r *NiFiClusterReconciler) buildAutoscalingStatus(ctx context.Context, cluster *platformv1alpha1.NiFiCluster) (platformv1alpha1.AutoscalingStatus, autoscalingSignalCollection) {
@@ -85,6 +130,7 @@ func (r *NiFiClusterReconciler) buildAutoscalingStatusForTarget(ctx context.Cont
 
 func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleUp(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet) (bool, ctrl.Result, error) {
 	status, _ := r.buildAutoscalingStatusForTarget(ctx, cluster, target)
+	executionState := r.autoscalingExecutionState(ctx, cluster, target)
 
 	policy := cluster.Spec.Autoscaling
 	mode := autoscalingMode(policy)
@@ -103,7 +149,7 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleUp(ctx context.Conte
 		return false, ctrl.Result{}, nil
 	}
 
-	currentReplicas := cluster.Status.Replicas.Desired
+	currentReplicas := executionState.currentReplicas
 	recommendedReplicas := derefOptionalInt32(status.RecommendedReplicas)
 	switch {
 	case recommendedReplicas < currentReplicas:
@@ -115,8 +161,8 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleUp(ctx context.Conte
 	}
 
 	cooldown := autoscalingScaleUpCooldown(policy)
-	if cluster.Status.Autoscaling.LastScaleUpTime != nil && cooldown > 0 {
-		nextEligibleTime := cluster.Status.Autoscaling.LastScaleUpTime.Time.Add(cooldown)
+	if executionState.lastScaleUpTime != nil && cooldown > 0 {
+		nextEligibleTime := executionState.lastScaleUpTime.Time.Add(cooldown)
 		if time.Now().UTC().Before(nextEligibleTime) {
 			cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("NoScaleUp: cooldown is active until %s", nextEligibleTime.UTC().Format(time.RFC3339))
 			return false, ctrl.Result{}, nil
@@ -174,6 +220,41 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleUp(ctx context.Conte
 	}
 
 	return true, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
+}
+
+type autoscalingExecutionState struct {
+	currentReplicas int32
+	lastScaleUpTime *metav1.Time
+}
+
+func (r *NiFiClusterReconciler) autoscalingExecutionState(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet) autoscalingExecutionState {
+	state := autoscalingExecutionState{
+		currentReplicas: cluster.Status.Replicas.Desired,
+	}
+	if cluster.Status.Autoscaling.LastScaleUpTime != nil {
+		state.lastScaleUpTime = cluster.Status.Autoscaling.LastScaleUpTime.DeepCopy()
+	}
+	if target != nil && target.Spec.Replicas != nil && *target.Spec.Replicas > state.currentReplicas {
+		state.currentReplicas = *target.Spec.Replicas
+	}
+
+	if r.APIReader == nil {
+		return state
+	}
+
+	latestCluster := &platformv1alpha1.NiFiCluster{}
+	if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(cluster), latestCluster); err != nil {
+		return state
+	}
+	if latestCluster.Status.Replicas.Desired > state.currentReplicas {
+		state.currentReplicas = latestCluster.Status.Replicas.Desired
+	}
+	if latestCluster.Status.Autoscaling.LastScaleUpTime != nil {
+		if state.lastScaleUpTime == nil || latestCluster.Status.Autoscaling.LastScaleUpTime.After(state.lastScaleUpTime.Time) {
+			state.lastScaleUpTime = latestCluster.Status.Autoscaling.LastScaleUpTime.DeepCopy()
+		}
+	}
+	return state
 }
 
 func blockedAutoscalingStatus(cluster *platformv1alpha1.NiFiCluster) (bool, string) {

@@ -5,13 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -2167,6 +2170,95 @@ func TestReconcileBlocksRolloutWhenNodePreparationTimesOut(t *testing.T) {
 	}
 }
 
+func TestReconcilePersistsRolloutFailureStatusAndAutoscalingWhenPodDeleteFails(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode:        platformv1alpha1.AutoscalingModeEnforced,
+		MinReplicas: 4,
+		MaxReplicas: 4,
+		ScaleUp: platformv1alpha1.AutoscalingScaleUpPolicy{
+			Enabled: true,
+		},
+		Signals: []platformv1alpha1.AutoscalingSignal{
+			platformv1alpha1.AutoscalingSignalQueuePressure,
+		},
+	}
+	cluster.Status.Replicas.Desired = 3
+	cluster.Status.ObservedStatefulSetRevision = "nifi-old"
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-old", "nifi-new")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-old"),
+		readyPod("nifi-1", "nifi", "nifi-old"),
+		readyPod("nifi-2", "nifi", "nifi-old"),
+	}
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		podReadyResponses: []error{nil},
+		healthResponses:   []healthResponse{{result: healthyResult(3)}},
+	}, cluster, statefulSet, &pods[0], &pods[1], &pods[2])
+	reconciler.AutoscalingCollector = &fakeAutoscalingCollector{
+		collection: autoscalingSignalCollection{
+			SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
+				Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
+				Available: true,
+				Message:   "queuedFlowFiles=32 queuedBytes=0 activeTimerDrivenThreads=10/10 backlog is actionable",
+			}},
+			QueuePressure: autoscalingQueuePressureSample{
+				Observed:                 true,
+				FlowFilesQueued:          32,
+				BytesQueuedObserved:      true,
+				ThreadCountsObserved:     true,
+				ActiveTimerDrivenThreads: 10,
+				MaxTimerDrivenThreads:    10,
+				Actionable:               true,
+			},
+		},
+	}
+	reconciler.Client = &deleteFailingClient{
+		Client:  k8sClient,
+		podName: "nifi-2",
+		err: apierrors.NewForbidden(
+			schema.GroupResource{Resource: "pods"},
+			"nifi-2",
+			errors.New("delete forbidden"),
+		),
+	}
+	reconciler.APIReader = k8sClient
+
+	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)}); err == nil {
+		t.Fatalf("expected reconcile to return the rollout delete error")
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+
+	progressing := updatedCluster.GetCondition(platformv1alpha1.ConditionProgressing)
+	if progressing == nil || progressing.Reason != "RolloutFailed" || progressing.Status != metav1.ConditionFalse {
+		t.Fatalf("expected rollout-failed progressing condition, got %#v", progressing)
+	}
+	degraded := updatedCluster.GetCondition(platformv1alpha1.ConditionDegraded)
+	if degraded == nil || degraded.Reason != "RolloutFailed" || degraded.Status != metav1.ConditionTrue {
+		t.Fatalf("expected rollout-failed degraded condition, got %#v", degraded)
+	}
+	if updatedCluster.Status.Autoscaling.Reason != autoscalingReasonDegraded {
+		t.Fatalf("expected autoscaling degraded reason, got %#v", updatedCluster.Status.Autoscaling)
+	}
+	if updatedCluster.Status.Autoscaling.RecommendedReplicas != nil {
+		t.Fatalf("expected no autoscaling recommendation when degraded, got %#v", updatedCluster.Status.Autoscaling)
+	}
+	if !strings.Contains(updatedCluster.Status.Autoscaling.LastScalingDecision, "recommendation is unavailable because Degraded") {
+		t.Fatalf("expected degraded autoscaling decision, got %#v", updatedCluster.Status.Autoscaling)
+	}
+	if updatedCluster.Status.LastOperation.Phase != platformv1alpha1.OperationPhaseFailed {
+		t.Fatalf("expected failed last operation, got %#v", updatedCluster.Status.LastOperation)
+	}
+}
+
 func TestReconcileResumesRolloutAfterControllerRestartDuringNodePreparation(t *testing.T) {
 	ctx := context.Background()
 	cluster := managedCluster()
@@ -2341,6 +2433,19 @@ func newTestReconciler(t *testing.T, healthChecker ClusterHealthChecker, objects
 		HealthChecker: healthChecker,
 		NodeManager:   &fakeNodeManager{readyImmediately: true},
 	}, k8sClient
+}
+
+type deleteFailingClient struct {
+	client.Client
+	podName string
+	err     error
+}
+
+func (c *deleteFailingClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+	if pod, ok := obj.(*corev1.Pod); ok && pod.Name == c.podName {
+		return c.err
+	}
+	return c.Client.Delete(ctx, obj, opts...)
 }
 
 func managedCluster() *platformv1alpha1.NiFiCluster {

@@ -68,6 +68,7 @@ What is implemented now:
 - real timer-driven thread sampling from NiFi system diagnostics to decide whether backlog is actionable
 - real CPU sampling from NiFi system diagnostics as a secondary advisory signal
 - optional enforced one-step scale-up through the controller only, after the existing steady-state health gate passes
+- focused fast runtime proof on NiFi `2.8.0` for advisory status-only behavior, one-step enforced scale-up, cooldown enforcement, no automatic scale-down, and blocked recommendations during progressing, hibernated or restoring, degraded, unresolved, and unmanaged states
 
 What is not implemented yet:
 
@@ -76,6 +77,7 @@ What is not implemented yet:
 - sustained queue-age collection
 - CPU-driven autoscaling as a primary signal
 - richer NiFi-native stuck-backlog analysis beyond root backlog and timer-driven thread saturation
+- runtime proof for the unavailable-target blocking path beyond unit and reconcile coverage
 
 Current enforced-scope limit:
 
@@ -153,6 +155,13 @@ Focused `2.8.0` Flow Registry Client path:
 ```bash
 make kind-flow-registry-gitlab-e2e
 make kind-flow-registry-github-fast-e2e
+```
+
+Focused autoscaling scale-up-only path:
+
+```bash
+make kind-autoscaling-scale-up-fast-e2e
+make kind-autoscaling-scale-up-fast-e2e-reuse
 ```
 
 Fast profile note:
@@ -1128,6 +1137,7 @@ The focused cert-manager path additionally covers:
 | NiFi image focused newer proof | `apache/nifi:2.8.0` | 2-replica managed install + health gate + config-drift restart proven with `make kind-nifi-2-8-e2e` |
 | GitLab Flow Registry Client on `2.8.0` | proven on kind with a GitLab-compatible evaluator service | `make kind-flow-registry-gitlab-e2e` proves chart-prepared client definition, NiFi client creation, and bucket listing |
 | GitHub Flow Registry Client on `2.8.0` | proven on kind with a GitHub-compatible evaluator service and the fast profile | `make kind-flow-registry-github-fast-e2e` proves chart-prepared client definition, NiFi client creation, and bucket listing |
+| Autoscaling scale-up only on `2.8.0` | proven on kind with the fast profile | `make kind-autoscaling-scale-up-fast-e2e` proves advisory status-only behavior, enforced one-step scale-up, cooldown blocking, no automatic scale-down, and blocked autoscaling during progressing, hibernated or restoring, degraded, unresolved, and unmanaged states |
 | Kubernetes runtime | `kindest/node:v1.31.0` | single control-plane kind cluster |
 | Managed rollout model | proven | `StatefulSet` with `OnDelete` |
 | Persistent storage assumptions | proven on kind | PVC retention on scale-down and delete |

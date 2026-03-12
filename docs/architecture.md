@@ -187,6 +187,8 @@ The current slice is intentionally small:
 - recommendations are suppressed while rollout, hibernation or restore, degraded state, or other non-steady conditions are active
 - enabled signals are typed and surfaced in status with real queue, thread, and CPU samples where NiFi exposes them today
 - cooldown state is kept on `NiFiCluster.status`, not in a second autoscaling API surface
+- the focused fast NiFi `2.8.0` runtime proof now covers advisory status-only behavior, one-step enforced scale-up, cooldown blocking, no automatic scale-down, and blocked autoscaling during progressing, hibernated or restoring, degraded, unresolved, and unmanaged states
+- rollout failure and blocked autoscaling status must still persist even when reconcile returns an error, because degraded autoscaling is only useful if it survives the same failure path the operator is diagnosing
 
 Autoscaling is still not a trivial extension of the current managed design.
 
@@ -207,6 +209,7 @@ For this platform, the intended long-term direction is:
 - the recommendation should be written to the `NiFiCluster` control plane, not directly to the `StatefulSet`
 - the existing controller should decide whether the cluster is in a state where scaling is safe
 - the controller should execute ordered scale actions using the same health gates and NiFi API choreography already used for managed destructive steps
+- automatic scale-down remains deferred until that same controller-owned choreography is specified and proven for disconnect, offload, delete, hibernation, and restore interactions together
 
 This keeps the controller thin while preserving one place that owns destructive coordination.
 
