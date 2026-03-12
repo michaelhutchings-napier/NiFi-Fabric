@@ -27,6 +27,16 @@ Completed in the scaffold:
 6. Keep README quickstarts, [examples/README.md](examples/README.md), `docs/local-kind.md`, and the cert-manager overlay docs aligned with the exact alpha gate and manual cert-manager commands.
 7. Decide whether trust-manager is needed later as an optional extension for broader CA bundle distribution without changing the current chart or controller scope.
 8. Run the first real AKS and OpenShift evaluations before claiming anything beyond kind-based private-alpha coverage.
+9. Keep autoscaling opt-in and bounded while experimental enforced scale-up is evaluated.
+10. Preserve the single-control-plane rule: autoscaling intent belongs on `NiFiCluster`, not direct `StatefulSet` mutation.
+11. Finish the minimum NiFi-native pressure signal collection needed for autoscaling intent:
+   - sustained queue age
+   - any additional NiFi-native pressure signals beyond root-process-group backlog and timer-driven thread saturation
+   - CPU only if it remains useful after NiFi-native signals are in place
+   - cluster health and convergence state
+12. Keep automated scale-down disabled until disconnect, offload, delete, hibernation, and restore interactions are specified and proven together.
+13. Decide whether the current experimental scale-up cooldown defaults are sufficient before claiming enforced autoscaling as a recommended production feature.
+14. Add a focused autoscaling evaluator only after the recommendation and scale-up path need dedicated runtime proof beyond the existing managed fast gate.
 
 ## Current Managed Rollout Behavior
 
@@ -55,6 +65,9 @@ Current rollout algorithm:
 What is still intentionally deferred:
 
 - richer restore target memory than `status.hibernation.lastRunningReplicas` with a `1` replica fallback
+- automatic scale-down behavior
+- sustained queue-age collection and richer NiFi-native stuck-backlog signals
+- any autoscaling execution path beyond the current optional one-step enforced scale-up behavior
 
 Current alpha gate:
 
@@ -112,3 +125,4 @@ Current hibernation algorithm:
 - The rollout coordinator is now the core reusable primitive for upgrades, config drift, cert drift, and hibernation restore gating.
 - Config and cert drift should layer onto the existing restart path instead of introducing parallel orchestration logic.
 - Generated API artifacts should replace hand-maintained scaffolding before the status schema grows further.
+- Autoscaling, if added later, should reuse the same coordinator instead of creating a second path that mutates replicas directly.

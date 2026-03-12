@@ -74,6 +74,27 @@ var (
 		},
 		[]string{"purpose", "result"},
 	)
+	autoscalingRecommendationsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "nifi_platform_autoscaling_recommendations_total",
+			Help: "Count of advisory autoscaling recommendation transitions by reason and outcome.",
+		},
+		[]string{"reason", "outcome"},
+	)
+	autoscalingRecommendedReplicas = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "nifi_platform_autoscaling_recommended_replicas",
+			Help: "Latest advisory autoscaling replica recommendation for each NiFiCluster. Zero means no active recommendation.",
+		},
+		[]string{"namespace", "name"},
+	)
+	autoscalingSignalSamples = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "nifi_platform_autoscaling_signal_sample",
+			Help: "Latest advisory autoscaling signal samples observed for each NiFiCluster.",
+		},
+		[]string{"namespace", "name", "signal", "sample"},
+	)
 )
 
 func init() {
@@ -86,6 +107,9 @@ func init() {
 		hibernationOperationsTotal,
 		hibernationDurationSeconds,
 		nodePreparationOutcomesTotal,
+		autoscalingRecommendationsTotal,
+		autoscalingRecommendedReplicas,
+		autoscalingSignalSamples,
 	)
 	warmObservabilityMetrics()
 }
@@ -99,6 +123,8 @@ func warmObservabilityMetrics() {
 	hibernationOperationsTotal.WithLabelValues("hibernate", "started")
 	hibernationDurationSeconds.WithLabelValues("hibernate", "completed")
 	nodePreparationOutcomesTotal.WithLabelValues(string(platformv1alpha1.NodeOperationPurposeRestart), "retrying")
+	autoscalingRecommendationsTotal.WithLabelValues(autoscalingReasonNoActionableInput, "hold")
+	autoscalingSignalSamples.WithLabelValues("", "", string(platformv1alpha1.AutoscalingSignalQueuePressure), "flow_files_queued")
 }
 
 type lifecycleSignal struct {
@@ -129,6 +155,7 @@ func (r *NiFiClusterReconciler) observeOperationMetrics(original, updated *platf
 	observeRolloutMetrics(original, updated)
 	observeTLSMetrics(original, updated)
 	r.observeHibernationMetrics(original, updated)
+	observeAutoscalingMetrics(original, updated)
 }
 
 func collectLifecycleSignals(original, updated *platformv1alpha1.NiFiCluster) []lifecycleSignal {
@@ -150,6 +177,9 @@ func collectLifecycleSignals(original, updated *platformv1alpha1.NiFiCluster) []
 		signals = append(signals, signal)
 	}
 	if signal, ok := completionSignal(original, updated); ok {
+		signals = append(signals, signal)
+	}
+	if signal, ok := autoscalingSignalFromStatus(original, updated); ok {
 		signals = append(signals, signal)
 	}
 
@@ -438,6 +468,28 @@ func completionSignal(original, updated *platformv1alpha1.NiFiCluster) (lifecycl
 	return lifecycleSignal{}, false
 }
 
+func autoscalingSignalFromStatus(original, updated *platformv1alpha1.NiFiCluster) (lifecycleSignal, bool) {
+	if autoscalingStatusMeaningEqual(original.Status.Autoscaling, updated.Status.Autoscaling) {
+		return lifecycleSignal{}, false
+	}
+	if updated.Status.Autoscaling.Reason == autoscalingReasonDisabled {
+		return lifecycleSignal{}, false
+	}
+
+	reason := "AutoscalingRecommendationUpdated"
+	if updated.Status.Autoscaling.RecommendedReplicas == nil {
+		reason = "AutoscalingRecommendationBlocked"
+	}
+
+	return lifecycleSignal{
+		category: "autoscaling",
+		event:    autoscalingStatusOutcome(updated.Status.Autoscaling),
+		level:    corev1.EventTypeNormal,
+		reason:   reason,
+		message:  autoscalingStatusMessage(updated.Status.Autoscaling),
+	}, true
+}
+
 func observeRolloutMetrics(original, updated *platformv1alpha1.NiFiCluster) {
 	trigger := updated.Status.Rollout.Trigger
 	if trigger != "" && original.Status.Rollout.Trigger != trigger {
@@ -540,6 +592,32 @@ func (r *NiFiClusterReconciler) observeHibernationMetrics(original, updated *pla
 			hibernationDurationSeconds.WithLabelValues("hibernate", "failed").Observe(duration.Seconds())
 		}
 	}
+}
+
+func observeAutoscalingMetrics(original, updated *platformv1alpha1.NiFiCluster) {
+	if autoscalingStatusMeaningEqual(original.Status.Autoscaling, updated.Status.Autoscaling) {
+		return
+	}
+
+	autoscalingRecommendationsTotal.WithLabelValues(
+		updated.Status.Autoscaling.Reason,
+		autoscalingStatusOutcome(updated.Status.Autoscaling),
+	).Inc()
+	autoscalingRecommendedReplicas.WithLabelValues(updated.Namespace, updated.Name).Set(
+		float64(derefOptionalInt32(updated.Status.Autoscaling.RecommendedReplicas)),
+	)
+}
+
+func recordAutoscalingSignalSamples(cluster *platformv1alpha1.NiFiCluster, collection autoscalingSignalCollection) {
+	namespace := cluster.Namespace
+	name := cluster.Name
+
+	autoscalingSignalSamples.WithLabelValues(namespace, name, string(platformv1alpha1.AutoscalingSignalQueuePressure), "flow_files_queued").Set(float64(collection.QueuePressure.FlowFilesQueued))
+	autoscalingSignalSamples.WithLabelValues(namespace, name, string(platformv1alpha1.AutoscalingSignalQueuePressure), "bytes_queued").Set(float64(collection.QueuePressure.BytesQueued))
+	autoscalingSignalSamples.WithLabelValues(namespace, name, string(platformv1alpha1.AutoscalingSignalQueuePressure), "active_timer_driven_threads").Set(float64(collection.QueuePressure.ActiveTimerDrivenThreads))
+	autoscalingSignalSamples.WithLabelValues(namespace, name, string(platformv1alpha1.AutoscalingSignalQueuePressure), "max_timer_driven_threads").Set(float64(collection.QueuePressure.MaxTimerDrivenThreads))
+	autoscalingSignalSamples.WithLabelValues(namespace, name, string(platformv1alpha1.AutoscalingSignalCPU), "load_average").Set(collection.CPU.LoadAverage)
+	autoscalingSignalSamples.WithLabelValues(namespace, name, string(platformv1alpha1.AutoscalingSignalCPU), "available_processors").Set(float64(collection.CPU.AvailableProcessors))
 }
 
 func (r *NiFiClusterReconciler) observabilityState() *observabilityState {

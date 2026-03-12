@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -41,6 +42,21 @@ type APIRequest struct {
 	Username  string
 	Password  string
 	CACertPEM []byte
+}
+
+type RootProcessGroupStatus struct {
+	FlowFilesQueued     int64
+	BytesQueued         int64
+	BytesQueuedObserved bool
+}
+
+type SystemDiagnostics struct {
+	ActiveTimerDrivenThreads int32
+	MaxTimerDrivenThreads    int32
+	ThreadCountsObserved     bool
+	CPULoadAverage           float64
+	CPULoadObserved          bool
+	AvailableProcessors      int32
 }
 
 type NodeStatus string
@@ -78,6 +94,8 @@ type Client interface {
 	GetNodes(ctx context.Context, req APIRequest) ([]ClusterNode, error)
 	GetNode(ctx context.Context, req APIRequest, nodeID string) (ClusterNode, error)
 	UpdateNodeStatus(ctx context.Context, req APIRequest, nodeID string, status NodeStatus) (ClusterNode, error)
+	GetRootProcessGroupStatus(ctx context.Context, req APIRequest) (RootProcessGroupStatus, error)
+	GetSystemDiagnostics(ctx context.Context, req APIRequest) (SystemDiagnostics, error)
 }
 
 type HTTPClient struct {
@@ -251,6 +269,130 @@ func (c *HTTPClient) UpdateNodeStatus(ctx context.Context, req APIRequest, nodeI
 	return decodeNode(response.Body)
 }
 
+func (c *HTTPClient) GetRootProcessGroupStatus(ctx context.Context, req APIRequest) (RootProcessGroupStatus, error) {
+	httpClient, token, err := c.authorize(ctx, req)
+	if err != nil {
+		return RootProcessGroupStatus{}, err
+	}
+
+	request, err := c.newAuthenticatedRequest(ctx, httpClient, token, http.MethodGet, strings.TrimRight(req.BaseURL, "/")+"/nifi-api/flow/process-groups/root/status", nil)
+	if err != nil {
+		return RootProcessGroupStatus{}, err
+	}
+
+	response, err := httpClient.Do(request)
+	if err != nil {
+		return RootProcessGroupStatus{}, fmt.Errorf("request root process-group status: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		return RootProcessGroupStatus{}, &APIError{
+			StatusCode: response.StatusCode,
+			Message:    strings.TrimSpace(string(body)),
+		}
+	}
+
+	var payload struct {
+		ProcessGroupStatus struct {
+			AggregateSnapshot map[string]json.RawMessage `json:"aggregateSnapshot"`
+		} `json:"processGroupStatus"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return RootProcessGroupStatus{}, fmt.Errorf("decode root process-group status: %w", err)
+	}
+
+	flowFilesQueued, err := parseRawInt64(payload.ProcessGroupStatus.AggregateSnapshot["flowFilesQueued"])
+	if err != nil {
+		return RootProcessGroupStatus{}, fmt.Errorf("parse flowFilesQueued: %w", err)
+	}
+
+	status := RootProcessGroupStatus{FlowFilesQueued: flowFilesQueued}
+	if bytesQueued, ok, err := parseOptionalRawBytes(payload.ProcessGroupStatus.AggregateSnapshot["bytesQueued"]); err != nil {
+		return RootProcessGroupStatus{}, fmt.Errorf("parse bytesQueued: %w", err)
+	} else if ok {
+		status.BytesQueued = bytesQueued
+		status.BytesQueuedObserved = true
+	}
+
+	return status, nil
+}
+
+func (c *HTTPClient) GetSystemDiagnostics(ctx context.Context, req APIRequest) (SystemDiagnostics, error) {
+	httpClient, token, err := c.authorize(ctx, req)
+	if err != nil {
+		return SystemDiagnostics{}, err
+	}
+
+	request, err := c.newAuthenticatedRequest(ctx, httpClient, token, http.MethodGet, strings.TrimRight(req.BaseURL, "/")+"/nifi-api/system-diagnostics", nil)
+	if err != nil {
+		return SystemDiagnostics{}, err
+	}
+
+	response, err := httpClient.Do(request)
+	if err != nil {
+		return SystemDiagnostics{}, fmt.Errorf("request system diagnostics: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		return SystemDiagnostics{}, &APIError{
+			StatusCode: response.StatusCode,
+			Message:    strings.TrimSpace(string(body)),
+		}
+	}
+
+	var payload struct {
+		SystemDiagnostics struct {
+			AggregateSnapshot map[string]json.RawMessage `json:"aggregateSnapshot"`
+		} `json:"systemDiagnostics"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return SystemDiagnostics{}, fmt.Errorf("decode system diagnostics: %w", err)
+	}
+
+	status := SystemDiagnostics{}
+	if active, ok, err := parseOptionalRawInt32(firstNonEmptyRawMessage(payload.SystemDiagnostics.AggregateSnapshot,
+		"activeTimerDrivenThreadCount",
+		"activeTimerDrivenThreads",
+	)); err != nil {
+		return SystemDiagnostics{}, fmt.Errorf("parse active timer-driven threads: %w", err)
+	} else if ok {
+		status.ActiveTimerDrivenThreads = active
+	}
+	if max, ok, err := parseOptionalRawInt32(firstNonEmptyRawMessage(payload.SystemDiagnostics.AggregateSnapshot,
+		"maxTimerDrivenThreadCount",
+		"maxTimerDrivenThreads",
+	)); err != nil {
+		return SystemDiagnostics{}, fmt.Errorf("parse max timer-driven threads: %w", err)
+	} else if ok {
+		status.MaxTimerDrivenThreads = max
+	}
+	status.ThreadCountsObserved = status.ActiveTimerDrivenThreads > 0 || status.MaxTimerDrivenThreads > 0
+
+	if processors, ok, err := parseOptionalRawInt32(firstNonEmptyRawMessage(payload.SystemDiagnostics.AggregateSnapshot,
+		"availableProcessors",
+		"processorCount",
+	)); err != nil {
+		return SystemDiagnostics{}, fmt.Errorf("parse available processors: %w", err)
+	} else if ok {
+		status.AvailableProcessors = processors
+	}
+	if loadAverage, ok, err := parseOptionalRawFloat64(firstNonEmptyRawMessage(payload.SystemDiagnostics.AggregateSnapshot,
+		"processorLoadAverage",
+		"cpuLoadAverage",
+	)); err != nil {
+		return SystemDiagnostics{}, fmt.Errorf("parse CPU load average: %w", err)
+	} else if ok && loadAverage >= 0 {
+		status.CPULoadAverage = loadAverage
+		status.CPULoadObserved = true
+	}
+
+	return status, nil
+}
+
 func decodeNode(reader io.Reader) (ClusterNode, error) {
 	var payload struct {
 		Node struct {
@@ -358,4 +500,211 @@ func (c *HTTPClient) newHTTPClient(caCertPEM []byte) (*http.Client, error) {
 			},
 		},
 	}, nil
+}
+
+func firstNonEmptyRawMessage(values map[string]json.RawMessage, keys ...string) json.RawMessage {
+	for _, key := range keys {
+		if value, ok := values[key]; ok && len(value) > 0 {
+			return value
+		}
+	}
+	return nil
+}
+
+func parseOptionalRawInt32(raw json.RawMessage) (int32, bool, error) {
+	if len(raw) == 0 {
+		return 0, false, nil
+	}
+	value, err := parseRawInt64(raw)
+	if err != nil {
+		return 0, false, err
+	}
+	return int32(value), true, nil
+}
+
+func parseOptionalRawFloat64(raw json.RawMessage) (float64, bool, error) {
+	if len(raw) == 0 {
+		return 0, false, nil
+	}
+	value, err := parseRawFloat64(raw)
+	if err != nil {
+		return 0, false, err
+	}
+	return value, true, nil
+}
+
+func parseOptionalRawBytes(raw json.RawMessage) (int64, bool, error) {
+	if len(raw) == 0 {
+		return 0, false, nil
+	}
+	value, err := parseRawBytes(raw)
+	if err != nil {
+		return 0, false, err
+	}
+	return value, true, nil
+}
+
+func parseRawInt64(raw json.RawMessage) (int64, error) {
+	if len(raw) == 0 {
+		return 0, fmt.Errorf("value was empty")
+	}
+
+	var number int64
+	if err := json.Unmarshal(raw, &number); err == nil {
+		return number, nil
+	}
+
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return 0, fmt.Errorf("unsupported integer payload %q", string(raw))
+	}
+
+	token := normalizeNumericToken(strings.SplitN(text, "/", 2)[0])
+	if token == "" {
+		return 0, fmt.Errorf("no integer token found in %q", text)
+	}
+	value, err := strconv.ParseInt(token, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse integer token %q: %w", token, err)
+	}
+	return value, nil
+}
+
+func parseRawFloat64(raw json.RawMessage) (float64, error) {
+	if len(raw) == 0 {
+		return 0, fmt.Errorf("value was empty")
+	}
+
+	var number float64
+	if err := json.Unmarshal(raw, &number); err == nil {
+		return number, nil
+	}
+
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return 0, fmt.Errorf("unsupported float payload %q", string(raw))
+	}
+
+	token := extractFirstNumericToken(text)
+	if token == "" {
+		return 0, fmt.Errorf("no numeric token found in %q", text)
+	}
+	value, err := strconv.ParseFloat(token, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse float token %q: %w", token, err)
+	}
+	return value, nil
+}
+
+func parseRawBytes(raw json.RawMessage) (int64, error) {
+	if len(raw) == 0 {
+		return 0, fmt.Errorf("value was empty")
+	}
+
+	var number int64
+	if err := json.Unmarshal(raw, &number); err == nil {
+		return number, nil
+	}
+
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return 0, fmt.Errorf("unsupported byte payload %q", string(raw))
+	}
+
+	return parseHumanBytes(text)
+}
+
+func parseHumanBytes(text string) (int64, error) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return 0, fmt.Errorf("value was empty")
+	}
+	if strings.Contains(trimmed, "/") {
+		parts := strings.SplitN(trimmed, "/", 2)
+		trimmed = strings.TrimSpace(parts[len(parts)-1])
+	}
+
+	fields := strings.Fields(trimmed)
+	switch len(fields) {
+	case 0:
+		return 0, fmt.Errorf("value was empty")
+	case 1:
+		number := extractFirstNumericToken(fields[0])
+		if number == "" {
+			return 0, fmt.Errorf("no numeric token found in %q", trimmed)
+		}
+		value, err := strconv.ParseFloat(number, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parse byte value %q: %w", number, err)
+		}
+
+		unit := extractUnitToken(fields[0])
+		if unit == "" {
+			return int64(value), nil
+		}
+		multiplier, ok := byteUnitMultiplier(unit)
+		if !ok {
+			return 0, fmt.Errorf("unsupported byte unit %q", unit)
+		}
+		return int64(value * multiplier), nil
+	default:
+		number := extractFirstNumericToken(fields[0])
+		if number == "" {
+			return 0, fmt.Errorf("no numeric token found in %q", trimmed)
+		}
+		value, err := strconv.ParseFloat(number, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parse byte value %q: %w", number, err)
+		}
+
+		multiplier, ok := byteUnitMultiplier(fields[1])
+		if !ok {
+			return 0, fmt.Errorf("unsupported byte unit %q", fields[1])
+		}
+		return int64(value * multiplier), nil
+	}
+}
+
+func normalizeNumericToken(value string) string {
+	return strings.ReplaceAll(strings.TrimSpace(value), ",", "")
+}
+
+func extractFirstNumericToken(value string) string {
+	var builder strings.Builder
+	for _, r := range value {
+		switch {
+		case (r >= '0' && r <= '9') || r == '.' || r == '-' || r == ',':
+			builder.WriteRune(r)
+		case builder.Len() > 0:
+			return normalizeNumericToken(builder.String())
+		}
+	}
+	return normalizeNumericToken(builder.String())
+}
+
+func extractUnitToken(value string) string {
+	var builder strings.Builder
+	for _, r := range value {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+			builder.WriteRune(r)
+		}
+	}
+	return strings.ToUpper(builder.String())
+}
+
+func byteUnitMultiplier(unit string) (float64, bool) {
+	switch strings.ToUpper(strings.TrimSpace(unit)) {
+	case "B", "BYTE", "BYTES":
+		return 1, true
+	case "KB", "KIB":
+		return 1024, true
+	case "MB", "MIB":
+		return 1024 * 1024, true
+	case "GB", "GIB":
+		return 1024 * 1024 * 1024, true
+	case "TB", "TIB":
+		return 1024 * 1024 * 1024 * 1024, true
+	default:
+		return 0, false
+	}
 }

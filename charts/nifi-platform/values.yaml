@@ -38,6 +38,11 @@ cluster:
     clusterHealthTimeout: 15m
   hibernation:
     offloadTimeout: 5m
+  autoscaling:
+    mode: Disabled
+    minReplicas: 0
+    maxReplicas: 0
+    signals: []
   safety:
     requireClusterHealthy: true
 

@@ -59,6 +59,27 @@ type SafetyPolicy struct {
 	RequireClusterHealthy bool `json:"requireClusterHealthy,omitempty"`
 }
 
+type AutoscalingMode string
+
+const (
+	AutoscalingModeDisabled AutoscalingMode = "Disabled"
+	AutoscalingModeAdvisory AutoscalingMode = "Advisory"
+)
+
+type AutoscalingSignal string
+
+const (
+	AutoscalingSignalQueuePressure AutoscalingSignal = "QueuePressure"
+	AutoscalingSignalCPU           AutoscalingSignal = "CPU"
+)
+
+type AutoscalingPolicy struct {
+	Mode        AutoscalingMode     `json:"mode,omitempty"`
+	MinReplicas int32               `json:"minReplicas,omitempty"`
+	MaxReplicas int32               `json:"maxReplicas,omitempty"`
+	Signals     []AutoscalingSignal `json:"signals,omitempty"`
+}
+
 type NiFiClusterSpec struct {
 	TargetRef       TargetRef         `json:"targetRef"`
 	DesiredState    DesiredState      `json:"desiredState"`
@@ -68,6 +89,7 @@ type NiFiClusterSpec struct {
 	Rollout         RolloutPolicy     `json:"rollout,omitempty"`
 	Hibernation     HibernationPolicy `json:"hibernation,omitempty"`
 	Safety          SafetyPolicy      `json:"safety,omitempty"`
+	Autoscaling     AutoscalingPolicy `json:"autoscaling,omitempty"`
 }
 
 type ReplicaStatus struct {
@@ -142,6 +164,19 @@ type TLSStatus struct {
 	TargetTLSConfigurationHash string       `json:"targetTLSConfigurationHash,omitempty"`
 }
 
+type AutoscalingSignalStatus struct {
+	Type      AutoscalingSignal `json:"type,omitempty"`
+	Available bool              `json:"available,omitempty"`
+	Message   string            `json:"message,omitempty"`
+}
+
+type AutoscalingStatus struct {
+	RecommendedReplicas *int32                    `json:"recommendedReplicas,omitempty"`
+	Reason              string                    `json:"reason,omitempty"`
+	Signals             []AutoscalingSignalStatus `json:"signals,omitempty"`
+	LastEvaluationTime  *metav1.Time              `json:"lastEvaluationTime,omitempty"`
+}
+
 type NiFiClusterStatus struct {
 	ObservedGeneration           int64               `json:"observedGeneration,omitempty"`
 	ObservedStatefulSetRevision  string              `json:"observedStatefulSetRevision,omitempty"`
@@ -153,6 +188,7 @@ type NiFiClusterStatus struct {
 	Replicas                     ReplicaStatus       `json:"replicas,omitempty"`
 	ClusterNodes                 ClusterNodesStatus  `json:"clusterNodes,omitempty"`
 	Hibernation                  HibernationStatus   `json:"hibernation,omitempty"`
+	Autoscaling                  AutoscalingStatus   `json:"autoscaling,omitempty"`
 	NodeOperation                NodeOperationStatus `json:"nodeOperation"`
 	LastOperation                LastOperation       `json:"lastOperation,omitempty"`
 	Conditions                   []metav1.Condition  `json:"conditions,omitempty"`

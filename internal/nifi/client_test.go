@@ -131,6 +131,86 @@ func TestHTTPClientNodeOperations(t *testing.T) {
 	}
 }
 
+func TestHTTPClientGetRootProcessGroupStatus(t *testing.T) {
+	caCertPEM, serverTLS := newTestTLSConfig(t)
+
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/nifi-api/access/token":
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte("token-123"))
+		case "/nifi-api/flow/process-groups/root/status":
+			if got := r.Header.Get("Authorization"); got != "Bearer token-123" {
+				t.Fatalf("unexpected authorization header %q", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"processGroupStatus":{"aggregateSnapshot":{"flowFilesQueued":"24","bytesQueued":"2 MB"}}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	server.TLS = serverTLS
+	server.StartTLS()
+	defer server.Close()
+
+	client := NewHTTPClient()
+	status, err := client.GetRootProcessGroupStatus(context.Background(), APIRequest{
+		BaseURL:   server.URL,
+		Username:  "admin",
+		Password:  "secret",
+		CACertPEM: caCertPEM,
+	})
+	if err != nil {
+		t.Fatalf("GetRootProcessGroupStatus returned error: %v", err)
+	}
+	if status.FlowFilesQueued != 24 {
+		t.Fatalf("expected 24 queued flow files, got %+v", status)
+	}
+	if !status.BytesQueuedObserved || status.BytesQueued != 2*1024*1024 {
+		t.Fatalf("expected 2 MiB queued bytes, got %+v", status)
+	}
+}
+
+func TestHTTPClientGetSystemDiagnostics(t *testing.T) {
+	caCertPEM, serverTLS := newTestTLSConfig(t)
+
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/nifi-api/access/token":
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte("token-123"))
+		case "/nifi-api/system-diagnostics":
+			if got := r.Header.Get("Authorization"); got != "Bearer token-123" {
+				t.Fatalf("unexpected authorization header %q", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"systemDiagnostics":{"aggregateSnapshot":{"activeTimerDrivenThreadCount":10,"maxTimerDrivenThreadCount":"12","processorLoadAverage":"1.75","availableProcessors":2}}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	server.TLS = serverTLS
+	server.StartTLS()
+	defer server.Close()
+
+	client := NewHTTPClient()
+	diagnostics, err := client.GetSystemDiagnostics(context.Background(), APIRequest{
+		BaseURL:   server.URL,
+		Username:  "admin",
+		Password:  "secret",
+		CACertPEM: caCertPEM,
+	})
+	if err != nil {
+		t.Fatalf("GetSystemDiagnostics returned error: %v", err)
+	}
+	if !diagnostics.ThreadCountsObserved || diagnostics.ActiveTimerDrivenThreads != 10 || diagnostics.MaxTimerDrivenThreads != 12 {
+		t.Fatalf("unexpected thread diagnostics: %+v", diagnostics)
+	}
+	if !diagnostics.CPULoadObserved || diagnostics.CPULoadAverage != 1.75 || diagnostics.AvailableProcessors != 2 {
+		t.Fatalf("unexpected CPU diagnostics: %+v", diagnostics)
+	}
+}
+
 func newTestTLSConfig(t *testing.T) ([]byte, *tls.Config) {
 	t.Helper()
 

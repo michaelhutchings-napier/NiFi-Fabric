@@ -130,6 +130,58 @@ func TestNodePreparationMetricsRecordRetryAndTimeout(t *testing.T) {
 	}
 }
 
+func TestObserveStatusTransitionRecordsAutoscalingMetrics(t *testing.T) {
+	resetObservabilityMetrics()
+
+	original := managedCluster()
+	original.Status.Autoscaling = platformv1alpha1.AutoscalingStatus{
+		Reason: autoscalingReasonProgressing,
+	}
+
+	recommended := int32(4)
+	updated := original.DeepCopy()
+	updated.Status.Autoscaling = platformv1alpha1.AutoscalingStatus{
+		RecommendedReplicas: &recommended,
+		Reason:              autoscalingReasonBelowMinReplicas,
+	}
+
+	reconciler := &NiFiClusterReconciler{}
+	reconciler.observeStatusTransition(original, updated)
+
+	if got := testutil.ToFloat64(autoscalingRecommendationsTotal.WithLabelValues(autoscalingReasonBelowMinReplicas, "increase")); got != 1 {
+		t.Fatalf("expected one advisory autoscaling recommendation metric, got %v", got)
+	}
+	if got := testutil.ToFloat64(autoscalingRecommendedReplicas.WithLabelValues(updated.Namespace, updated.Name)); got != 4 {
+		t.Fatalf("expected recommended replicas gauge to be 4, got %v", got)
+	}
+}
+
+func TestObserveStatusTransitionIgnoresAutoscalingMessageOnlyChanges(t *testing.T) {
+	resetObservabilityMetrics()
+
+	recommended := int32(3)
+	original := managedCluster()
+	original.Status.Autoscaling = platformv1alpha1.AutoscalingStatus{
+		RecommendedReplicas: &recommended,
+		Reason:              autoscalingReasonNoActionableInput,
+		Signals: []platformv1alpha1.AutoscalingSignalStatus{{
+			Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
+			Available: true,
+			Message:   "queuedFlowFiles=0 queuedBytes=0 activeTimerDrivenThreads=2/10",
+		}},
+	}
+
+	updated := original.DeepCopy()
+	updated.Status.Autoscaling.Signals[0].Message = "queuedFlowFiles=1 queuedBytes=0 activeTimerDrivenThreads=2/10"
+
+	reconciler := &NiFiClusterReconciler{}
+	reconciler.observeStatusTransition(original, updated)
+
+	if got := testutil.ToFloat64(autoscalingRecommendationsTotal.WithLabelValues(autoscalingReasonNoActionableInput, "hold")); got != 0 {
+		t.Fatalf("expected message-only autoscaling changes not to increment recommendation metrics, got %v", got)
+	}
+}
+
 func resetObservabilityMetrics() {
 	lifecycleTransitionsTotal.Reset()
 	rolloutsTotal.Reset()
@@ -139,4 +191,7 @@ func resetObservabilityMetrics() {
 	hibernationOperationsTotal.Reset()
 	hibernationDurationSeconds.Reset()
 	nodePreparationOutcomesTotal.Reset()
+	autoscalingRecommendationsTotal.Reset()
+	autoscalingRecommendedReplicas.Reset()
+	autoscalingSignalSamples.Reset()
 }

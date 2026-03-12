@@ -37,6 +37,74 @@ Responsibilities are intentionally split:
 
 This means ordinary certificate renewal is not treated as a restart-only operator workflow. Helm declares the `Certificate`, cert-manager renews the Secret, NiFi tries to absorb stable material changes through autoreload, and the controller only restarts when the existing TLS policy says a restart is required.
 
+## Autoscaling Position
+
+Autoscaling is now implemented in two explicit modes on `NiFiCluster`:
+
+- `Advisory`, which remains status-only
+- `Enforced`, which is currently limited to optional experimental scale-up only
+
+NiFi is a stateful clustered system with managed rollout, TLS drift handling, node preparation, hibernation, and restore behavior already in scope. Because NiFi documents node removal as disconnect, then offload, then delete, direct `StatefulSet` autoscaling is not the preferred first architecture for this platform.
+
+Current design position:
+
+- keep a single lifecycle control plane
+- let external metrics or autoscalers recommend capacity if needed
+- have the `NiFiCluster` controller publish advisory capacity guidance
+- have the same controller execute any allowed replica change itself
+- prefer NiFi-native pressure signals such as queue depth, queue age, and active thread saturation before CPU
+
+What is implemented now:
+
+- `spec.autoscaling.mode=Disabled|Advisory|Enforced`
+- advisory bounds with `minReplicas` and `maxReplicas`
+- a typed advisory signal list
+- explicit `scaleUp.enabled` and `scaleDown.enabled` policy fields
+- minimal scale-up cooldown control
+- `status.autoscaling.recommendedReplicas`, `reason`, `signals`, `lastEvaluationTime`, `lastScalingDecision`, and `lastScaleUpTime`
+- advisory-only events and metrics
+- explicit precedence rules that suppress recommendations while the cluster is progressing, hibernated, degraded, unavailable, or unmanaged
+- real queue-pressure sampling from NiFi root-process-group backlog
+- real timer-driven thread sampling from NiFi system diagnostics to decide whether backlog is actionable
+- real CPU sampling from NiFi system diagnostics as a secondary advisory signal
+- optional enforced one-step scale-up through the controller only, after the existing steady-state health gate passes
+
+What is not implemented yet:
+
+- automatic scale-down
+- direct autoscaler mutation of `StatefulSet.spec.replicas`
+- automatic scale-down
+- sustained queue-age collection
+- CPU-driven autoscaling as a primary signal
+- richer NiFi-native stuck-backlog analysis beyond root backlog and timer-driven thread saturation
+
+Current enforced-scope limit:
+
+- `Advisory` mode never changes replicas
+- `Enforced` mode changes replicas only when `scaleUp.enabled=true`
+- each reconcile can increase by only one replica
+- the controller never scales down automatically, even if the recommendation drops
+- enforced scale-up is blocked by the same lifecycle precedence used for advisory recommendations
+
+Why direct HPA or KEDA-to-StatefulSet scaling is not the first step:
+
+- both approaches ultimately manage the workload by mutating replicas through the Kubernetes scale interface
+- that bypasses NiFi-specific disconnect and offload choreography unless wrapped by the controller plane
+- it broadens GitOps drift ownership around `spec.replicas`
+- it makes autoscaling look simpler than it is for a stateful dataflow system
+
+KEDA position:
+
+- useful later as an optional trigger source
+- not recommended as the first implementation path
+- if used later, it should feed capacity intent into the controller plane instead of directly owning the `StatefulSet`
+
+Recommended order:
+
+1. advisory-only recommendations
+2. optional experimental scale-up only
+3. scale-down only after safe coordination is designed and proven
+
 ## Private Alpha Quickstart
 
 Primary local gate:

@@ -38,8 +38,14 @@ Current unit coverage in the scaffold includes:
 - rollout waits for NiFi disconnect and offload before deleting the target pod
 - hibernation removes the highest ordinal node only after NiFi disconnect and offload complete
 - node-preparation timeout keeps `status.nodeOperation` persisted and blocks destructive progress
+- advisory autoscaling recommendation calculation and precedence blocking
+- advisory autoscaling NiFi signal parsing and aggregation from read-only NiFi API payloads
+- advisory autoscaling signal-sample metrics for queue backlog, thread counts, and CPU diagnostics
+- advisory autoscaling status timestamp stability when the recommendation meaning does not change
+- enforced autoscaling scale-up eligibility, clamping, and cooldown behavior
+- enforced autoscaling never scaling down automatically
 - NiFi access-token and cluster-summary request handling
-- lifecycle transition metrics for rollout, TLS observation, hibernation, and node-preparation retry or timeout paths
+- lifecycle transition metrics for rollout, TLS observation, hibernation, node-preparation retry or timeout paths, and autoscaling recommendation or scale-up updates
 
 ## controller-runtime `envtest`
 
@@ -147,6 +153,7 @@ Current alpha note:
 - the repo now also has a green focused `make kind-nifi-2-8-e2e` workflow for the newer NiFi 2.x proof target
 - the repo now also has a focused `make kind-flow-registry-gitlab-e2e` workflow for GitLab Flow Registry Client runtime on NiFi `2.8.0`
 - the repo now also has a green focused `make kind-flow-registry-github-fast-e2e` workflow for GitHub Flow Registry Client runtime on NiFi `2.8.0` with the fast profile
+- autoscaling remains primarily unit-tested and render-validated; the smallest runtime sanity check is still `make kind-nifi-2-8-fast-e2e` because the feature reuses managed controller behavior without a dedicated autoscaling evaluator gate yet
 - CI should treat `make kind-alpha-e2e` as the gate and use the phase-level targets for faster diagnosis
 - evaluator-facing examples and quickstarts should stay aligned with that same gate
 - cert-manager mode should still render in CI via `helm template`

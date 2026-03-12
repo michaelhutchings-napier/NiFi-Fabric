@@ -36,6 +36,18 @@ spec:
     clusterHealthTimeout: {{ .Values.cluster.rollout.clusterHealthTimeout | quote }}
   hibernation:
     offloadTimeout: {{ .Values.cluster.hibernation.offloadTimeout | quote }}
+  autoscaling:
+    mode: {{ .Values.cluster.autoscaling.mode }}
+    minReplicas: {{ .Values.cluster.autoscaling.minReplicas }}
+    maxReplicas: {{ .Values.cluster.autoscaling.maxReplicas }}
+    {{- if .Values.cluster.autoscaling.signals }}
+    signals:
+      {{- range .Values.cluster.autoscaling.signals }}
+      - {{ . | quote }}
+      {{- end }}
+    {{- else }}
+    signals: []
+    {{- end }}
   safety:
     requireClusterHealthy: {{ ternary "true" "false" .Values.cluster.safety.requireClusterHealthy }}
 {{- end }}

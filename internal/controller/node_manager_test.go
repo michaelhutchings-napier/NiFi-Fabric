@@ -447,6 +447,10 @@ type fakeNiFiClient struct {
 	updateBaseURLs    []string
 	updateStatuses    []nifi.NodeStatus
 	updateErr         error
+	rootStatus        nifi.RootProcessGroupStatus
+	rootStatusErr     error
+	systemDiagnostics nifi.SystemDiagnostics
+	systemDiagErr     error
 }
 
 func (f *fakeNiFiClient) GetClusterSummary(context.Context, nifi.ClusterSummaryRequest) (nifi.ClusterSummary, error) {
@@ -502,6 +506,20 @@ func (f *fakeNiFiClient) UpdateNodeStatus(_ context.Context, req nifi.APIRequest
 		return nifi.ClusterNode{}, f.updateErr
 	}
 	return nifi.ClusterNode{}, nil
+}
+
+func (f *fakeNiFiClient) GetRootProcessGroupStatus(_ context.Context, _ nifi.APIRequest) (nifi.RootProcessGroupStatus, error) {
+	if f.rootStatusErr != nil {
+		return nifi.RootProcessGroupStatus{}, f.rootStatusErr
+	}
+	return f.rootStatus, nil
+}
+
+func (f *fakeNiFiClient) GetSystemDiagnostics(_ context.Context, _ nifi.APIRequest) (nifi.SystemDiagnostics, error) {
+	if f.systemDiagErr != nil {
+		return nifi.SystemDiagnostics{}, f.systemDiagErr
+	}
+	return f.systemDiagnostics, nil
 }
 
 func nodeManagerFixtures(t *testing.T) (*appsv1.StatefulSet, []corev1.Pod, client.Client) {

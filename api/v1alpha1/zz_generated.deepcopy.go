@@ -21,6 +21,64 @@ func (in *ClusterNodesStatus) DeepCopy() *ClusterNodesStatus {
 	return out
 }
 
+func (in *AutoscalingPolicy) DeepCopyInto(out *AutoscalingPolicy) {
+	*out = *in
+	if in.Signals != nil {
+		in, out := &in.Signals, &out.Signals
+		*out = make([]AutoscalingSignal, len(*in))
+		copy(*out, *in)
+	}
+}
+
+func (in *AutoscalingPolicy) DeepCopy() *AutoscalingPolicy {
+	if in == nil {
+		return nil
+	}
+	out := new(AutoscalingPolicy)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *AutoscalingSignalStatus) DeepCopyInto(out *AutoscalingSignalStatus) {
+	*out = *in
+}
+
+func (in *AutoscalingSignalStatus) DeepCopy() *AutoscalingSignalStatus {
+	if in == nil {
+		return nil
+	}
+	out := new(AutoscalingSignalStatus)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *AutoscalingStatus) DeepCopyInto(out *AutoscalingStatus) {
+	*out = *in
+	if in.RecommendedReplicas != nil {
+		in, out := &in.RecommendedReplicas, &out.RecommendedReplicas
+		*out = new(int32)
+		**out = **in
+	}
+	if in.Signals != nil {
+		in, out := &in.Signals, &out.Signals
+		*out = make([]AutoscalingSignalStatus, len(*in))
+		copy(*out, *in)
+	}
+	if in.LastEvaluationTime != nil {
+		in, out := &in.LastEvaluationTime, &out.LastEvaluationTime
+		*out = (*in).DeepCopy()
+	}
+}
+
+func (in *AutoscalingStatus) DeepCopy() *AutoscalingStatus {
+	if in == nil {
+		return nil
+	}
+	out := new(AutoscalingStatus)
+	in.DeepCopyInto(out)
+	return out
+}
+
 func (in *HibernationPolicy) DeepCopyInto(out *HibernationPolicy) {
 	*out = *in
 }
@@ -146,6 +204,7 @@ func (in *NiFiClusterSpec) DeepCopyInto(out *NiFiClusterSpec) {
 	out.Rollout = in.Rollout
 	out.Hibernation = in.Hibernation
 	out.Safety = in.Safety
+	in.Autoscaling.DeepCopyInto(&out.Autoscaling)
 }
 
 func (in *NiFiClusterSpec) DeepCopy() *NiFiClusterSpec {
@@ -164,6 +223,7 @@ func (in *NiFiClusterStatus) DeepCopyInto(out *NiFiClusterStatus) {
 	out.Replicas = in.Replicas
 	out.ClusterNodes = in.ClusterNodes
 	out.Hibernation = in.Hibernation
+	in.Autoscaling.DeepCopyInto(&out.Autoscaling)
 	in.NodeOperation.DeepCopyInto(&out.NodeOperation)
 	in.LastOperation.DeepCopyInto(&out.LastOperation)
 	if in.Conditions != nil {

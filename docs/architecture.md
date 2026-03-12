@@ -169,6 +169,221 @@ For GitOps users, the important implication is narrow and documented:
 - ignore drift on `StatefulSet.spec.replicas` only if managed hibernation is enabled
 - do not ignore template drift, image drift, or configuration drift
 
+## Autoscaling Position
+
+Autoscaling now has two explicit modes on `NiFiCluster`:
+
+- `Advisory`, which stays status-only
+- `Enforced`, which is currently limited to optional experimental scale-up only
+
+The current slice is intentionally small:
+
+- `spec.autoscaling.mode` supports `Disabled`, `Advisory`, and `Enforced`
+- the controller always computes a recommended replica count first
+- advisory mode does not mutate `StatefulSet.spec.replicas`
+- enforced mode can raise `StatefulSet.spec.replicas` only through the controller, one step at a time
+- enforced mode requires `scaleUp.enabled=true`
+- `scaleDown.enabled` exists only to keep the future shape explicit and must remain `false` in the current implementation
+- recommendations are suppressed while rollout, hibernation or restore, degraded state, or other non-steady conditions are active
+- enabled signals are typed and surfaced in status with real queue, thread, and CPU samples where NiFi exposes them today
+- cooldown state is kept on `NiFiCluster.status`, not in a second autoscaling API surface
+
+Autoscaling is still not a trivial extension of the current managed design.
+
+Kubernetes and KEDA can both scale a `StatefulSet`, but both approaches ultimately act by changing the workload replica count through the Kubernetes scale interface. That works well for stateless workloads, but it is not a sufficient control plane for NiFi because scale-down is a destructive lifecycle action, not just a capacity change.
+
+NiFi documents node decommission as an ordered sequence:
+
+1. disconnect the node
+2. offload the node
+3. delete the node
+4. stop or remove the service
+
+That sequence lines up with the controller’s current managed rollout and hibernation model. A direct autoscaler that mutates `StatefulSet.spec.replicas` as its primary action would bypass the existing safe-step coordinator and create a second lifecycle control plane.
+
+For this platform, the intended long-term direction is:
+
+- metrics or an autoscaler may recommend desired capacity
+- the recommendation should be written to the `NiFiCluster` control plane, not directly to the `StatefulSet`
+- the existing controller should decide whether the cluster is in a state where scaling is safe
+- the controller should execute ordered scale actions using the same health gates and NiFi API choreography already used for managed destructive steps
+
+This keeps the controller thin while preserving one place that owns destructive coordination.
+
+### Candidate Approaches
+
+#### Direct HPA on the StatefulSet
+
+Pros:
+
+- uses only built-in Kubernetes APIs
+- well understood for CPU, memory, custom metrics, and external metrics
+- no extra operator dependency beyond the cluster metrics pipeline
+
+Cons for NiFi:
+
+- HPA writes replica changes directly to the target scale subresource
+- it has no concept of NiFi disconnect, offload, or delete sequencing
+- CPU and memory are secondary symptoms for NiFi and can miss queue pressure or flow stalls
+- managed mode currently documents controller ownership of replica changes only for hibernation and restore, so direct HPA would conflict with that ownership model
+- GitOps guidance for replica drift would become broader and less explainable
+
+Recommendation:
+
+- not recommended as the first implementation architecture
+- at most useful later as a metric-calculation source feeding intent, not as the primary scale executor
+
+#### KEDA as the Primary Autoscaler
+
+Pros:
+
+- supports scaling `StatefulSet` targets through `ScaledObject`
+- supports external and custom trigger models
+- can compose multiple triggers and pause scale-in or scale-out
+
+Cons for NiFi:
+
+- introduces extra CRDs and another autoscaling controller
+- still relies on generated HPA behavior for `1..N` scaling and direct target mutation
+- does not understand NiFi offload, disconnect, repository locality, or highest-ordinal-first removal
+- creates a second lifecycle API surface unless carefully constrained
+- makes the first autoscaling slice larger than this platform should accept
+
+Recommendation:
+
+- optional trigger source later
+- discouraged as the first implementation path
+- if adopted later, use it to recommend capacity intent, not to own the `StatefulSet` replica field directly
+
+#### Custom Controller-Driven Autoscaling
+
+Pros:
+
+- can reuse the existing health gate, node preparation, and safe destructive-step logic
+- can make scale-down use the same disconnect and offload choreography already required elsewhere
+- keeps one lifecycle control plane
+- can prefer NiFi-native signals over generic host metrics
+
+Cons:
+
+- higher implementation and testing burden than HPA-only or KEDA-only
+- easy to overbuild into NiFiKop-style feature sprawl if the scope is not constrained
+- requires careful status, rate-limiting, hysteresis, and resume behavior design
+
+Recommendation:
+
+- this is the right execution plane if autoscaling is implemented
+- keep it narrow: desired capacity intent, health gating, and safe ordinal actions only
+- do not expand into flow-aware or policy-rich orchestration
+
+#### Advisory-Only Autoscaling
+
+Pros:
+
+- lowest-risk first step
+- proves metric usefulness before allowing destructive automation
+- can surface recommendations in `NiFiCluster.status`, events, and metrics without changing replicas
+- keeps hibernation, restore, and rollout logic untouched while the signal model is validated
+
+Cons:
+
+- does not reduce operator toil yet
+- still requires design for how advice is produced and consumed
+
+Recommendation:
+
+- recommended phase 1
+
+Current implementation note:
+
+- advisory evaluation is now implemented in the controller status plane
+- the real signal slice stays read-only and reuses the existing NiFi API auth and trust path
+- root-process-group queued FlowFiles and queued bytes are collected from NiFi flow status
+- timer-driven thread counts are collected from NiFi system diagnostics and used to decide whether queue pressure is actionable
+- CPU is sampled from NiFi system diagnostics as a secondary advisory signal, not the primary pressure source
+- the controller keeps recommendation output bounded
+- advisory mode remains read-only
+- enforced mode can apply a bounded one-step scale-up only after the same steady-state health gate passes
+- scale-down remains disabled
+
+### NiFi-Specific Constraints
+
+Any future autoscaling design has to respect these existing runtime facts:
+
+- scale-up is safer than scale-down, but still changes cluster size and flow-election expectations
+- scale-down is destructive and must preserve the disconnect, offload, delete sequence
+- repository PVCs are per-pod and ordinal-bound, so replica reduction is not equivalent to stateless pod eviction
+- orphaned or stale per-ordinal PVC state must be treated carefully on re-expansion
+- hibernation and autoscaling must not fight over `StatefulSet.spec.replicas`
+- managed rollout, TLS drift handling, and autoscaling should reuse the same health-gated destructive-step coordinator instead of inventing parallel logic
+
+### Recommended Phasing
+
+#### Phase 1: Advisory Only
+
+- no automatic replica mutation
+- compute and publish recommended capacity and reason
+- surface the recommendation through `NiFiCluster.status`, controller metrics, and events
+- use NiFi-native pressure signals first
+- start with root-process-group backlog plus timer-driven thread saturation
+- keep queue-age and richer stuck-backlog analysis as future work until they can be gathered reliably
+
+#### Phase 2: Optional Experimental Scale-Up Only
+
+- require managed mode
+- allow only bounded scale-up
+- keep scale-down disabled
+- have the controller execute replica increases after cluster-health prechecks
+- take only one scale-up step per reconcile
+- require an explicit cooldown between scale-up actions
+- record the last scaling decision and last scale-up timestamp in the existing control plane
+
+#### Phase 3: Scale-Down Only After Safe Coordination Is Proven
+
+- require a completed design for disconnect, offload, and delete sequencing during autoscaling
+- require explicit interaction rules with hibernation and restore
+- require resume-safe status for interrupted scale-down
+- require focused proof for partial failure, stuck offload, controller restart, and GitOps interaction
+
+### Minimum Signals For Implementation
+
+Prefer NiFi-native pressure indicators over generic host metrics:
+
+- queued FlowFiles
+- queued bytes
+- queue age or sustained backlog age
+- active thread saturation
+- node connectivity and cluster convergence state
+- repository pressure and disk headroom where observable
+
+Use CPU only as a secondary signal:
+
+- CPU can help confirm sustained pressure
+- CPU alone should not trigger scale-down
+- CPU alone should not be the primary trigger for scale-up on a dataflow system
+
+Current collection gap:
+
+- queued FlowFiles, queued bytes, timer-driven thread counts, and secondary CPU diagnostics are now collected from NiFi
+- sustained queue age is still future work
+- broader repository-pressure or stuck-backlog signals are still future work
+- the platform still does not claim precision beyond what NiFi exposes through the current read-only API surface
+
+### Future API Direction
+
+If autoscaling is later implemented, prefer extending the existing `NiFiCluster` control plane rather than introducing a new CRD.
+
+The future shape should be small and explainable:
+
+- desired capacity intent
+- autoscaling mode such as `Disabled`, `Advisory`, or `Enforced`
+- explicit scale-up and scale-down policy toggles
+- bounded min and max replicas
+- minimal cooldown configuration
+- status for recommended replicas, active signal summary, and the last scaling decision
+
+That keeps the API boring and avoids introducing a second product surface for NiFi lifecycle control.
+
 ## Interaction Flows
 
 ### Install

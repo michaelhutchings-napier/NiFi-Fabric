@@ -31,12 +31,13 @@ const rolloutPollRequeue = 5 * time.Second
 // Managed mode only adds health-gated OnDelete rollout sequencing.
 type NiFiClusterReconciler struct {
 	client.Client
-	Scheme        *runtime.Scheme
-	APIReader     client.Reader
-	HealthChecker ClusterHealthChecker
-	NodeManager   NodeManager
-	Recorder      record.EventRecorder
-	observability *observabilityState
+	Scheme               *runtime.Scheme
+	APIReader            client.Reader
+	HealthChecker        ClusterHealthChecker
+	NodeManager          NodeManager
+	AutoscalingCollector AutoscalingSignalCollector
+	Recorder             record.EventRecorder
+	observability        *observabilityState
 }
 
 func (r *NiFiClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -59,6 +60,12 @@ func (r *NiFiClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			NiFiClient: nifi.NewHTTPClient(),
 		}
 	}
+	if r.AutoscalingCollector == nil {
+		r.AutoscalingCollector = &LiveAutoscalingSignalCollector{
+			KubeClient: r.Client,
+			NiFiClient: nifi.NewHTTPClient(),
+		}
+	}
 
 	original := cluster.DeepCopy()
 	cluster.InitializeConditions()
@@ -68,6 +75,7 @@ func (r *NiFiClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if reconcileErr != nil {
 		return ctrl.Result{}, reconcileErr
 	}
+	r.syncAutoscalingStatus(ctx, cluster)
 
 	logger.V(1).Info("reconciled NiFiCluster", "target", cluster.Spec.TargetRef.Name, "result", result)
 	return r.patchStatus(ctx, original, cluster, result)
@@ -366,6 +374,12 @@ func (r *NiFiClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	if r.NodeManager == nil {
 		r.NodeManager = &LiveNodeManager{
+			KubeClient: mgr.GetClient(),
+			NiFiClient: nifi.NewHTTPClient(),
+		}
+	}
+	if r.AutoscalingCollector == nil {
+		r.AutoscalingCollector = &LiveAutoscalingSignalCollector{
 			KubeClient: mgr.GetClient(),
 			NiFiClient: nifi.NewHTTPClient(),
 		}

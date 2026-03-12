@@ -78,6 +78,43 @@ Mitigation:
 - record fallback behavior when the field is absent
 - test controller restart during hibernation and restore
 
+### Unsafe Autoscaling Path
+
+Risk:
+
+- an autoscaler writes directly to `StatefulSet.spec.replicas` and bypasses NiFi disconnect and offload requirements
+
+Mitigation:
+
+- keep one lifecycle control plane
+- treat scale-down as a managed destructive operation, not a plain replica update
+- prefer advisory autoscaling first
+- require any enforced scaling to flow through the existing `NiFiCluster` controller plane
+
+### Signal Quality Mismatch
+
+Risk:
+
+- CPU or memory based autoscaling reacts to host pressure while missing queue backlog, stuck flow state, or repository pressure
+
+Mitigation:
+
+- prefer NiFi-native signals first
+- use CPU only as a secondary signal
+- prove signal quality in advisory mode before allowing automatic replica changes
+
+### Hibernation And Autoscaling Conflict
+
+Risk:
+
+- autoscaling intent and hibernation or restore both try to control replica count and produce oscillation or surprising restores
+
+Mitigation:
+
+- define one precedence model before implementation
+- suspend enforced autoscaling during hibernation and restore
+- persist autoscaling intent separately from the last running restore baseline
+
 ## Upgrade Risks
 
 ### NiFi 2 Minor Version Differences
