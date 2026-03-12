@@ -71,6 +71,7 @@ Focused auth paths:
 
 ```bash
 make kind-auth-oidc-e2e
+make kind-auth-oidc-nifi-2-8-fast-e2e
 make kind-auth-ldap-e2e
 ```
 
@@ -84,6 +85,7 @@ Focused `2.8.0` Flow Registry Client path:
 
 ```bash
 make kind-flow-registry-gitlab-e2e
+make kind-flow-registry-github-fast-e2e
 ```
 
 Fast profile note:
@@ -121,8 +123,10 @@ What is proven:
 - hibernation and restore
 - focused cert-manager evaluator path on kind
 - focused OIDC evaluator path on kind
+- focused OIDC evaluator path on NiFi `2.8.0` with the fast profile
 - focused LDAP evaluator path on kind
 - focused GitLab Flow Registry Client runtime proof on NiFi `2.8.0`
+- focused GitHub Flow Registry Client runtime proof on NiFi `2.8.0` with the fast profile
 
 What is not proven:
 
@@ -408,6 +412,13 @@ What is proven today:
   - exact group-claim name configuration and seeded NiFi application-group prerequisites
   - Initial Admin Identity fallback bootstrap
   - authenticated non-admin denial checks
+- focused OIDC runtime on NiFi `2.8.0` with the fast profile:
+  - local Keycloak bootstrap on kind
+  - NiFi OIDC discovery and login wiring
+  - exact identifying-user and groups claim-name wiring
+  - exact token-group to seeded NiFi application-group matching
+  - Initial Admin Identity fallback bootstrap
+  - authenticated non-admin denial checks
 - focused LDAP runtime on kind:
   - LDAP bootstrap
   - NiFi LDAP login provider and LDAP user or group provider wiring
@@ -417,6 +428,7 @@ What is proven today:
 What is prepared, not yet runtime-proven:
 
 - OIDC custom non-admin group policy bindings from `authz.policies`
+- Initial Admin Group as the primary runtime bootstrap path on NiFi `2.8.0`
 - LDAP custom group-policy seeding beyond the focused bootstrap path
 - ingress-backed or Route-backed auth runtime behavior
 - any IdP or LDAP deployment outside the focused kind evaluators
@@ -458,6 +470,7 @@ Focused kind proof path:
 
 ```bash
 make kind-auth-oidc-e2e
+make kind-auth-oidc-nifi-2-8-fast-e2e
 ```
 
 That focused gate currently proves:
@@ -467,6 +480,11 @@ That focused gate currently proves:
 - seeded NiFi application-group names matching IdP group names
 - Initial Admin Identity fallback bootstrap
 - non-admin denial behavior for users outside the admin bootstrap path
+
+The `apache/nifi:2.8.0` focused fast proof uses the same chart-first OIDC model with the additive two-node fast profile:
+
+- `make kind-auth-oidc-nifi-2-8-fast-e2e`
+- `make kind-auth-oidc-nifi-2-8-fast-e2e-reuse`
 
 It does not yet prove custom non-admin policy bindings from `authz.policies` at runtime.
 
@@ -546,6 +564,7 @@ Prepared example overlays:
 
 - [examples/github-flow-registry-values.yaml](examples/github-flow-registry-values.yaml)
 - [examples/gitlab-flow-registry-values.yaml](examples/gitlab-flow-registry-values.yaml)
+- [examples/github-flow-registry-kind-values.yaml](examples/github-flow-registry-kind-values.yaml)
 - [examples/gitlab-flow-registry-kind-values.yaml](examples/gitlab-flow-registry-kind-values.yaml)
 - [examples/bitbucket-flow-registry-values.yaml](examples/bitbucket-flow-registry-values.yaml)
 - [examples/azure-devops-flow-registry-values.yaml](examples/azure-devops-flow-registry-values.yaml)
@@ -558,6 +577,13 @@ Focused runtime proof:
 - creates the GitLab Flow Registry Client through NiFi's own REST API
 - verifies bucket listing through NiFi runtime without any controller participation
 - `KIND_CLUSTER_NAME=nifi-fabric-flow-registry-gitlab make kind-flow-registry-gitlab-e2e-reuse`
+  reruns the same focused proof against an existing kind cluster
+- `make kind-flow-registry-github-fast-e2e`
+- deploys NiFi `2.8.0` with the prepared GitHub Flow Registry Client overlay plus the additive fast profile
+- bootstraps a lightweight GitHub-compatible evaluator service on kind
+- creates the GitHub Flow Registry Client through NiFi's own REST API
+- verifies bucket listing through NiFi runtime without any controller participation
+- `make kind-flow-registry-github-fast-e2e-reuse`
   reruns the same focused proof against an existing kind cluster
 
 This remains intentionally thin:
@@ -1034,6 +1060,7 @@ The focused cert-manager path additionally covers:
 | NiFi image baseline | `apache/nifi:2.0.0` | full private-alpha gate proven with `make kind-alpha-e2e` |
 | NiFi image focused newer proof | `apache/nifi:2.8.0` | 2-replica managed install + health gate + config-drift restart proven with `make kind-nifi-2-8-e2e` |
 | GitLab Flow Registry Client on `2.8.0` | proven on kind with a GitLab-compatible evaluator service | `make kind-flow-registry-gitlab-e2e` proves chart-prepared client definition, NiFi client creation, and bucket listing |
+| GitHub Flow Registry Client on `2.8.0` | proven on kind with a GitHub-compatible evaluator service and the fast profile | `make kind-flow-registry-github-fast-e2e` proves chart-prepared client definition, NiFi client creation, and bucket listing |
 | Kubernetes runtime | `kindest/node:v1.31.0` | single control-plane kind cluster |
 | Managed rollout model | proven | `StatefulSet` with `OnDelete` |
 | Persistent storage assumptions | proven on kind | PVC retention on scale-down and delete |

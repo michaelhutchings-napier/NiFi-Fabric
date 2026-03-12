@@ -26,6 +26,17 @@ RETAIN
 {{- end -}}
 {{- end -}}
 
+{{- define "nifi.flowRegistryGithubAuthType" -}}
+{{- $value := default "personalAccessToken" . -}}
+{{- if eq $value "none" -}}
+NONE
+{{- else if eq $value "appInstallation" -}}
+APP_INSTALLATION
+{{- else -}}
+PERSONAL_ACCESS_TOKEN
+{{- end -}}
+{{- end -}}
+
 {{- define "nifi.flowRegistryValidation" -}}
 {{- if not .Values.flowRegistryClients.enabled -}}
 {{- else -}}
@@ -194,9 +205,9 @@ clients:
       Repository Path: {{ . | quote }}
       {{- end }}
       Default Branch: {{ default "main" $client.repository.branch | quote }}
-      Authentication Type: {{ ternary "None" (ternary "GitHub App Installation" "Personal Access Token" (eq $client.github.auth.type "appInstallation")) (eq $client.github.auth.type "none") | quote }}
+      Authentication Type: {{ include "nifi.flowRegistryGithubAuthType" $client.github.auth.type | trim | quote }}
       Directory Filter Exclusion: {{ default "[.].*" $client.directoryFilterExclusion | quote }}
-      Parameter Context Values: {{ ternary "Ignore Changes" (ternary "Remove" "Retain" (eq $client.parameterContextValues "remove")) (eq $client.parameterContextValues "ignoreChanges") | quote }}
+      Parameter Context Values: {{ include "nifi.flowRegistryParameterContextValues" $client.parameterContextValues | trim | quote }}
       {{- with $client.sslContextServiceName }}
       SSL Context Service: {{ . | quote }}
       {{- end }}

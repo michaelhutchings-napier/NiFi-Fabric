@@ -117,11 +117,13 @@ What is proven on kind now:
 
 - `singleUser + fileManaged` in the main alpha gate
 - focused OIDC login wiring, group-claim prerequisites, Initial Admin Identity fallback bootstrap, and non-admin denial with `make kind-auth-oidc-e2e`
+- focused OIDC login wiring, exact user and groups claim-name wiring, seeded group prerequisites, Initial Admin Identity fallback bootstrap, and non-admin denial on NiFi `2.8.0` with `make kind-auth-oidc-nifi-2-8-fast-e2e`
 - focused LDAP login wiring, LDAP provider wiring, Initial Admin Identity bootstrap, and non-admin denial with `make kind-auth-ldap-e2e`
 
 What is still only prepared:
 
 - OIDC custom non-admin policy bindings from `authz.policies`
+- Initial Admin Group as the primary runtime bootstrap path on NiFi `2.8.0`
 - LDAP broader group-policy seeding beyond the focused bootstrap path
 - ingress-backed or Route-backed auth runtime behavior
 - external Flow Registry Client runtime against GitHub, Bitbucket, or Azure DevOps
@@ -207,6 +209,16 @@ helm template nifi charts/nifi \
   -f examples/gitlab-flow-registry-kind-values.yaml
 ```
 
+Focused GitHub Flow Registry runtime render check:
+
+```bash
+helm template nifi charts/nifi \
+  -f examples/managed/values.yaml \
+  -f examples/nifi-2.8.0-values.yaml \
+  -f examples/github-flow-registry-kind-values.yaml \
+  -f examples/test-fast-values.yaml
+```
+
 Flow Registry Client scope:
 
 - classic NiFi Registry is not the preferred path in this repo
@@ -230,6 +242,24 @@ KIND_CLUSTER_NAME=nifi-fabric-flow-registry-gitlab make kind-flow-registry-gitla
 - uses NiFi `2.8.0`
 - deploys a lightweight GitLab-compatible evaluator service on kind
 - creates the GitLab Flow Registry Client through NiFi's own REST API
+- verifies bucket listing through NiFi runtime
+
+Focused GitHub runtime proof:
+
+```bash
+make kind-flow-registry-github-fast-e2e
+```
+
+Focused GitHub runtime proof rerun against an existing cluster:
+
+```bash
+make kind-flow-registry-github-fast-e2e-reuse
+```
+
+- uses NiFi `2.8.0`
+- composes the existing fast two-node overlay
+- deploys a lightweight GitHub-compatible evaluator service on kind
+- creates the GitHub Flow Registry Client through NiFi's own REST API
 - verifies bucket listing through NiFi runtime
 
 ### Bootstrap And Break-Glass
@@ -310,10 +340,13 @@ Focused auth evaluator paths:
 
 ```bash
 make kind-auth-oidc-e2e
+make kind-auth-oidc-nifi-2-8-fast-e2e
 make kind-auth-ldap-e2e
 ```
 
 `make kind-auth-oidc-e2e` bootstraps Keycloak, deploys NiFi in `oidc + externalClaimGroups`, proves OIDC login wiring, proves exact group-name seeding prerequisites, and uses the documented `Initial Admin Identity` fallback for the first admin path.
+
+`make kind-auth-oidc-nifi-2-8-fast-e2e` keeps that same chart-first `oidc + externalClaimGroups` model, composes `examples/nifi-2.8.0-values.yaml` with [examples/test-fast-values.yaml](../examples/test-fast-values.yaml), keeps the flow internal to the cluster, and proves the focused OIDC runtime slice on a two-node `apache/nifi:2.8.0` cluster.
 
 `make kind-auth-ldap-e2e` bootstraps LDAP, deploys NiFi in `ldap + ldapSync`, proves LDAP login and provider wiring, and uses the documented `Initial Admin Identity` bootstrap path.
 
@@ -325,6 +358,7 @@ Use the fast profile when you are iterating on focused kind workflows and do not
   - keeps NiFi multi-node at 2 replicas
   - lowers heap, pod resources, and PVC sizes through [examples/test-fast-values.yaml](../examples/test-fast-values.yaml)
   - is now proven for the focused cert-manager path on `apache/nifi:2.8.0`
+  - is now also proven for the focused OIDC path on `apache/nifi:2.8.0`
   - is intended for focused `kind-*` reruns only
 - baseline profile:
   - keeps the existing proven overlays unchanged
@@ -338,8 +372,10 @@ make kind-nifi-2-8-fast-e2e
 make kind-cert-manager-fast-e2e
 make kind-cert-manager-nifi-2-8-fast-e2e
 make kind-auth-oidc-fast-e2e
+make kind-auth-oidc-nifi-2-8-fast-e2e
 make kind-auth-ldap-fast-e2e
 make kind-flow-registry-gitlab-fast-e2e
+make kind-flow-registry-github-fast-e2e
 ```
 
 Focused fast reruns against an existing cluster:
@@ -349,8 +385,10 @@ make kind-nifi-2-8-fast-e2e-reuse
 make kind-cert-manager-fast-e2e-reuse
 make kind-cert-manager-nifi-2-8-fast-e2e-reuse
 make kind-auth-oidc-fast-e2e-reuse
+make kind-auth-oidc-nifi-2-8-fast-e2e-reuse
 make kind-auth-ldap-fast-e2e-reuse
 make kind-flow-registry-gitlab-fast-e2e-reuse
+make kind-flow-registry-github-fast-e2e-reuse
 ```
 
 Reuse commands assume the kind cluster already exists with the expected bootstrap for that workflow. If controller or shared lifecycle code changed, prefer the fresh baseline path instead of a reuse rerun.

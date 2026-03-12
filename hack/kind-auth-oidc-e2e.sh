@@ -8,6 +8,8 @@ NAMESPACE="${NAMESPACE:-nifi}"
 SYSTEM_NAMESPACE="${SYSTEM_NAMESPACE:-nifi-system}"
 HELM_RELEASE="${HELM_RELEASE:-nifi}"
 CONTROLLER_IMAGE="${CONTROLLER_IMAGE:-nifi-fabric-controller:dev}"
+NIFI_IMAGE="${NIFI_IMAGE:-apache/nifi:2.0.0}"
+VERSION_VALUES_FILE="${VERSION_VALUES_FILE:-}"
 KEYCLOAK_IMAGE="${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.1}"
 PROBE_IMAGE="${PROBE_IMAGE:-python:3.12-slim}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-}"
@@ -105,14 +107,30 @@ controller_ready() {
 }
 
 wait_for_nifi_pod_ready() {
+  wait_for "NiFi StatefulSet creation" 300 bash -ec '
+    kubectl -n "'"${NAMESPACE}"'" get statefulset "'"${HELM_RELEASE}"'" >/dev/null 2>&1
+  '
+
+  local replicas
+  replicas="$(kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" -o jsonpath='{.spec.replicas}')"
+  if [[ -z "${replicas}" || "${replicas}" == "0" ]]; then
+    fail "NiFi StatefulSet ${HELM_RELEASE} has no desired replicas"
+  fi
+
   wait_for "NiFi pod scheduling" 900 bash -ec '
-    host_ip="$(kubectl -n "'"${NAMESPACE}"'" get pod "'"${HELM_RELEASE}"'-0" -o jsonpath="{.status.hostIP}" 2>/dev/null || true)"
-    [[ -n "${host_ip}" ]]
+    expected_replicas="'"${replicas}"'"
+    for ordinal in $(seq 0 $(( expected_replicas - 1 ))); do
+      host_ip="$(kubectl -n "'"${NAMESPACE}"'" get pod "'"${HELM_RELEASE}"'-${ordinal}" -o jsonpath="{.status.hostIP}" 2>/dev/null || true)"
+      [[ -n "${host_ip}" ]] || exit 1
+    done
   '
 
   wait_for "NiFi pod readiness" 900 bash -ec '
-    ready="$(kubectl -n "'"${NAMESPACE}"'" get pod "'"${HELM_RELEASE}"'-0" -o jsonpath="{range .status.conditions[?(@.type==\"Ready\")]}{.status}{end}" 2>/dev/null || true)"
-    [[ "${ready}" == "True" ]]
+    expected_replicas="'"${replicas}"'"
+    for ordinal in $(seq 0 $(( expected_replicas - 1 ))); do
+      ready="$(kubectl -n "'"${NAMESPACE}"'" get pod "'"${HELM_RELEASE}"'-${ordinal}" -o jsonpath="{range .status.conditions[?(@.type==\"Ready\")]}{.status}{end}" 2>/dev/null || true)"
+      [[ "${ready}" == "True" ]] || exit 1
+    done
   '
 }
 
@@ -120,6 +138,20 @@ wait_for_oidc_runtime_ready() {
   wait_for "NiFi OIDC authentication configuration endpoint" 300 bash -ec '
     kubectl -n "'"${NAMESPACE}"'" exec -c nifi "'"${HELM_RELEASE}"'-0" -- sh -ec "curl -skf https://'"${HELM_RELEASE}"'-0.'"${HELM_RELEASE}"'-headless.'"${NAMESPACE}"'.svc.cluster.local:8443/nifi-api/authentication/configuration >/dev/null"
   '
+}
+
+wait_for_oidc_discovery_from_nifi_pod() {
+  local deadline=$(( $(date +%s) + 300 ))
+  while true; do
+    if kubectl -n "${NAMESPACE}" exec -c nifi "${HELM_RELEASE}-0" -- \
+      curl -fsS "http://keycloak.${NAMESPACE}.svc.cluster.local:8080/realms/nifi/.well-known/openid-configuration" >/dev/null 2>&1; then
+      return 0
+    fi
+    if (( $(date +%s) >= deadline )); then
+      fail "OIDC discovery/config failure: NiFi could not reach the Keycloak discovery document over cluster DNS"
+    fi
+    sleep 5
+  done
 }
 
 wait_for_probe_pod_ready() {
@@ -160,8 +192,11 @@ dump_diagnostics() {
   echo
   echo "==> OIDC diagnostics after failure at +$(elapsed)s"
   kubectl config use-context "kind-${KIND_CLUSTER_NAME}" >/dev/null 2>&1 || true
+  kubectl config current-context || true
   kubectl get ns || true
   kubectl -n "${NAMESPACE}" get deployment,statefulset,pod,svc,secret,configmap,nificluster || true
+  kubectl -n "${NAMESPACE}" get deployment keycloak -o yaml || true
+  kubectl -n "${NAMESPACE}" get pods -l app=keycloak -o wide || true
   kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o yaml || true
   kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o jsonpath='{.status.lastOperation.phase}{"\n"}{.status.lastOperation.message}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}' || true
   kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" -o yaml || true
@@ -205,6 +240,13 @@ trap 'fail "OIDC evaluator workflow aborted"' ERR
 
 helm_values_args=(
   -f examples/managed/values.yaml
+)
+
+if [[ -n "${VERSION_VALUES_FILE}" ]]; then
+  helm_values_args+=(-f "${VERSION_VALUES_FILE}")
+fi
+
+helm_values_args+=(
   -f examples/oidc-values.yaml
   -f examples/oidc-group-claims-values.yaml
   -f examples/oidc-kind-values.yaml
@@ -413,6 +455,7 @@ import json
 import re
 import ssl
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -480,6 +523,24 @@ def check_cluster_summary(username, password, expected_count):
         )
     return {"connectedNodeCount": connected, "totalNodeCount": total}
 
+def wait_for_admin_ready(timeout=300):
+    deadline = time.time() + timeout
+    last_error = "admin readiness not yet observed"
+    while time.time() < deadline:
+        try:
+            login_and_check("alice", "ChangeMeChangeMe1!", "/nifi-api/controller/config", 200)
+            check_cluster_summary("alice", "ChangeMeChangeMe1!", expected_replicas)
+            return
+        except SystemExit as exc:
+            last_error = str(exc)
+            time.sleep(5)
+    raise SystemExit(
+        "wrong admin bootstrap or cluster not yet settled: "
+        f"alice could not reach controller/config with a fully connected cluster within timeout; last error: {last_error}"
+    )
+
+wait_for_admin_ready()
+
 results = {
     "alice_controller": login_and_check("alice", "ChangeMeChangeMe1!", "/nifi-api/controller/config", 200),
     "alice_cluster_summary": check_cluster_summary("alice", "ChangeMeChangeMe1!", expected_replicas),
@@ -492,6 +553,23 @@ print(json.dumps(results, indent=2, sort_keys=True))
 PY
 
   kubectl -n "${NAMESPACE}" delete pod oidc-probe --ignore-not-found >/dev/null 2>&1 || true
+}
+
+assert_nifi_property() {
+  local expected_line="$1"
+  local failure_message="$2"
+  if ! nifi_exec sh -ec "grep -Fqx ${expected_line@Q} /opt/nifi/nifi-current/conf/nifi.properties"; then
+    fail "${failure_message}"
+  fi
+}
+
+assert_nifi_file_contains() {
+  local file_path="$1"
+  local needle="$2"
+  local failure_message="$3"
+  if ! nifi_exec sh -ec "grep -Fq ${needle@Q} ${file_path@Q}"; then
+    fail "${failure_message}"
+  fi
 }
 
 log_step "preparing cluster access for focused OIDC validation"
@@ -507,14 +585,14 @@ else
   run_make kind-up
 
   log_step "preloading the NiFi runtime image into kind"
-  run_make kind-load-nifi-image
+  run_make kind-load-nifi-image NIFI_IMAGE="${NIFI_IMAGE}"
 fi
 
 log_step "clearing any prior NiFi-Fabric install in the target namespaces"
 cleanup_namespaces
 
 log_step "creating baseline TLS material"
-bash "${ROOT_DIR}/hack/create-kind-secrets.sh" "${NAMESPACE}" "${HELM_RELEASE}" nifi-tls nifi-auth
+NIFI_IMAGE="${NIFI_IMAGE}" bash "${ROOT_DIR}/hack/create-kind-secrets.sh" "${NAMESPACE}" "${HELM_RELEASE}" nifi-tls nifi-auth
 
 log_step "bootstrapping Keycloak"
 bootstrap_keycloak
@@ -541,26 +619,43 @@ wait_for_nifi_pod_ready
 wait_for_oidc_runtime_ready
 
 log_step "verifying OIDC runtime wiring inside the NiFi pod"
-nifi_exec sh -ec '
-  grep -q "^nifi.security.user.oidc.discovery.url=http://keycloak.'"${NAMESPACE}"'.svc.cluster.local:8080/realms/nifi/.well-known/openid-configuration$" /opt/nifi/nifi-current/conf/nifi.properties
-  grep -q "^nifi.security.user.oidc.client.id='"${OIDC_CLIENT_ID}"'$" /opt/nifi/nifi-current/conf/nifi.properties
-  grep -q "^nifi.security.user.oidc.claim.identifying.user=email$" /opt/nifi/nifi-current/conf/nifi.properties
-  grep -q "^nifi.security.user.oidc.claim.groups=groups$" /opt/nifi/nifi-current/conf/nifi.properties
-  grep -q "nifi-platform-admins" /opt/nifi/nifi-current/conf/users.xml
-  grep -q "nifi-flow-observers" /opt/nifi/nifi-current/conf/users.xml
-  test -f /opt/nifi/nifi-current/conf/authorizations.xml
-'
+assert_nifi_property \
+  "nifi.security.user.oidc.discovery.url=http://keycloak.${NAMESPACE}.svc.cluster.local:8080/realms/nifi/.well-known/openid-configuration" \
+  "OIDC discovery/config failure: NiFi did not render the expected in-cluster Keycloak discovery URL"
+assert_nifi_property \
+  "nifi.security.user.oidc.client.id=${OIDC_CLIENT_ID}" \
+  "OIDC discovery/config failure: NiFi did not render the expected OIDC client id"
+assert_nifi_property \
+  "nifi.security.user.oidc.claim.identifying.user=email" \
+  "wrong claim mapping: NiFi did not render the expected identifying user claim"
+assert_nifi_property \
+  "nifi.security.user.oidc.claim.groups=groups" \
+  "wrong claim mapping: NiFi did not render the expected groups claim"
+assert_nifi_file_contains \
+  "/opt/nifi/nifi-current/conf/users.xml" \
+  "nifi-platform-admins" \
+  "wrong admin bootstrap: the seeded NiFi application groups do not include nifi-platform-admins"
+assert_nifi_file_contains \
+  "/opt/nifi/nifi-current/conf/users.xml" \
+  "nifi-flow-observers" \
+  "wrong claim mapping: the seeded NiFi application groups do not include nifi-flow-observers"
+if ! nifi_exec test -f /opt/nifi/nifi-current/conf/authorizations.xml; then
+  fail "wrong admin bootstrap: NiFi did not generate authorizations.xml"
+fi
 
 log_step "verifying OIDC discovery from the NiFi pod"
-nifi_exec curl -fsS \
-  http://keycloak."${NAMESPACE}".svc.cluster.local:8080/realms/nifi/.well-known/openid-configuration >/dev/null
+wait_for_oidc_discovery_from_nifi_pod
+
+if ! nifi_exec sh -ec 'if grep -q "^nifi.web.proxy.host=" /opt/nifi/nifi-current/conf/nifi.properties; then exit 1; fi'; then
+  fail "wrong proxy-host / external URL assumptions: the focused in-cluster OIDC path should not set nifi.web.proxy.host"
+fi
 
 log_step "running in-cluster OIDC login and group-based authorization checks"
 run_oidc_probe
 
 echo
 echo "PASS: focused OIDC auth workflow completed successfully in +$(elapsed)s"
-echo "  Keycloak bootstrap"
-echo "  NiFi managed install in oidc + externalClaimGroups mode"
+  echo "  Keycloak bootstrap"
+echo "  NiFi managed install in oidc + externalClaimGroups mode on ${NIFI_IMAGE}"
 echo "  OIDC discovery and group-claim runtime wiring"
 echo "  Initial Admin Identity bootstrap fallback and non-admin denial checks"

@@ -1,0 +1,24 @@
+# Focused kind runtime overlay for GitHub Flow Registry Client proof on NiFi 2.8.0.
+# Compose with examples/managed/values.yaml and examples/nifi-2.8.0-values.yaml.
+# This uses the in-cluster GitHub-compatible evaluator service deployed by
+# hack/deploy-github-flow-registry-mock.sh.
+
+flowRegistryClients:
+  enabled: true
+  clients:
+  - name: github-flows-kind
+    provider: github
+    description: Kind-focused GitHub Flow Registry Client runtime proof
+    repository:
+      owner: example-org
+      name: nifi-flows
+      path: flows
+      branch: main
+    parameterContextValues: retain
+    github:
+      apiUrl: http://github-mock.nifi.svc.cluster.local:8080
+      auth:
+        type: personalAccessToken
+        personalAccessTokenSecret:
+          name: github-flow-registry
+          key: token

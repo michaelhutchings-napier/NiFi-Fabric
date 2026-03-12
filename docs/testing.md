@@ -85,9 +85,11 @@ kind-based integration should cover:
 - a focused fresh-kind `make kind-cert-manager-nifi-2-8-e2e` path for cert-manager validation on NiFi `2.8.0`
 - a focused fresh-kind `make kind-cert-manager-nifi-2-8-fast-e2e` path for cert-manager validation on NiFi `2.8.0` with the additive fast profile
 - a focused `make kind-auth-oidc-e2e` path for OIDC runtime validation without pulling in the main lifecycle gate
+- a focused `make kind-auth-oidc-nifi-2-8-fast-e2e` path for OIDC runtime validation on NiFi `2.8.0` with the additive fast profile
 - a focused `make kind-auth-ldap-e2e` path for LDAP runtime validation without pulling in the main lifecycle gate
 - a focused `make kind-nifi-2-8-e2e` path for a newer NiFi 2.x managed compatibility proof without rerunning the full alpha gate
 - a focused `make kind-flow-registry-gitlab-e2e` path for GitLab Flow Registry Client runtime on NiFi `2.8.0` without pulling in the full alpha gate
+- a focused `make kind-flow-registry-github-fast-e2e` path for GitHub Flow Registry Client runtime on NiFi `2.8.0` with the additive fast profile
 - preloading the NiFi runtime image into the fresh kind node so alpha validation is not gated by an in-cluster registry pull
 - phase-level fresh-kind reruns:
   - `make kind-e2e-rollout`
@@ -102,8 +104,10 @@ kind-based integration should cover:
 - cert-manager renewal updating the mounted Secret without forcing restart when refs, paths, and passwords remain stable
 - restart-required TLS config change continuing to use the managed rollout path even when the TLS Secret is cert-manager-managed
 - Keycloak bootstrap, NiFi OIDC discovery and login wiring, exact group-claim prerequisites, Initial Admin Identity fallback bootstrap, and non-admin denial checks
+- Keycloak bootstrap, NiFi OIDC discovery and login wiring, exact identifying-user and groups claim wiring, seeded NiFi application-group prerequisites, Initial Admin Identity fallback bootstrap, and non-admin denial checks on NiFi `2.8.0`
 - LDAP bootstrap, NiFi LDAP login and LDAP user or group provider wiring, Initial Admin Identity bootstrap, and non-admin denial checks
 - GitLab-compatible evaluator bootstrap, NiFi GitLab Flow Registry Client creation through NiFi's own API, and bucket listing on NiFi `2.8.0`
+- GitHub-compatible evaluator bootstrap, NiFi GitHub Flow Registry Client creation through NiFi's own API, and bucket listing on NiFi `2.8.0` with the fast profile
 - image or template upgrade through the `OnDelete` coordinator
 - hibernation to zero and restore to the prior running size
 - controller restart during rollout and during hibernation
@@ -139,8 +143,10 @@ Current alpha note:
 - the repo now also has green fresh-kind `make kind-cert-manager-e2e` and `make kind-cert-manager-nifi-2-8-e2e` workflows
 - the repo now also has a green focused `make kind-cert-manager-nifi-2-8-fast-e2e` workflow for cert-manager on NiFi `2.8.0` with the fast profile
 - the repo now also has green focused `make kind-auth-oidc-e2e` and `make kind-auth-ldap-e2e` workflows
+- the repo now also has a green focused `make kind-auth-oidc-nifi-2-8-fast-e2e` workflow for OIDC on NiFi `2.8.0` with the fast profile
 - the repo now also has a green focused `make kind-nifi-2-8-e2e` workflow for the newer NiFi 2.x proof target
 - the repo now also has a focused `make kind-flow-registry-gitlab-e2e` workflow for GitLab Flow Registry Client runtime on NiFi `2.8.0`
+- the repo now also has a green focused `make kind-flow-registry-github-fast-e2e` workflow for GitHub Flow Registry Client runtime on NiFi `2.8.0` with the fast profile
 - CI should treat `make kind-alpha-e2e` as the gate and use the phase-level targets for faster diagnosis
 - evaluator-facing examples and quickstarts should stay aligned with that same gate
 - cert-manager mode should still render in CI via `helm template`

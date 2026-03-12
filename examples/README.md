@@ -76,7 +76,7 @@ There are also prepared authentication overlays:
   - Focused kind OIDC overlay.
   - Keeps the flow internal to the cluster.
   - Uses the documented `Initial Admin Identity` fallback for the first admin path.
-  - The focused runtime command is `make kind-auth-oidc-e2e`.
+  - The focused runtime commands are `make kind-auth-oidc-e2e` and `make kind-auth-oidc-nifi-2-8-fast-e2e` when composed with [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml) and [test-fast-values.yaml](test-fast-values.yaml).
 
 - [oidc-external-url-values.yaml](oidc-external-url-values.yaml)
   - Adds an ingress-backed public HTTPS host and matching `web.proxyHosts` entry for OIDC redirects.
@@ -105,6 +105,11 @@ There are also prepared Flow Registry Client overlays:
   - Prepared GitHub Flow Registry Client catalog entry.
   - Renders a validated definition only; it does not auto-create the client in NiFi.
 
+- [github-flow-registry-kind-values.yaml](github-flow-registry-kind-values.yaml)
+  - Focused kind GitHub Flow Registry Client runtime overlay.
+  - Compose with [managed/values.yaml](managed/values.yaml), [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml), and [test-fast-values.yaml](test-fast-values.yaml).
+  - The focused runtime commands are `make kind-flow-registry-github-fast-e2e` and `make kind-flow-registry-github-fast-e2e-reuse`.
+
 - [gitlab-flow-registry-values.yaml](gitlab-flow-registry-values.yaml)
   - Prepared GitLab Flow Registry Client catalog entry.
   - Renders a validated definition only; it does not auto-create the client in NiFi.
@@ -129,6 +134,7 @@ There is also one focused NiFi version compatibility overlay:
   - Overrides the chart image tag to `apache/nifi:2.8.0`.
   - Uses `replicaCount: 2` for the focused multi-node kind compatibility proof.
   - Compose with either [standalone/values.yaml](standalone/values.yaml) or [managed/values.yaml](managed/values.yaml).
+  - It also composes with the existing OIDC overlays for the focused `apache/nifi:2.8.0` OIDC proof path.
   - The focused managed proof commands are `make kind-nifi-2-8-e2e` and `make kind-nifi-2-8-fast-e2e`.
 
 Only one authentication mode is supported at a time. The intended thin-platform combinations are:
@@ -148,9 +154,11 @@ Fallback bootstrap:
 Focused auth evaluator commands:
 
 - `make kind-auth-oidc-e2e`
+- `make kind-auth-oidc-nifi-2-8-fast-e2e`
 - `make kind-auth-ldap-e2e`
 - `make kind-nifi-2-8-e2e`
 - `make kind-flow-registry-gitlab-e2e`
+- `make kind-flow-registry-github-fast-e2e`
 - `make kind-auth-oidc-fast-e2e`
 - `make kind-auth-ldap-fast-e2e`
 - `make kind-nifi-2-8-fast-e2e`
@@ -164,6 +172,7 @@ Flow Registry Client notes:
 - the catalog is available as both `clients.yaml` and `clients.json`
 - there is no controller-managed flow import or synchronization
 - the focused kind proof covers the GitLab client path on NiFi `2.8.0` against a GitLab-compatible evaluator service
+- the focused kind proof also covers the GitHub client path on NiFi `2.8.0` against a GitHub-compatible evaluator service with the fast profile
 
 ## Standalone
 
