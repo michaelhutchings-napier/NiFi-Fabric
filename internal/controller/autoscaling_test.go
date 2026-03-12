@@ -498,7 +498,7 @@ func TestMaybeExecuteAutoscalingScaleUpUsesLatestStatusForCooldown(t *testing.T)
 
 	replicas := int32(3)
 	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
-reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
 		healthResponses: []healthResponse{{result: healthyResult(3)}},
 	}, cluster, statefulSet)
 	reconciler.AutoscalingCollector = &fakeAutoscalingCollector{
@@ -609,6 +609,85 @@ func TestSyncAutoscalingStatusPreservesLatestScaleUpCooldownState(t *testing.T) 
 	}
 	if !strings.HasPrefix(staleCluster.Status.Autoscaling.LastScalingDecision, "NoScaleUp: cooldown is active until") {
 		t.Fatalf("expected syncAutoscalingStatus to publish cooldown decision, got %q", staleCluster.Status.Autoscaling.LastScalingDecision)
+	}
+}
+
+func TestSyncAutoscalingStatusPreservesPersistedExecutionState(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode:        platformv1alpha1.AutoscalingModeEnforced,
+		MinReplicas: 1,
+		MaxReplicas: 3,
+		ScaleDown: platformv1alpha1.AutoscalingScaleDownPolicy{
+			Enabled: true,
+		},
+	}
+	cluster.Status.Replicas.Desired = 2
+	setAutoscalingSteadyStateConditions(cluster)
+
+	persistedCluster := cluster.DeepCopy()
+	startedAt := metav1.NewTime(time.Now().UTC().Add(-2 * time.Minute).Truncate(time.Second))
+	targetReplicas := int32(2)
+	persistedCluster.Status.Autoscaling.Execution = platformv1alpha1.AutoscalingExecutionStatus{
+		Phase:          platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle,
+		StartedAt:      &startedAt,
+		TargetReplicas: &targetReplicas,
+	}
+	persistedCluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionProgressing,
+		Status:             metav1.ConditionTrue,
+		Reason:             "WaitingForAutoscalingScaleDown",
+		Message:            "Waiting for autoscaling scale-down to settle",
+		LastTransitionTime: metav1.Now(),
+	})
+	persistedCluster.Status.LastOperation = runningOperation("AutoscalingScaleDown", "Waiting for autoscaling scale-down to settle")
+
+	statefulSet := managedStatefulSet("nifi", 2, "nifi-rev", "nifi-rev")
+	reconciler, _ := newTestReconciler(t, &fakeHealthChecker{}, persistedCluster, statefulSet)
+
+	staleCluster := persistedCluster.DeepCopy()
+	staleCluster.Status.Autoscaling.Execution = platformv1alpha1.AutoscalingExecutionStatus{}
+
+	reconciler.syncAutoscalingStatus(ctx, staleCluster)
+
+	if staleCluster.Status.Autoscaling.Execution.Phase != platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle {
+		t.Fatalf("expected syncAutoscalingStatus to preserve execution phase, got %#v", staleCluster.Status.Autoscaling.Execution)
+	}
+	if staleCluster.Status.Autoscaling.Execution.StartedAt == nil || !staleCluster.Status.Autoscaling.Execution.StartedAt.Equal(&startedAt) {
+		t.Fatalf("expected syncAutoscalingStatus to preserve execution start %s, got %#v", startedAt.UTC().Format(time.RFC3339), staleCluster.Status.Autoscaling.Execution.StartedAt)
+	}
+	if staleCluster.Status.Autoscaling.Execution.TargetReplicas == nil || *staleCluster.Status.Autoscaling.Execution.TargetReplicas != targetReplicas {
+		t.Fatalf("expected syncAutoscalingStatus to preserve execution target replicas %d, got %#v", targetReplicas, staleCluster.Status.Autoscaling.Execution.TargetReplicas)
+	}
+}
+
+func TestSyncAutoscalingStatusClearsSettledScaleUpExecutionState(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		ScaleUp: platformv1alpha1.AutoscalingScaleUpPolicy{
+			Enabled: true,
+		},
+		MinReplicas: 1,
+		MaxReplicas: 4,
+	}
+	cluster.Status.Replicas.Desired = 3
+	cluster.Status.Autoscaling.Execution = platformv1alpha1.AutoscalingExecutionStatus{
+		Phase:          platformv1alpha1.AutoscalingExecutionPhaseScaleUpSettle,
+		StartedAt:      &metav1.Time{Time: time.Now().UTC().Add(-2 * time.Minute)},
+		TargetReplicas: ptrTo(int32(3)),
+	}
+	setAutoscalingSteadyStateConditions(cluster)
+
+	statefulSet := managedStatefulSet("nifi", 3, "nifi-rev", "nifi-rev")
+	reconciler, _ := newTestReconciler(t, &fakeHealthChecker{}, cluster, statefulSet)
+
+	reconciler.syncAutoscalingStatus(ctx, cluster)
+
+	if cluster.Status.Autoscaling.Execution.Phase != "" {
+		t.Fatalf("expected settled scale-up execution state to clear, got %#v", cluster.Status.Autoscaling.Execution)
 	}
 }
 
@@ -1220,6 +1299,9 @@ func TestReconcileAutoscalingScaleDownFailsWhenNodePreparationTimesOut(t *testin
 	if condition := updatedCluster.GetCondition(platformv1alpha1.ConditionDegraded); condition == nil || condition.Reason != "NodePreparationTimedOut" {
 		t.Fatalf("expected node-preparation timeout degradation, got %#v", condition)
 	}
+	if updatedCluster.Status.Autoscaling.Execution.Phase != "" {
+		t.Fatalf("expected timed-out scale-down to clear execution state, got %#v", updatedCluster.Status.Autoscaling.Execution)
+	}
 
 	updatedStatefulSet := &appsv1.StatefulSet{}
 	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: statefulSet.Name}, updatedStatefulSet); err != nil {
@@ -1365,6 +1447,11 @@ func TestReconcileAutoscalingScaleDownSettledPublishesCooldownDecision(t *testin
 	cluster.Status.Replicas.Ready = 2
 	cluster.Status.Autoscaling.LastScaleDownTime = &metav1.Time{Time: time.Now().UTC().Add(-20 * time.Second)}
 	cluster.Status.Autoscaling.LowPressureSince = &metav1.Time{Time: time.Now().UTC().Add(-5 * time.Minute)}
+	cluster.Status.Autoscaling.Execution = platformv1alpha1.AutoscalingExecutionStatus{
+		Phase:          platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle,
+		StartedAt:      &metav1.Time{Time: time.Now().UTC().Add(-15 * time.Second)},
+		TargetReplicas: ptrTo(int32(2)),
+	}
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionTargetResolved,
 		Status:             metav1.ConditionTrue,
@@ -1430,9 +1517,110 @@ func TestReconcileAutoscalingScaleDownSettledPublishesCooldownDecision(t *testin
 	if cluster.Status.LastOperation.Phase != platformv1alpha1.OperationPhaseSucceeded {
 		t.Fatalf("expected settled scale-down to mark success, got %#v", cluster.Status.LastOperation)
 	}
+	if cluster.Status.Autoscaling.Execution.Phase != "" {
+		t.Fatalf("expected settled scale-down to clear execution state, got %#v", cluster.Status.Autoscaling.Execution)
+	}
 	reconciler.syncAutoscalingStatus(ctx, cluster)
 	if !strings.HasPrefix(cluster.Status.Autoscaling.LastScalingDecision, "NoScaleDown: cooldown is active until") {
 		t.Fatalf("expected settled scale-down to publish cooldown decision, got %q", cluster.Status.Autoscaling.LastScalingDecision)
+	}
+}
+
+func TestReconcileAutoscalingScaleDownResumesFromPersistedSettleExecution(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Safety.RequireClusterHealthy = true
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		ScaleDown: platformv1alpha1.AutoscalingScaleDownPolicy{
+			Enabled:             true,
+			Cooldown:            metav1.Duration{Duration: 10 * time.Minute},
+			StabilizationWindow: metav1.Duration{Duration: 30 * time.Second},
+		},
+		MinReplicas: 1,
+		MaxReplicas: 3,
+		Signals: []platformv1alpha1.AutoscalingSignal{
+			platformv1alpha1.AutoscalingSignalQueuePressure,
+		},
+	}
+	cluster.Status.Replicas.Desired = 2
+	cluster.Status.Replicas.Ready = 2
+	cluster.Status.Autoscaling.LastScaleDownTime = &metav1.Time{Time: time.Now().UTC().Add(-20 * time.Second)}
+	cluster.Status.Autoscaling.LowPressureSince = &metav1.Time{Time: time.Now().UTC().Add(-5 * time.Minute)}
+	cluster.Status.Autoscaling.Execution = platformv1alpha1.AutoscalingExecutionStatus{
+		Phase:          platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle,
+		StartedAt:      &metav1.Time{Time: time.Now().UTC().Add(-15 * time.Second)},
+		TargetReplicas: ptrTo(int32(2)),
+	}
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionTargetResolved,
+		Status:             metav1.ConditionTrue,
+		Reason:             "TargetFound",
+		Message:            "Target StatefulSet was resolved successfully",
+		LastTransitionTime: metav1.Now(),
+	})
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionAvailable,
+		Status:             metav1.ConditionTrue,
+		Reason:             "RolloutHealthy",
+		Message:            "Cluster is healthy",
+		LastTransitionTime: metav1.Now(),
+	})
+	cluster.Status.LastOperation = runningOperation("AutoscalingScaleDown", "Waiting for autoscaling scale-down to settle")
+
+	target := managedStatefulSet("nifi", 2, "nifi-rev", "nifi-rev")
+	target.Status.Replicas = 2
+	target.Status.ReadyReplicas = 2
+	target.Status.CurrentReplicas = 2
+	target.Status.UpdatedReplicas = 2
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+	}
+	health := healthResponse{
+		result: ClusterHealthResult{
+			ExpectedReplicas: 2,
+			ReadyPods:        2,
+			ReachablePods:    2,
+			ConvergedPods:    0,
+			Pods: []PodHealth{
+				{PodName: "nifi-0", Ready: true, APIReachable: true, Clustered: true, ConnectedToCluster: true, ConnectedNodeCount: 2, TotalNodeCount: 3},
+				{PodName: "nifi-1", Ready: true, APIReachable: true, Clustered: true, ConnectedToCluster: true, ConnectedNodeCount: 2, TotalNodeCount: 3},
+			},
+		},
+	}
+	reconciler, _ := newTestReconciler(t, &fakeHealthChecker{
+		checkResponses: []healthResponse{health},
+	}, cluster, target, &pods[0], &pods[1])
+	reconciler.AutoscalingCollector = &fakeAutoscalingCollector{
+		collection: autoscalingSignalCollection{
+			SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
+				Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
+				Available: true,
+				Message:   "queuedFlowFiles=0 queuedBytes=0 backlog is low",
+			}},
+			QueuePressure: autoscalingQueuePressureSample{
+				Observed:            true,
+				BytesQueuedObserved: true,
+				LowPressure:         true,
+			},
+		},
+	}
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result != (ctrl.Result{}) {
+		t.Fatalf("expected persisted settle execution to complete without requeue, got %#v", result)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := reconciler.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.Autoscaling.Execution.Phase != "" {
+		t.Fatalf("expected persisted settle execution to clear, got %#v", updatedCluster.Status.Autoscaling.Execution)
 	}
 }
 

@@ -202,6 +202,14 @@ wait_for_cluster_last_scale_up_time() {
   done
 }
 
+wait_for_last_operation_phase() {
+  local cluster_name="$1"
+  local phase="$2"
+  local timeout_seconds="${3:-300}"
+  wait_for_output "lastOperation.phase ${phase} on ${cluster_name}" "${phase}" "${timeout_seconds}" \
+    cluster_jsonpath "${cluster_name}" '{.status.lastOperation.phase}'
+}
+
 wait_for_sts_replicas() {
   local replicas="$1"
   local timeout_seconds="${2:-300}"
@@ -235,7 +243,7 @@ require_main_replicas() {
 
 print_autoscaling_summary() {
   local cluster_name="$1"
-  kubectl -n "${NAMESPACE}" get nificluster "${cluster_name}" -o jsonpath='{.metadata.name}{" recommended="}{.status.autoscaling.recommendedReplicas}{" reason="}{.status.autoscaling.reason}{" decision="}{.status.autoscaling.lastScalingDecision}{" lastScaleUpTime="}{.status.autoscaling.lastScaleUpTime}{" desired="}{.status.replicas.desired}{" ready="}{.status.replicas.ready}{"\n"}' 2>/dev/null || true
+  kubectl -n "${NAMESPACE}" get nificluster "${cluster_name}" -o jsonpath='{.metadata.name}{" recommended="}{.status.autoscaling.recommendedReplicas}{" reason="}{.status.autoscaling.reason}{" decision="}{.status.autoscaling.lastScalingDecision}{" executionPhase="}{.status.autoscaling.execution.phase}{" executionTarget="}{.status.autoscaling.execution.targetReplicas}{" executionStartedAt="}{.status.autoscaling.execution.startedAt}{" lastScaleUpTime="}{.status.autoscaling.lastScaleUpTime}{" desired="}{.status.replicas.desired}{" ready="}{.status.replicas.ready}{"\n"}' 2>/dev/null || true
 }
 
 patch_main_cluster() {
@@ -586,11 +594,12 @@ configure_enforced_autoscaling 4 4
 break_controller_pod_delete_rbac
 bash "${ROOT_DIR}/hack/trigger-config-drift.sh" --namespace "${NAMESPACE}" --configmap "${CONFIGMAP_NAME}"
 wait_for_event_reason RolloutStarted 120
-wait_for_event_reason RolloutFailed 180
-wait_for_condition "${HELM_RELEASE}" Degraded True 180
+wait_for_condition "${HELM_RELEASE}" Degraded True 300
+wait_for_last_operation_phase "${HELM_RELEASE}" Failed 300
 wait_for_cluster_reason "${HELM_RELEASE}" "${autoscalingReasonDegraded:-Degraded}" 180
 wait_for_cluster_recommended_empty "${HELM_RELEASE}" 60
 wait_for_cluster_decision_contains "${HELM_RELEASE}" "recommendation is unavailable because Degraded" 180
+wait_for_event_reason RolloutFailed 60 || true
 restore_controller_rbac
 reinstall_main_release_after_degraded_proof
 

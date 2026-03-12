@@ -256,6 +256,21 @@ spec:
                   lastScaleDownTime:
                     format: date-time
                     type: string
+                  execution:
+                    type: object
+                    properties:
+                      phase:
+                        type: string
+                        enum:
+                        - ScaleUpSettle
+                        - ScaleDownPrepare
+                        - ScaleDownSettle
+                      startedAt:
+                        format: date-time
+                        type: string
+                      targetReplicas:
+                        format: int32
+                        type: integer
               nodeOperation:
                 type: object
                 properties:

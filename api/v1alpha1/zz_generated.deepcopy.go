@@ -54,6 +54,28 @@ func (in *AutoscalingSignalStatus) DeepCopy() *AutoscalingSignalStatus {
 	return out
 }
 
+func (in *AutoscalingExecutionStatus) DeepCopyInto(out *AutoscalingExecutionStatus) {
+	*out = *in
+	if in.StartedAt != nil {
+		in, out := &in.StartedAt, &out.StartedAt
+		*out = (*in).DeepCopy()
+	}
+	if in.TargetReplicas != nil {
+		in, out := &in.TargetReplicas, &out.TargetReplicas
+		*out = new(int32)
+		**out = **in
+	}
+}
+
+func (in *AutoscalingExecutionStatus) DeepCopy() *AutoscalingExecutionStatus {
+	if in == nil {
+		return nil
+	}
+	out := new(AutoscalingExecutionStatus)
+	in.DeepCopyInto(out)
+	return out
+}
+
 func (in *AutoscalingStatus) DeepCopyInto(out *AutoscalingStatus) {
 	*out = *in
 	if in.RecommendedReplicas != nil {
@@ -82,6 +104,7 @@ func (in *AutoscalingStatus) DeepCopyInto(out *AutoscalingStatus) {
 		in, out := &in.LastScaleDownTime, &out.LastScaleDownTime
 		*out = (*in).DeepCopy()
 	}
+	in.Execution.DeepCopyInto(&out.Execution)
 }
 
 func (in *AutoscalingStatus) DeepCopy() *AutoscalingStatus {

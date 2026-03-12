@@ -61,7 +61,7 @@ What is implemented now:
 - a typed advisory signal list
 - explicit `scaleUp.enabled` and `scaleDown.enabled` policy fields
 - minimal scale-up and scale-down cooldown or stabilization controls
-- `status.autoscaling.recommendedReplicas`, `reason`, `signals`, `lastEvaluationTime`, `lastScalingDecision`, `lowPressureSince`, `lastScaleUpTime`, and `lastScaleDownTime`
+- `status.autoscaling.recommendedReplicas`, `reason`, `signals`, `lastEvaluationTime`, `lastScalingDecision`, `lowPressureSince`, `lastScaleUpTime`, `lastScaleDownTime`, and persisted `execution` state for scale-up settle and scale-down prepare or settle recovery
 - autoscaling recommendation events and metrics, plus enforced scale-up and scale-down action metrics
 - explicit precedence rules that suppress recommendations while the cluster is progressing, hibernated, degraded, unavailable, or unmanaged
 - real queue-pressure sampling from NiFi root-process-group backlog
@@ -69,7 +69,7 @@ What is implemented now:
 - real CPU sampling from NiFi system diagnostics as a secondary advisory signal
 - optional enforced one-step scale-up through the controller only, after the existing steady-state health gate passes
 - optional experimental one-step scale-down through the controller only, after sustained low pressure and the existing safe disconnect or offload sequence complete for the highest ordinal node
-- focused fast runtime proof on NiFi `2.8.0` for advisory status-only behavior, one-step enforced scale-up, one-step experimental enforced scale-down, cooldown enforcement, and blocked autoscaling during progressing, hibernated or restoring, degraded, unresolved, and unmanaged states
+- focused fast runtime proof on NiFi `2.8.0` for advisory status-only behavior, one-step enforced scale-up, one-step experimental enforced scale-down, cooldown enforcement, restart-safe settle recovery, and blocked autoscaling during progressing, hibernated or restoring, degraded, unresolved, and unmanaged states
 
 What is not implemented yet:
 
@@ -88,6 +88,7 @@ Current enforced-scope limit:
 - scale-down is more conservative than scale-up and requires healthy convergence, sustained low pressure, and successful NiFi node preparation before replicas are reduced
 - post-scale-down health reuse follows the same hibernation-style convergence gate, so remaining nodes must be healthy and connected even if NiFi still reports the former node in total-node counts briefly
 - post-scale-down settlement is polled one reconcile at a time so the single controller worker stays responsive while the reduced cluster converges
+- autoscaling now persists settle and prepare execution state in status so controller restarts do not re-derive destructive progress from condition text alone
 - automatic scale-down still does not bulk-remove nodes and does not bypass cooldown or stabilization rules
 - enforced scale actions are blocked by the same lifecycle precedence used for advisory recommendations
 
@@ -174,6 +175,13 @@ Focused autoscaling experimental scale-down proof path:
 ```bash
 make kind-autoscaling-scale-down-fast-e2e
 make kind-autoscaling-scale-down-fast-e2e-reuse
+```
+
+Focused autoscaling churn proof path:
+
+```bash
+make kind-autoscaling-churn-fast-e2e
+make kind-autoscaling-churn-fast-e2e-reuse
 ```
 
 Fast profile note:
@@ -1149,7 +1157,7 @@ The focused cert-manager path additionally covers:
 | NiFi image focused newer proof | `apache/nifi:2.8.0` | 2-replica managed install + health gate + config-drift restart proven with `make kind-nifi-2-8-e2e` |
 | GitLab Flow Registry Client on `2.8.0` | proven on kind with a GitLab-compatible evaluator service | `make kind-flow-registry-gitlab-e2e` proves chart-prepared client definition, NiFi client creation, and bucket listing |
 | GitHub Flow Registry Client on `2.8.0` | proven on kind with a GitHub-compatible evaluator service and the fast profile | `make kind-flow-registry-github-fast-e2e` proves chart-prepared client definition, NiFi client creation, and bucket listing |
-| Autoscaling on `2.8.0` | proven on kind with the fast profile | `make kind-autoscaling-scale-up-fast-e2e` proves advisory status-only behavior, enforced one-step scale-up, cooldown blocking, and blocked autoscaling during progressing, hibernated or restoring, degraded, unresolved, and unmanaged states; `make kind-autoscaling-scale-down-fast-e2e` proves experimental one-step enforced scale-down, cooldown blocking, and no bulk or repeated immediate scale-down |
+| Autoscaling on `2.8.0` | proven on kind with the fast profile | `make kind-autoscaling-scale-up-fast-e2e` proves advisory status-only behavior, enforced one-step scale-up, cooldown blocking, and blocked autoscaling during progressing, hibernated or restoring, degraded, unresolved, and unmanaged states; `make kind-autoscaling-scale-down-fast-e2e` proves experimental one-step enforced scale-down, restart-safe settle recovery, cooldown blocking, and no bulk or repeated immediate scale-down; `make kind-autoscaling-churn-fast-e2e` proves a bounded `2 -> 3 -> 2` churn path with settle between each step |
 | Kubernetes runtime | `kindest/node:v1.31.0` | single control-plane kind cluster |
 | Managed rollout model | proven | `StatefulSet` with `OnDelete` |
 | Persistent storage assumptions | proven on kind | PVC retention on scale-down and delete |

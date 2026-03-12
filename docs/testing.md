@@ -42,6 +42,7 @@ Current unit coverage in the scaffold includes:
 - advisory autoscaling NiFi signal parsing and aggregation from read-only NiFi API payloads
 - advisory autoscaling signal-sample metrics for queue backlog, thread counts, and CPU diagnostics
 - advisory autoscaling status timestamp stability when the recommendation meaning does not change
+- autoscaling persisted execution-state resume and clear behavior for scale-up settle and scale-down prepare or settle paths
 - enforced autoscaling scale-up eligibility, clamping, and cooldown behavior
 - experimental enforced autoscaling scale-down eligibility, one-step execution, stabilization, cooldown behavior, and safe resume after controller restart
 - rollout-failure status persistence and blocked autoscaling status when reconcile returns an error during a managed destructive step
@@ -99,6 +100,7 @@ kind-based integration should cover:
 - a focused `make kind-flow-registry-github-fast-e2e` path for GitHub Flow Registry Client runtime on NiFi `2.8.0` with the additive fast profile
 - a focused `make kind-autoscaling-scale-up-fast-e2e` path for autoscaling scale-up runtime proof on NiFi `2.8.0` with the additive fast profile
 - a focused `make kind-autoscaling-scale-down-fast-e2e` path for experimental autoscaling scale-down runtime proof on NiFi `2.8.0` with the additive fast profile
+- a focused `make kind-autoscaling-churn-fast-e2e` path that proves one-step scale-up, settle, one-step scale-down, settle, and no unsafe repeated action on NiFi `2.8.0` with the additive fast profile
 - the scale-down proof now also checks the controller-owned post-removal settle loop instead of depending on one long blocking health wait inside a single reconcile
 - preloading the NiFi runtime image into the fresh kind node so alpha validation is not gated by an in-cluster registry pull
 - phase-level fresh-kind reruns:

@@ -14,6 +14,15 @@ import (
 )
 
 func autoscalingScaleDownInProgress(cluster *platformv1alpha1.NiFiCluster) bool {
+	switch cluster.Status.Autoscaling.Execution.Phase {
+	case platformv1alpha1.AutoscalingExecutionPhaseScaleDownPrepare, platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle:
+		return true
+	}
+
+	return autoscalingScaleDownLifecycleInProgress(cluster)
+}
+
+func autoscalingScaleDownLifecycleInProgress(cluster *platformv1alpha1.NiFiCluster) bool {
 	if cluster.Status.NodeOperation.Purpose == platformv1alpha1.NodeOperationPurposeScaleDown && cluster.Status.NodeOperation.PodName != "" {
 		return true
 	}
@@ -92,6 +101,7 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleDown(ctx context.Con
 	targetPod, ok := highestOrdinalPod(pods)
 	if !ok {
 		message := "Waiting for the highest ordinal pod to appear before autoscaling scale-down can continue"
+		setAutoscalingExecution(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleDownPrepare, currentReplicas-1)
 		cluster.Status.Autoscaling.LastScalingDecision = "NoScaleDown: waiting for the highest ordinal pod to appear"
 		cluster.Status.LastOperation = runningOperation("AutoscalingScaleDown", message)
 		r.setAutoscalingScaleDownProgressConditions(cluster, "WaitingForAutoscalingScaleDown", message)
@@ -103,6 +113,7 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleDown(ctx context.Con
 		return false, ctrl.Result{}, err
 	}
 	if !prepared {
+		setAutoscalingExecution(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleDownPrepare, currentReplicas-1)
 		cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("ScaleDown: preparing pod %s for safe removal", targetPod.Name)
 		return true, result, nil
 	}
@@ -121,6 +132,7 @@ func (r *NiFiClusterReconciler) reconcileAutoscalingScaleDown(ctx context.Contex
 
 	currentReplicas := derefInt32(target.Spec.Replicas)
 	if currentNodeOpPod, ok := findNodeOperationPod(pods, cluster.Status.NodeOperation, platformv1alpha1.NodeOperationPurposeScaleDown); ok {
+		setAutoscalingExecution(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleDownPrepare, currentReplicas-1)
 		prepared, result, err := r.preparePodForScaleDown(ctx, cluster, target, pods, currentNodeOpPod)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -147,6 +159,7 @@ func (r *NiFiClusterReconciler) reconcileAutoscalingScaleDown(ctx context.Contex
 	}
 
 	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
+	clearAutoscalingExecution(cluster)
 	cluster.Status.LastOperation = succeededOperation("AutoscalingScaleDown", fmt.Sprintf("Managed autoscaling safely settled at %d replicas", currentReplicas))
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionAvailable,
@@ -189,7 +202,6 @@ func (r *NiFiClusterReconciler) executeAutoscalingScaleDownStep(ctx context.Cont
 	nextReplicas := currentReplicas - 1
 	if err := r.patchTargetReplicas(ctx, target, nextReplicas); err != nil {
 		r.markAutoscalingScaleDownFailure(cluster, fmt.Sprintf("Scale target StatefulSet %q to %d replicas failed: %v", target.Name, nextReplicas, err))
-		recordAutoscalingScaleAction("scale_down_failed")
 		return false, ctrl.Result{}, fmt.Errorf("scale StatefulSet %s/%s to %d replicas: %w", target.Namespace, target.Name, nextReplicas, err)
 	}
 
@@ -199,6 +211,7 @@ func (r *NiFiClusterReconciler) executeAutoscalingScaleDownStep(ctx context.Cont
 	cluster.Status.Replicas.Desired = nextReplicas
 	cluster.Status.Autoscaling.LastScalingDecision = decision
 	cluster.Status.Autoscaling.LastScaleDownTime = &now
+	setAutoscalingExecution(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle, nextReplicas)
 	cluster.Status.LastOperation = runningOperation("AutoscalingScaleDown", fmt.Sprintf("%s because sustained low pressure made the higher ordinal removable", decision))
 	r.setAutoscalingScaleDownProgressConditions(cluster, "AutoscalingScaleDown", fmt.Sprintf("Prepared pod %s for autoscaling scale-down and reduced StatefulSet replicas to %d", pod.Name, nextReplicas))
 	recordAutoscalingScaleAction("scaled_down")
@@ -211,6 +224,7 @@ func (r *NiFiClusterReconciler) executeAutoscalingScaleDownStep(ctx context.Cont
 func (r *NiFiClusterReconciler) waitForAutoscalingScaleDownStepToSettle(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, pods []corev1.Pod) (bool, ctrl.Result, error) {
 	expectedReplicas := derefInt32(target.Spec.Replicas)
 	cluster.Status.Replicas.Desired = expectedReplicas
+	setAutoscalingExecution(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle, expectedReplicas)
 
 	if podsPendingTermination(pods) || (int32(len(pods)) != expectedReplicas && !statefulSetReplicasSettled(target, expectedReplicas)) {
 		message := fmt.Sprintf("Waiting for the previous autoscaling scale-down step to settle at %d replicas before any further decision; current pods: %s", expectedReplicas, podNames(pods))
@@ -352,6 +366,7 @@ func (r *NiFiClusterReconciler) markAutoscalingScaleDownHealthBlocked(cluster *p
 }
 
 func (r *NiFiClusterReconciler) markAutoscalingScaleDownFailure(cluster *platformv1alpha1.NiFiCluster, message string) {
+	clearAutoscalingExecution(cluster)
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionAvailable,
 		Status:             metav1.ConditionFalse,
@@ -374,6 +389,7 @@ func (r *NiFiClusterReconciler) markAutoscalingScaleDownFailure(cluster *platfor
 		LastTransitionTime: metav1.Now(),
 	})
 	cluster.Status.LastOperation = failedOperation("AutoscalingScaleDown", message)
+	recordAutoscalingScaleAction("scale_down_failed")
 	if r.Recorder != nil {
 		r.Recorder.Event(cluster, corev1.EventTypeWarning, "AutoscalingScaleDownFailed", message)
 	}

@@ -188,6 +188,7 @@ The current slice is intentionally conservative:
 - recommendations are suppressed while rollout, hibernation or restore, degraded state, or other non-steady conditions are active
 - enabled signals are typed and surfaced in status with real queue, thread, and CPU samples where NiFi exposes them today
 - low-pressure persistence and scale-action timestamps are kept on `NiFiCluster.status`, not in a second autoscaling API surface
+- autoscaling resume state for scale-up settle and scale-down prepare or settle is also persisted on `NiFiCluster.status`, so restart recovery does not depend on transient condition text alone
 - the focused fast NiFi `2.8.0` runtime proof now covers advisory status-only behavior, one-step enforced scale-up, one-step experimental enforced scale-down, cooldown blocking, and blocked autoscaling during progressing, hibernated or restoring, degraded, unresolved, and unmanaged states
 - rollout failure and blocked autoscaling status must still persist even when reconcile returns an error, because degraded autoscaling is only useful if it survives the same failure path the operator is diagnosing
 
@@ -199,6 +200,7 @@ The current autoscaling shape is:
 - scale-down uses the same disconnect, offload, and highest-ordinal-first sequencing already used for hibernation
 - scale-down uses the same post-removal convergence gate already used for hibernation, so remaining nodes must stay connected and healthy even while NiFi still reports the former node in total-node counts for a short window
 - scale-down settlement is sampled and requeued per reconcile instead of holding the single worker inside one long blocking health wait
+- cooldown and stabilization remain timestamp-based, while prepare and settle execution state is persisted explicitly so the controller can resume safely after restart or requeue
 - scale-down does not run while rollout, TLS restart, hibernation, restore, degraded state, or target-resolution problems are active
 - scale-down requires a healthy converged cluster and a sustained low-pressure window before the controller prepares a node
 - scale-down still runs only one step per decision and waits for that reduced replica count to settle before any new autoscaling decision is eligible

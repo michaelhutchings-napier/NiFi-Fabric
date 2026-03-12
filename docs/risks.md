@@ -102,6 +102,8 @@ Mitigation:
 - prefer NiFi-native signals first
 - use CPU only as a secondary signal
 - prove signal quality in advisory mode before allowing automatic replica changes
+- keep low-pressure scale-down conservative until sustained queue-age evidence is available reliably enough from NiFi runtime APIs
+- persist autoscaling execution state so restart recovery does not repeat destructive steps while signal quality is still intentionally narrow
 
 ### Hibernation And Autoscaling Conflict
 

@@ -74,6 +74,14 @@ const (
 	AutoscalingSignalCPU           AutoscalingSignal = "CPU"
 )
 
+type AutoscalingExecutionPhase string
+
+const (
+	AutoscalingExecutionPhaseScaleUpSettle    AutoscalingExecutionPhase = "ScaleUpSettle"
+	AutoscalingExecutionPhaseScaleDownPrepare AutoscalingExecutionPhase = "ScaleDownPrepare"
+	AutoscalingExecutionPhaseScaleDownSettle  AutoscalingExecutionPhase = "ScaleDownSettle"
+)
+
 type AutoscalingPolicy struct {
 	Mode        AutoscalingMode            `json:"mode,omitempty"`
 	ScaleUp     AutoscalingScaleUpPolicy   `json:"scaleUp,omitempty"`
@@ -185,15 +193,22 @@ type AutoscalingSignalStatus struct {
 	Message   string            `json:"message,omitempty"`
 }
 
+type AutoscalingExecutionStatus struct {
+	Phase          AutoscalingExecutionPhase `json:"phase,omitempty"`
+	StartedAt      *metav1.Time              `json:"startedAt,omitempty"`
+	TargetReplicas *int32                    `json:"targetReplicas,omitempty"`
+}
+
 type AutoscalingStatus struct {
-	RecommendedReplicas *int32                    `json:"recommendedReplicas,omitempty"`
-	Reason              string                    `json:"reason,omitempty"`
-	Signals             []AutoscalingSignalStatus `json:"signals,omitempty"`
-	LastEvaluationTime  *metav1.Time              `json:"lastEvaluationTime,omitempty"`
-	LowPressureSince    *metav1.Time              `json:"lowPressureSince,omitempty"`
-	LastScalingDecision string                    `json:"lastScalingDecision,omitempty"`
-	LastScaleUpTime     *metav1.Time              `json:"lastScaleUpTime,omitempty"`
-	LastScaleDownTime   *metav1.Time              `json:"lastScaleDownTime,omitempty"`
+	RecommendedReplicas *int32                     `json:"recommendedReplicas,omitempty"`
+	Reason              string                     `json:"reason,omitempty"`
+	Signals             []AutoscalingSignalStatus  `json:"signals,omitempty"`
+	LastEvaluationTime  *metav1.Time               `json:"lastEvaluationTime,omitempty"`
+	LowPressureSince    *metav1.Time               `json:"lowPressureSince,omitempty"`
+	LastScalingDecision string                     `json:"lastScalingDecision,omitempty"`
+	LastScaleUpTime     *metav1.Time               `json:"lastScaleUpTime,omitempty"`
+	LastScaleDownTime   *metav1.Time               `json:"lastScaleDownTime,omitempty"`
+	Execution           AutoscalingExecutionStatus `json:"execution,omitempty"`
 }
 
 type NiFiClusterStatus struct {

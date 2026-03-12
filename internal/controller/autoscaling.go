@@ -31,9 +31,9 @@ const (
 	autoscalingReasonMaxReplicasReached = "MaxReplicasReached"
 	autoscalingReasonNoActionableInput  = "NoActionableSignals"
 
-	defaultAutoscalingScaleUpCooldown           = 5 * time.Minute
-	defaultAutoscalingScaleDownCooldown         = 10 * time.Minute
-	defaultAutoscalingScaleDownStabilization    = 5 * time.Minute
+	defaultAutoscalingScaleUpCooldown        = 5 * time.Minute
+	defaultAutoscalingScaleDownCooldown      = 10 * time.Minute
+	defaultAutoscalingScaleDownStabilization = 5 * time.Minute
 )
 
 func (r *NiFiClusterReconciler) syncAutoscalingStatus(ctx context.Context, cluster *platformv1alpha1.NiFiCluster) {
@@ -54,8 +54,12 @@ func (r *NiFiClusterReconciler) syncAutoscalingStatus(ctx context.Context, clust
 	if persisted.LastScaleDownTime != nil {
 		desired.LastScaleDownTime = persisted.LastScaleDownTime.DeepCopy()
 	}
+	desired.Execution = mergeAutoscalingExecutionStatus(cluster.Status.Autoscaling.Execution, persisted.Execution)
+	if autoscalingExecutionShouldClear(cluster, desired.Execution) {
+		desired.Execution = platformv1alpha1.AutoscalingExecutionStatus{}
+	}
 	desired.LastScalingDecision = persisted.LastScalingDecision
-	if shouldRefreshAutoscalingDecision(cluster, desired.LastScalingDecision) {
+	if shouldRefreshAutoscalingDecision(cluster, desired.Execution, desired.LastScalingDecision) {
 		desired.LastScalingDecision = autoscalingNoScaleDecision(cluster, desired)
 	}
 	cluster.Status.Autoscaling = desired
@@ -90,6 +94,7 @@ func mergedAutoscalingStatus(current, persisted platformv1alpha1.AutoscalingStat
 		merged.LastScaleDownTime = persisted.LastScaleDownTime.DeepCopy()
 		preservedScaleAction = preservedScaleAction || persisted.LastScaleDownTime != nil
 	}
+	merged.Execution = mergeAutoscalingExecutionStatus(current.Execution, persisted.Execution)
 	if merged.LastScalingDecision == "" || preservedScaleAction {
 		merged.LastScalingDecision = persisted.LastScalingDecision
 	}
@@ -97,8 +102,8 @@ func mergedAutoscalingStatus(current, persisted platformv1alpha1.AutoscalingStat
 	return merged
 }
 
-func shouldRefreshAutoscalingDecision(cluster *platformv1alpha1.NiFiCluster, currentDecision string) bool {
-	if autoscalingExecutionInProgress(cluster) {
+func shouldRefreshAutoscalingDecision(cluster *platformv1alpha1.NiFiCluster, execution platformv1alpha1.AutoscalingExecutionStatus, currentDecision string) bool {
+	if autoscalingStatusExecutionInProgress(cluster, execution) {
 		return false
 	}
 	if autoscalingTimedBlockStillActive(currentDecision) {
@@ -250,6 +255,7 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleUp(ctx context.Conte
 	decision := fmt.Sprintf("ScaleUp: increased target StatefulSet replicas from %d to %d", currentReplicas, desiredReplicas)
 	cluster.Status.Autoscaling.LastScalingDecision = decision
 	cluster.Status.Autoscaling.LastScaleUpTime = &now
+	setAutoscalingExecution(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleUpSettle, desiredReplicas)
 	cluster.Status.LastOperation = runningOperation("AutoscalingScaleUp", fmt.Sprintf("%s because %s", decision, autoscalingStatusMessage(status)))
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionProgressing,
@@ -606,6 +612,14 @@ func derefOptionalInt32(value *int32) int32 {
 }
 
 func autoscalingExecutionInProgress(cluster *platformv1alpha1.NiFiCluster) bool {
+	return autoscalingStatusExecutionInProgress(cluster, cluster.Status.Autoscaling.Execution)
+}
+
+func autoscalingStatusExecutionInProgress(cluster *platformv1alpha1.NiFiCluster, execution platformv1alpha1.AutoscalingExecutionStatus) bool {
+	if execution.Phase != "" {
+		return true
+	}
+
 	decision := cluster.Status.Autoscaling.LastScalingDecision
 	if strings.HasPrefix(decision, "ScaleUp:") || strings.HasPrefix(decision, "ScaleDown:") {
 		return true
@@ -616,6 +630,68 @@ func autoscalingExecutionInProgress(cluster *platformv1alpha1.NiFiCluster) bool 
 		condition.Reason == "AutoscalingScaleDown" ||
 		condition.Reason == "PreparingNodeForScaleDown" ||
 		condition.Reason == "WaitingForAutoscalingScaleDown")
+}
+
+func mergeAutoscalingExecutionStatus(current, persisted platformv1alpha1.AutoscalingExecutionStatus) platformv1alpha1.AutoscalingExecutionStatus {
+	merged := current
+
+	if merged.Phase == "" {
+		merged.Phase = persisted.Phase
+	}
+	if merged.Phase == "" {
+		return platformv1alpha1.AutoscalingExecutionStatus{}
+	}
+	if merged.Phase == persisted.Phase {
+		if merged.StartedAt == nil || (persisted.StartedAt != nil && persisted.StartedAt.After(merged.StartedAt.Time)) {
+			merged.StartedAt = persisted.StartedAt.DeepCopy()
+		}
+		if merged.TargetReplicas == nil && persisted.TargetReplicas != nil {
+			merged.TargetReplicas = ptrTo(*persisted.TargetReplicas)
+		}
+		return merged
+	}
+	if merged.StartedAt == nil {
+		now := metav1.NewTime(time.Now().UTC())
+		merged.StartedAt = &now
+	}
+	return merged
+}
+
+func autoscalingExecutionShouldClear(cluster *platformv1alpha1.NiFiCluster, execution platformv1alpha1.AutoscalingExecutionStatus) bool {
+	if execution.Phase == "" {
+		return false
+	}
+	if conditionIsTrue(cluster.GetCondition(platformv1alpha1.ConditionDegraded)) {
+		return true
+	}
+	progressing := conditionIsTrue(cluster.GetCondition(platformv1alpha1.ConditionProgressing))
+	available := conditionIsTrue(cluster.GetCondition(platformv1alpha1.ConditionAvailable))
+
+	switch execution.Phase {
+	case platformv1alpha1.AutoscalingExecutionPhaseScaleUpSettle:
+		return !progressing && available
+	case platformv1alpha1.AutoscalingExecutionPhaseScaleDownPrepare, platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle:
+		return !autoscalingScaleDownLifecycleInProgress(cluster) && !progressing
+	default:
+		return false
+	}
+}
+
+func setAutoscalingExecution(cluster *platformv1alpha1.NiFiCluster, phase platformv1alpha1.AutoscalingExecutionPhase, targetReplicas int32) {
+	if phase == "" {
+		clearAutoscalingExecution(cluster)
+		return
+	}
+	if cluster.Status.Autoscaling.Execution.Phase != phase || cluster.Status.Autoscaling.Execution.StartedAt == nil {
+		now := metav1.NewTime(time.Now().UTC())
+		cluster.Status.Autoscaling.Execution.StartedAt = &now
+	}
+	cluster.Status.Autoscaling.Execution.Phase = phase
+	cluster.Status.Autoscaling.Execution.TargetReplicas = ptrTo(targetReplicas)
+}
+
+func clearAutoscalingExecution(cluster *platformv1alpha1.NiFiCluster) {
+	cluster.Status.Autoscaling.Execution = platformv1alpha1.AutoscalingExecutionStatus{}
 }
 
 func autoscalingTimedBlockStillActive(decision string) bool {

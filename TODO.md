@@ -35,13 +35,12 @@ Completed in the scaffold:
    - CPU only if it remains useful after NiFi-native signals are in place
    - cluster health and convergence state
 12. Harden experimental automatic scale-down before calling enforced autoscaling production-ready:
-   - stuck offload recovery and operator restart handling under repeated failures
-   - exact interrupted scale-down resume semantics after replica reduction has started
+   - broader proof for stuck offload recovery and operator restart handling under repeated failures
    - stronger convergence proof after downscale on slower clusters
-   - decide whether the current per-reconcile post-removal settle loop needs more persisted stability state before production claims
-   - PVC and ordinal expectations under repeated scale-up then scale-down churn
+   - queue-age-backed low-pressure evidence if NiFi exposes it reliably enough for this platform
+   - broader PVC and ordinal expectations under repeated scale-up then scale-down churn
 13. Decide whether the current experimental scale-up and scale-down cooldown defaults are sufficient before claiming enforced autoscaling as a recommended production feature.
-14. Keep the focused `make kind-autoscaling-scale-up-fast-e2e` and `make kind-autoscaling-scale-down-fast-e2e` paths green while autoscaling remains experimental.
+14. Keep the focused `make kind-autoscaling-scale-up-fast-e2e`, `make kind-autoscaling-scale-down-fast-e2e`, and `make kind-autoscaling-churn-fast-e2e` paths green while autoscaling remains experimental.
 15. Define how the unavailable-target blocking path should be fault-injected in kind if it needs runtime proof beyond the current unit and reconcile coverage.
 16. Expand NiFi-native low-pressure proof before broadening automatic scale-down:
    - sustained queue age

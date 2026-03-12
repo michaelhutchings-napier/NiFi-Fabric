@@ -99,6 +99,26 @@ wait_for_contains() {
   done
 }
 
+wait_for_empty() {
+  local description="$1"
+  local timeout_seconds="$2"
+  shift 2
+  local deadline=$(( $(date +%s) + timeout_seconds ))
+  local actual=""
+
+  while true; do
+    actual="$("$@" | tr -d '\n')"
+    if [[ -z "${actual}" ]]; then
+      return 0
+    fi
+    if (( $(date +%s) >= deadline )); then
+      echo "timed out waiting for empty ${description}: got ${actual}" >&2
+      return 1
+    fi
+    sleep 5
+  done
+}
+
 require_output() {
   local description="$1"
   local expected="$2"
@@ -172,6 +192,21 @@ wait_for_cluster_last_scale_down_time() {
   done
 }
 
+wait_for_cluster_execution_phase_empty() {
+  local cluster_name="$1"
+  local timeout_seconds="${2:-300}"
+  wait_for_empty "autoscaling execution phase on ${cluster_name}" "${timeout_seconds}" \
+    cluster_jsonpath "${cluster_name}" '{.status.autoscaling.execution.phase}'
+}
+
+wait_for_last_operation_phase() {
+  local cluster_name="$1"
+  local phase="$2"
+  local timeout_seconds="${3:-300}"
+  wait_for_output "lastOperation.phase ${phase} on ${cluster_name}" "${phase}" "${timeout_seconds}" \
+    cluster_jsonpath "${cluster_name}" '{.status.lastOperation.phase}'
+}
+
 wait_for_sts_replicas() {
   local replicas="$1"
   local timeout_seconds="${2:-300}"
@@ -240,7 +275,7 @@ configure_disabled_autoscaling() {
 
 print_autoscaling_summary() {
   local cluster_name="$1"
-  kubectl -n "${NAMESPACE}" get nificluster "${cluster_name}" -o jsonpath='{.metadata.name}{" recommended="}{.status.autoscaling.recommendedReplicas}{" reason="}{.status.autoscaling.reason}{" decision="}{.status.autoscaling.lastScalingDecision}{" lowPressureSince="}{.status.autoscaling.lowPressureSince}{" lastScaleUpTime="}{.status.autoscaling.lastScaleUpTime}{" lastScaleDownTime="}{.status.autoscaling.lastScaleDownTime}{" desired="}{.status.replicas.desired}{" ready="}{.status.replicas.ready}{"\n"}' 2>/dev/null || true
+  kubectl -n "${NAMESPACE}" get nificluster "${cluster_name}" -o jsonpath='{.metadata.name}{" recommended="}{.status.autoscaling.recommendedReplicas}{" reason="}{.status.autoscaling.reason}{" decision="}{.status.autoscaling.lastScalingDecision}{" executionPhase="}{.status.autoscaling.execution.phase}{" executionTarget="}{.status.autoscaling.execution.targetReplicas}{" executionStartedAt="}{.status.autoscaling.execution.startedAt}{" lowPressureSince="}{.status.autoscaling.lowPressureSince}{" lastScaleUpTime="}{.status.autoscaling.lastScaleUpTime}{" lastScaleDownTime="}{.status.autoscaling.lastScaleDownTime}{" desired="}{.status.replicas.desired}{" ready="}{.status.replicas.ready}{"\n"}' 2>/dev/null || true
 }
 
 install_main_release() {
@@ -339,10 +374,11 @@ configure_enforced_scale_down 1 3
 wait_for_event_reason AutoscalingScaleDownStarted 300
 wait_for_sts_replicas 2 900
 scale_down_time="$(wait_for_cluster_last_scale_down_time "${HELM_RELEASE}" 300)"
-wait_for_event_reason AutoscalingScaleDownCompleted 300
 run_scale_down_health
 wait_for_condition "${HELM_RELEASE}" Available True 600
-wait_for_cluster_decision_contains "${HELM_RELEASE}" "ScaleDown:" 300
+wait_for_last_operation_phase "${HELM_RELEASE}" Succeeded 600
+wait_for_cluster_execution_phase_empty "${HELM_RELEASE}" 600
+wait_for_event_reason AutoscalingScaleDownCompleted 60 || true
 
 phase "Proving cooldown blocks an immediate second scale-down"
 wait_for_cluster_decision_contains "${HELM_RELEASE}" "cooldown is active until" 300
