@@ -81,6 +81,13 @@ var (
 		},
 		[]string{"reason", "outcome"},
 	)
+	autoscalingScaleActionsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "nifi_platform_autoscaling_scale_actions_total",
+			Help: "Count of enforced autoscaling scale-up actions executed by the controller.",
+		},
+		[]string{"result"},
+	)
 	autoscalingRecommendedReplicas = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "nifi_platform_autoscaling_recommended_replicas",
@@ -108,6 +115,7 @@ func init() {
 		hibernationDurationSeconds,
 		nodePreparationOutcomesTotal,
 		autoscalingRecommendationsTotal,
+		autoscalingScaleActionsTotal,
 		autoscalingRecommendedReplicas,
 		autoscalingSignalSamples,
 	)
@@ -124,6 +132,7 @@ func warmObservabilityMetrics() {
 	hibernationDurationSeconds.WithLabelValues("hibernate", "completed")
 	nodePreparationOutcomesTotal.WithLabelValues(string(platformv1alpha1.NodeOperationPurposeRestart), "retrying")
 	autoscalingRecommendationsTotal.WithLabelValues(autoscalingReasonNoActionableInput, "hold")
+	autoscalingScaleActionsTotal.WithLabelValues("scaled_up")
 	autoscalingSignalSamples.WithLabelValues("", "", string(platformv1alpha1.AutoscalingSignalQueuePressure), "flow_files_queued")
 }
 
@@ -618,6 +627,10 @@ func recordAutoscalingSignalSamples(cluster *platformv1alpha1.NiFiCluster, colle
 	autoscalingSignalSamples.WithLabelValues(namespace, name, string(platformv1alpha1.AutoscalingSignalQueuePressure), "max_timer_driven_threads").Set(float64(collection.QueuePressure.MaxTimerDrivenThreads))
 	autoscalingSignalSamples.WithLabelValues(namespace, name, string(platformv1alpha1.AutoscalingSignalCPU), "load_average").Set(collection.CPU.LoadAverage)
 	autoscalingSignalSamples.WithLabelValues(namespace, name, string(platformv1alpha1.AutoscalingSignalCPU), "available_processors").Set(float64(collection.CPU.AvailableProcessors))
+}
+
+func recordAutoscalingScaleAction(result string) {
+	autoscalingScaleActionsTotal.WithLabelValues(result).Inc()
 }
 
 func (r *NiFiClusterReconciler) observabilityState() *observabilityState {

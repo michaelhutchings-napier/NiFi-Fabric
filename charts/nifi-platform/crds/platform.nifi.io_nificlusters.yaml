@@ -96,6 +96,40 @@ spec:
                   properties:
                     offloadTimeout:
                       type: string
+                autoscaling:
+                  type: object
+                  properties:
+                    mode:
+                      type: string
+                      enum:
+                        - Disabled
+                        - Advisory
+                        - Enforced
+                    scaleUp:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                        cooldown:
+                          type: string
+                    scaleDown:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                    minReplicas:
+                      format: int32
+                      type: integer
+                    maxReplicas:
+                      format: int32
+                      type: integer
+                    signals:
+                      type: array
+                      items:
+                        type: string
+                        enum:
+                          - QueuePressure
+                          - CPU
                 safety:
                   type: object
                   properties:
@@ -182,6 +216,36 @@ spec:
                     lastRunningReplicas:
                       format: int32
                       type: integer
+                autoscaling:
+                  type: object
+                  properties:
+                    recommendedReplicas:
+                      format: int32
+                      type: integer
+                    reason:
+                      type: string
+                    signals:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          type:
+                            type: string
+                            enum:
+                              - QueuePressure
+                              - CPU
+                          available:
+                            type: boolean
+                          message:
+                            type: string
+                    lastEvaluationTime:
+                      format: date-time
+                      type: string
+                    lastScalingDecision:
+                      type: string
+                    lastScaleUpTime:
+                      format: date-time
+                      type: string
                 nodeOperation:
                   type: object
                   properties:

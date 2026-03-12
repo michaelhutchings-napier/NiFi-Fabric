@@ -64,6 +64,7 @@ type AutoscalingMode string
 const (
 	AutoscalingModeDisabled AutoscalingMode = "Disabled"
 	AutoscalingModeAdvisory AutoscalingMode = "Advisory"
+	AutoscalingModeEnforced AutoscalingMode = "Enforced"
 )
 
 type AutoscalingSignal string
@@ -74,10 +75,21 @@ const (
 )
 
 type AutoscalingPolicy struct {
-	Mode        AutoscalingMode     `json:"mode,omitempty"`
-	MinReplicas int32               `json:"minReplicas,omitempty"`
-	MaxReplicas int32               `json:"maxReplicas,omitempty"`
-	Signals     []AutoscalingSignal `json:"signals,omitempty"`
+	Mode        AutoscalingMode            `json:"mode,omitempty"`
+	ScaleUp     AutoscalingScaleUpPolicy   `json:"scaleUp,omitempty"`
+	ScaleDown   AutoscalingScaleDownPolicy `json:"scaleDown,omitempty"`
+	MinReplicas int32                      `json:"minReplicas,omitempty"`
+	MaxReplicas int32                      `json:"maxReplicas,omitempty"`
+	Signals     []AutoscalingSignal        `json:"signals,omitempty"`
+}
+
+type AutoscalingScaleUpPolicy struct {
+	Enabled  bool            `json:"enabled,omitempty"`
+	Cooldown metav1.Duration `json:"cooldown,omitempty"`
+}
+
+type AutoscalingScaleDownPolicy struct {
+	Enabled bool `json:"enabled,omitempty"`
 }
 
 type NiFiClusterSpec struct {
@@ -175,6 +187,8 @@ type AutoscalingStatus struct {
 	Reason              string                    `json:"reason,omitempty"`
 	Signals             []AutoscalingSignalStatus `json:"signals,omitempty"`
 	LastEvaluationTime  *metav1.Time              `json:"lastEvaluationTime,omitempty"`
+	LastScalingDecision string                    `json:"lastScalingDecision,omitempty"`
+	LastScaleUpTime     *metav1.Time              `json:"lastScaleUpTime,omitempty"`
 }
 
 type NiFiClusterStatus struct {

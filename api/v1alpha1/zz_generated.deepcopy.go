@@ -23,6 +23,8 @@ func (in *ClusterNodesStatus) DeepCopy() *ClusterNodesStatus {
 
 func (in *AutoscalingPolicy) DeepCopyInto(out *AutoscalingPolicy) {
 	*out = *in
+	out.ScaleUp = in.ScaleUp
+	out.ScaleDown = in.ScaleDown
 	if in.Signals != nil {
 		in, out := &in.Signals, &out.Signals
 		*out = make([]AutoscalingSignal, len(*in))
@@ -68,6 +70,10 @@ func (in *AutoscalingStatus) DeepCopyInto(out *AutoscalingStatus) {
 		in, out := &in.LastEvaluationTime, &out.LastEvaluationTime
 		*out = (*in).DeepCopy()
 	}
+	if in.LastScaleUpTime != nil {
+		in, out := &in.LastScaleUpTime, &out.LastScaleUpTime
+		*out = (*in).DeepCopy()
+	}
 }
 
 func (in *AutoscalingStatus) DeepCopy() *AutoscalingStatus {
@@ -75,6 +81,32 @@ func (in *AutoscalingStatus) DeepCopy() *AutoscalingStatus {
 		return nil
 	}
 	out := new(AutoscalingStatus)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *AutoscalingScaleDownPolicy) DeepCopyInto(out *AutoscalingScaleDownPolicy) {
+	*out = *in
+}
+
+func (in *AutoscalingScaleDownPolicy) DeepCopy() *AutoscalingScaleDownPolicy {
+	if in == nil {
+		return nil
+	}
+	out := new(AutoscalingScaleDownPolicy)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *AutoscalingScaleUpPolicy) DeepCopyInto(out *AutoscalingScaleUpPolicy) {
+	*out = *in
+}
+
+func (in *AutoscalingScaleUpPolicy) DeepCopy() *AutoscalingScaleUpPolicy {
+	if in == nil {
+		return nil
+	}
+	out := new(AutoscalingScaleUpPolicy)
 	in.DeepCopyInto(out)
 	return out
 }

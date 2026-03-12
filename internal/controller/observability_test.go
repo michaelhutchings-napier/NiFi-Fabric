@@ -182,6 +182,16 @@ func TestObserveStatusTransitionIgnoresAutoscalingMessageOnlyChanges(t *testing.
 	}
 }
 
+func TestRecordAutoscalingScaleActionRecordsMetric(t *testing.T) {
+	resetObservabilityMetrics()
+
+	recordAutoscalingScaleAction("scaled_up")
+
+	if got := testutil.ToFloat64(autoscalingScaleActionsTotal.WithLabelValues("scaled_up")); got != 1 {
+		t.Fatalf("expected one autoscaling scale action metric, got %v", got)
+	}
+}
+
 func resetObservabilityMetrics() {
 	lifecycleTransitionsTotal.Reset()
 	rolloutsTotal.Reset()
@@ -192,6 +202,7 @@ func resetObservabilityMetrics() {
 	hibernationDurationSeconds.Reset()
 	nodePreparationOutcomesTotal.Reset()
 	autoscalingRecommendationsTotal.Reset()
+	autoscalingScaleActionsTotal.Reset()
 	autoscalingRecommendedReplicas.Reset()
 	autoscalingSignalSamples.Reset()
 }

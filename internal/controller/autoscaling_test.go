@@ -2,7 +2,9 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -190,6 +192,63 @@ func TestBuildAutoscalingStatusBlocksWhileHibernatedOrDegraded(t *testing.T) {
 	})
 }
 
+func TestMaybeExecuteAutoscalingScaleUpDoesNotActWhenRecommendationIsBlocked(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		ScaleUp: platformv1alpha1.AutoscalingScaleUpPolicy{
+			Enabled: true,
+		},
+		MaxReplicas: 4,
+	}
+	cluster.Status.Replicas.Desired = 3
+	setAutoscalingSteadyStateConditions(cluster)
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionProgressing,
+		Status:             metav1.ConditionTrue,
+		Reason:             "RevisionDriftDetected",
+		Message:            "Rollout is in progress",
+		LastTransitionTime: metav1.Now(),
+	})
+
+	statefulSet := managedStatefulSet("nifi", 3, "nifi-rev", "nifi-rev")
+	reconciler := &NiFiClusterReconciler{
+		AutoscalingCollector: &fakeAutoscalingCollector{
+			collection: autoscalingSignalCollection{
+				SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
+					Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
+					Available: true,
+					Message:   "queuedFlowFiles=64 queuedBytes=0 activeTimerDrivenThreads=10/10 backlog is actionable",
+				}},
+				QueuePressure: autoscalingQueuePressureSample{
+					Observed:                 true,
+					FlowFilesQueued:          64,
+					BytesQueuedObserved:      true,
+					ThreadCountsObserved:     true,
+					ActiveTimerDrivenThreads: 10,
+					MaxTimerDrivenThreads:    10,
+					Actionable:               true,
+				},
+			},
+		},
+	}
+
+	scaled, _, err := reconciler.maybeExecuteAutoscalingScaleUp(ctx, cluster, statefulSet)
+	if err != nil {
+		t.Fatalf("maybeExecuteAutoscalingScaleUp returned error: %v", err)
+	}
+	if scaled {
+		t.Fatalf("expected blocked autoscaling not to scale")
+	}
+	if updated := derefOptionalInt32(cluster.Status.Autoscaling.RecommendedReplicas); updated != 0 {
+		t.Fatalf("expected blocked autoscaling not to set a recommendation, got %d", updated)
+	}
+	if cluster.Status.Autoscaling.LastScalingDecision != "NoScaleUp: recommendation is unavailable because Progressing" {
+		t.Fatalf("expected blocked decision, got %q", cluster.Status.Autoscaling.LastScalingDecision)
+	}
+}
+
 func TestSyncAutoscalingStatusPreservesLastEvaluationTimeWhenMeaningDoesNotChange(t *testing.T) {
 	ctx := context.Background()
 	cluster := managedCluster()
@@ -283,6 +342,240 @@ func TestReconcilePopulatesAdvisoryAutoscalingStatusAtSteadyState(t *testing.T) 
 	}
 	if updatedCluster.Status.Autoscaling.LastEvaluationTime == nil {
 		t.Fatalf("expected advisory evaluation time to be recorded in status")
+	}
+
+	updatedStatefulSet := &appsv1.StatefulSet{}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: statefulSet.Name}, updatedStatefulSet); err != nil {
+		t.Fatalf("get updated StatefulSet: %v", err)
+	}
+	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != replicas {
+		t.Fatalf("expected advisory autoscaling not to change replicas, got %d", got)
+	}
+}
+
+func TestReconcileEnforcedAutoscalingScalesUpOneStep(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		ScaleUp: platformv1alpha1.AutoscalingScaleUpPolicy{
+			Enabled: true,
+		},
+		MaxReplicas: 5,
+	}
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		healthResponses: []healthResponse{{result: healthyResult(3)}},
+	}, cluster, statefulSet)
+	reconciler.AutoscalingCollector = &fakeAutoscalingCollector{
+		collection: autoscalingSignalCollection{
+			SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
+				Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
+				Available: true,
+				Message:   "queuedFlowFiles=32 queuedBytes=0 activeTimerDrivenThreads=10/10 backlog is actionable",
+			}},
+			QueuePressure: autoscalingQueuePressureSample{
+				Observed:                 true,
+				FlowFilesQueued:          32,
+				BytesQueuedObserved:      true,
+				ThreadCountsObserved:     true,
+				ActiveTimerDrivenThreads: 10,
+				MaxTimerDrivenThreads:    10,
+				Actionable:               true,
+			},
+		},
+	}
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected autoscaling scale-up to requeue, got %s", result.RequeueAfter)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.Autoscaling.LastScaleUpTime == nil {
+		t.Fatalf("expected last scale-up time to be recorded")
+	}
+	if !strings.HasPrefix(updatedCluster.Status.Autoscaling.LastScalingDecision, "ScaleUp:") {
+		t.Fatalf("expected scale-up decision to be recorded, got %q", updatedCluster.Status.Autoscaling.LastScalingDecision)
+	}
+
+	updatedStatefulSet := &appsv1.StatefulSet{}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: statefulSet.Name}, updatedStatefulSet); err != nil {
+		t.Fatalf("get updated StatefulSet: %v", err)
+	}
+	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != 4 {
+		t.Fatalf("expected enforced autoscaling to scale to 4 replicas, got %d", got)
+	}
+}
+
+func TestReconcileEnforcedAutoscalingRespectsCooldown(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	lastScaleUp := metav1.NewTime(time.Now().UTC())
+	cluster.Status.Autoscaling.LastScaleUpTime = &lastScaleUp
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		ScaleUp: platformv1alpha1.AutoscalingScaleUpPolicy{
+			Enabled: true,
+			Cooldown: metav1.Duration{
+				Duration: 10 * time.Minute,
+			},
+		},
+		MaxReplicas: 5,
+	}
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		healthResponses: []healthResponse{{result: healthyResult(3)}},
+	}, cluster, statefulSet)
+	reconciler.AutoscalingCollector = &fakeAutoscalingCollector{
+		collection: autoscalingSignalCollection{
+			SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
+				Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
+				Available: true,
+				Message:   "queuedFlowFiles=24 queuedBytes=0 activeTimerDrivenThreads=10/10 backlog is actionable",
+			}},
+			QueuePressure: autoscalingQueuePressureSample{
+				Observed:                 true,
+				FlowFilesQueued:          24,
+				BytesQueuedObserved:      true,
+				ThreadCountsObserved:     true,
+				ActiveTimerDrivenThreads: 10,
+				MaxTimerDrivenThreads:    10,
+				Actionable:               true,
+			},
+		},
+	}
+
+	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)}); err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if !strings.HasPrefix(updatedCluster.Status.Autoscaling.LastScalingDecision, "NoScaleUp: cooldown is") {
+		t.Fatalf("expected cooldown block decision, got %q", updatedCluster.Status.Autoscaling.LastScalingDecision)
+	}
+
+	updatedStatefulSet := &appsv1.StatefulSet{}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: statefulSet.Name}, updatedStatefulSet); err != nil {
+		t.Fatalf("get updated StatefulSet: %v", err)
+	}
+	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != replicas {
+		t.Fatalf("expected cooldown to keep replicas at %d, got %d", replicas, got)
+	}
+}
+
+func TestReconcileEnforcedAutoscalingClampsToOneStepFromMinimumRecommendation(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		ScaleUp: platformv1alpha1.AutoscalingScaleUpPolicy{
+			Enabled: true,
+		},
+		MinReplicas: 4,
+		MaxReplicas: 6,
+	}
+
+	replicas := int32(1)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		healthResponses: []healthResponse{{result: healthyResult(1)}},
+	}, cluster, statefulSet)
+	reconciler.AutoscalingCollector = &fakeAutoscalingCollector{
+		collection: autoscalingSignalCollection{
+			SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
+				Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
+				Available: true,
+				Message:   "queuedFlowFiles=0 queuedBytes=0 activeTimerDrivenThreads=1/10",
+			}},
+			QueuePressure: autoscalingQueuePressureSample{
+				Observed:                 true,
+				BytesQueuedObserved:      true,
+				ThreadCountsObserved:     true,
+				ActiveTimerDrivenThreads: 1,
+				MaxTimerDrivenThreads:    10,
+			},
+		},
+	}
+
+	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)}); err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+
+	updatedStatefulSet := &appsv1.StatefulSet{}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: statefulSet.Name}, updatedStatefulSet); err != nil {
+		t.Fatalf("get updated StatefulSet: %v", err)
+	}
+	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != 2 {
+		t.Fatalf("expected one-step scale-up to 2 replicas, got %d", got)
+	}
+}
+
+func TestReconcileEnforcedAutoscalingNeverScalesDown(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		ScaleUp: platformv1alpha1.AutoscalingScaleUpPolicy{
+			Enabled: true,
+		},
+		MinReplicas: 1,
+		MaxReplicas: 2,
+	}
+
+	replicas := int32(4)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		healthResponses: []healthResponse{{result: healthyResult(4)}},
+	}, cluster, statefulSet)
+	reconciler.AutoscalingCollector = &fakeAutoscalingCollector{
+		collection: autoscalingSignalCollection{
+			SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
+				Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
+				Available: true,
+				Message:   "queuedFlowFiles=0 queuedBytes=0 activeTimerDrivenThreads=1/10",
+			}},
+			QueuePressure: autoscalingQueuePressureSample{
+				Observed:                 true,
+				BytesQueuedObserved:      true,
+				ThreadCountsObserved:     true,
+				ActiveTimerDrivenThreads: 1,
+				MaxTimerDrivenThreads:    10,
+			},
+		},
+	}
+
+	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)}); err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.Autoscaling.LastScalingDecision != "NoScaleUp: automatic scale-down is disabled" {
+		t.Fatalf("expected scale-down-disabled decision, got %q", updatedCluster.Status.Autoscaling.LastScalingDecision)
+	}
+
+	updatedStatefulSet := &appsv1.StatefulSet{}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: statefulSet.Name}, updatedStatefulSet); err != nil {
+		t.Fatalf("get updated StatefulSet: %v", err)
+	}
+	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != replicas {
+		t.Fatalf("expected replicas to remain %d, got %d", replicas, got)
 	}
 }
 

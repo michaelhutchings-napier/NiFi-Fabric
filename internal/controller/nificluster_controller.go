@@ -357,6 +357,11 @@ func (r *NiFiClusterReconciler) finishSteadyState(ctx context.Context, cluster *
 		Message:            "Hibernation is not active",
 		LastTransitionTime: metav1.Now(),
 	})
+	if scaled, result, err := r.maybeExecuteAutoscalingScaleUp(ctx, cluster, target); err != nil {
+		return ctrl.Result{}, err
+	} else if scaled {
+		return result, nil
+	}
 	cluster.Status.LastOperation = succeededOperation(lastOperationTypeForSteadyState(cluster), lastOperationMessageForSteadyState(cluster, target, drift))
 	cluster.Status.Rollout = platformv1alpha1.RolloutStatus{}
 	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}

@@ -104,6 +104,19 @@ spec:
                     enum:
                     - Disabled
                     - Advisory
+                    - Enforced
+                  scaleUp:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      cooldown:
+                        type: string
+                  scaleDown:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
                   minReplicas:
                     format: int32
                     type: integer
@@ -226,6 +239,11 @@ spec:
                         message:
                           type: string
                   lastEvaluationTime:
+                    format: date-time
+                    type: string
+                  lastScalingDecision:
+                    type: string
+                  lastScaleUpTime:
                     format: date-time
                     type: string
               nodeOperation:

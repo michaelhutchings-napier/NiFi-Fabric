@@ -8,6 +8,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	platformv1alpha1 "github.com/michaelhutchings-napier/NiFi-Fabric/api/v1alpha1"
@@ -27,6 +28,8 @@ const (
 	autoscalingReasonCPUSaturation      = "CPUSaturationDetected"
 	autoscalingReasonMaxReplicasReached = "MaxReplicasReached"
 	autoscalingReasonNoActionableInput  = "NoActionableSignals"
+
+	defaultAutoscalingScaleUpCooldown = 5 * time.Minute
 )
 
 func (r *NiFiClusterReconciler) syncAutoscalingStatus(ctx context.Context, cluster *platformv1alpha1.NiFiCluster) {
@@ -39,24 +42,31 @@ func (r *NiFiClusterReconciler) syncAutoscalingStatus(ctx context.Context, clust
 		now := metav1.NewTime(time.Now().UTC())
 		desired.LastEvaluationTime = &now
 	}
+	desired.LastScalingDecision = cluster.Status.Autoscaling.LastScalingDecision
+	if cluster.Status.Autoscaling.LastScaleUpTime != nil {
+		desired.LastScaleUpTime = cluster.Status.Autoscaling.LastScaleUpTime.DeepCopy()
+	}
 	cluster.Status.Autoscaling = desired
 	recordAutoscalingSignalSamples(cluster, samples)
 }
 
 func (r *NiFiClusterReconciler) buildAutoscalingStatus(ctx context.Context, cluster *platformv1alpha1.NiFiCluster) (platformv1alpha1.AutoscalingStatus, autoscalingSignalCollection) {
+	target := &appsv1.StatefulSet{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: cluster.Spec.TargetRef.Name}, target); err != nil {
+		return platformv1alpha1.AutoscalingStatus{Reason: autoscalingReasonTargetNotResolved}, autoscalingSignalCollection{}
+	}
+
+	return r.buildAutoscalingStatusForTarget(ctx, cluster, target)
+}
+
+func (r *NiFiClusterReconciler) buildAutoscalingStatusForTarget(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet) (platformv1alpha1.AutoscalingStatus, autoscalingSignalCollection) {
+	policy := cluster.Spec.Autoscaling
 	blocked, blockedReason := blockedAutoscalingStatus(cluster)
 	if blocked {
 		return platformv1alpha1.AutoscalingStatus{Reason: blockedReason}, autoscalingSignalCollection{}
 	}
-
-	policy := cluster.Spec.Autoscaling
 	if autoscalingMode(policy) == platformv1alpha1.AutoscalingModeDisabled {
 		return platformv1alpha1.AutoscalingStatus{Reason: autoscalingReasonDisabled}, autoscalingSignalCollection{}
-	}
-
-	target := &appsv1.StatefulSet{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: cluster.Spec.TargetRef.Name}, target); err != nil {
-		return platformv1alpha1.AutoscalingStatus{Reason: autoscalingReasonTargetNotResolved}, autoscalingSignalCollection{}
 	}
 
 	signals := autoscalingSignals(policy)
@@ -71,6 +81,99 @@ func (r *NiFiClusterReconciler) buildAutoscalingStatus(ctx context.Context, clus
 	}
 
 	return buildAutoscalingSteadyStateStatus(cluster, policy, collection), collection
+}
+
+func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleUp(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet) (bool, ctrl.Result, error) {
+	status, _ := r.buildAutoscalingStatusForTarget(ctx, cluster, target)
+
+	policy := cluster.Spec.Autoscaling
+	mode := autoscalingMode(policy)
+	switch mode {
+	case platformv1alpha1.AutoscalingModeDisabled, platformv1alpha1.AutoscalingModeAdvisory:
+		cluster.Status.Autoscaling.LastScalingDecision = "NoScaleUp: autoscaling is not in enforced mode"
+		return false, ctrl.Result{}, nil
+	}
+
+	if !policy.ScaleUp.Enabled {
+		cluster.Status.Autoscaling.LastScalingDecision = "NoScaleUp: scale-up is not enabled"
+		return false, ctrl.Result{}, nil
+	}
+	if status.RecommendedReplicas == nil {
+		cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("NoScaleUp: recommendation is unavailable because %s", status.Reason)
+		return false, ctrl.Result{}, nil
+	}
+
+	currentReplicas := cluster.Status.Replicas.Desired
+	recommendedReplicas := derefOptionalInt32(status.RecommendedReplicas)
+	switch {
+	case recommendedReplicas < currentReplicas:
+		cluster.Status.Autoscaling.LastScalingDecision = "NoScaleUp: automatic scale-down is disabled"
+		return false, ctrl.Result{}, nil
+	case recommendedReplicas == currentReplicas:
+		cluster.Status.Autoscaling.LastScalingDecision = "NoScaleUp: recommended replicas are already satisfied"
+		return false, ctrl.Result{}, nil
+	}
+
+	cooldown := autoscalingScaleUpCooldown(policy)
+	if cluster.Status.Autoscaling.LastScaleUpTime != nil && cooldown > 0 {
+		nextEligibleTime := cluster.Status.Autoscaling.LastScaleUpTime.Time.Add(cooldown)
+		if time.Now().UTC().Before(nextEligibleTime) {
+			cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("NoScaleUp: cooldown is active until %s", nextEligibleTime.UTC().Format(time.RFC3339))
+			return false, ctrl.Result{}, nil
+		}
+	}
+
+	desiredReplicas := currentReplicas + 1
+	if desiredReplicas > recommendedReplicas {
+		desiredReplicas = recommendedReplicas
+	}
+	maxReplicas := autoscalingMaxReplicas(policy, autoscalingMinReplicas(policy, currentReplicas), currentReplicas)
+	if desiredReplicas > maxReplicas {
+		desiredReplicas = maxReplicas
+	}
+	if desiredReplicas <= currentReplicas {
+		cluster.Status.Autoscaling.LastScalingDecision = "NoScaleUp: bounded recommendation does not allow a larger target size"
+		return false, ctrl.Result{}, nil
+	}
+
+	scaledTarget := target.DeepCopy()
+	scaledTarget.Spec.Replicas = ptrTo(desiredReplicas)
+	if err := r.Update(ctx, scaledTarget); err != nil {
+		return false, ctrl.Result{}, fmt.Errorf("update StatefulSet replicas for autoscaling scale-up: %w", err)
+	}
+
+	now := metav1.NewTime(time.Now().UTC())
+	decision := fmt.Sprintf("ScaleUp: increased target StatefulSet replicas from %d to %d", currentReplicas, desiredReplicas)
+	cluster.Status.Autoscaling.LastScalingDecision = decision
+	cluster.Status.Autoscaling.LastScaleUpTime = &now
+	cluster.Status.LastOperation = runningOperation("AutoscalingScaleUp", fmt.Sprintf("%s because %s", decision, autoscalingStatusMessage(status)))
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionProgressing,
+		Status:             metav1.ConditionTrue,
+		Reason:             "AutoscalingScaleUp",
+		Message:            fmt.Sprintf("Managed autoscaling is scaling the cluster from %d to %d replicas", currentReplicas, desiredReplicas),
+		LastTransitionTime: metav1.Now(),
+	})
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionAvailable,
+		Status:             metav1.ConditionFalse,
+		Reason:             "AutoscalingScaleUp",
+		Message:            fmt.Sprintf("Waiting for the scaled cluster to become healthy at %d replicas", desiredReplicas),
+		LastTransitionTime: metav1.Now(),
+	})
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionDegraded,
+		Status:             metav1.ConditionFalse,
+		Reason:             "AutoscalingScaleUp",
+		Message:            "Autoscaling scale-up is in progress",
+		LastTransitionTime: metav1.Now(),
+	})
+	recordAutoscalingScaleAction("scaled_up")
+	if r.Recorder != nil {
+		r.Recorder.Event(cluster, "Normal", "AutoscalingScaleUp", fmt.Sprintf("Managed autoscaling increased replicas from %d to %d", currentReplicas, desiredReplicas))
+	}
+
+	return true, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 }
 
 func blockedAutoscalingStatus(cluster *platformv1alpha1.NiFiCluster) (bool, string) {
@@ -152,6 +255,13 @@ func autoscalingMode(policy platformv1alpha1.AutoscalingPolicy) platformv1alpha1
 		return platformv1alpha1.AutoscalingModeDisabled
 	}
 	return policy.Mode
+}
+
+func autoscalingScaleUpCooldown(policy platformv1alpha1.AutoscalingPolicy) time.Duration {
+	if policy.ScaleUp.Cooldown.Duration > 0 {
+		return policy.ScaleUp.Cooldown.Duration
+	}
+	return defaultAutoscalingScaleUpCooldown
 }
 
 func autoscalingSignals(policy platformv1alpha1.AutoscalingPolicy) []platformv1alpha1.AutoscalingSignal {
@@ -255,35 +365,35 @@ func equalOptionalInt32(left, right *int32) bool {
 func autoscalingStatusMessage(status platformv1alpha1.AutoscalingStatus) string {
 	switch status.Reason {
 	case autoscalingReasonDisabled:
-		return "Advisory autoscaling is disabled"
+		return "Autoscaling is disabled"
 	case autoscalingReasonTargetNotResolved:
-		return "Advisory autoscaling is waiting for the target StatefulSet to resolve"
+		return "Autoscaling is waiting for the target StatefulSet to resolve"
 	case autoscalingReasonUnmanagedTarget:
-		return "Advisory autoscaling is blocked because the target StatefulSet is unmanaged"
+		return "Autoscaling is blocked because the target StatefulSet is unmanaged"
 	case autoscalingReasonHibernated:
-		return "Advisory autoscaling is blocked while the cluster is hibernated or restoring"
+		return "Autoscaling is blocked while the cluster is hibernated or restoring"
 	case autoscalingReasonProgressing:
-		return "Advisory autoscaling is blocked while managed lifecycle work is in progress"
+		return "Autoscaling is blocked while managed lifecycle work is in progress"
 	case autoscalingReasonDegraded:
-		return "Advisory autoscaling is blocked while the cluster is degraded"
+		return "Autoscaling is blocked while the cluster is degraded"
 	case autoscalingReasonUnavailable:
-		return "Advisory autoscaling is blocked until the cluster is available"
+		return "Autoscaling is blocked until the cluster is available"
 	case autoscalingReasonBelowMinReplicas:
-		return fmt.Sprintf("Advisory autoscaling recommends %d replicas because the current desired replica count is below the configured minimum", derefOptionalInt32(status.RecommendedReplicas))
+		return fmt.Sprintf("Autoscaling recommends %d replicas because the current desired replica count is below the configured minimum", derefOptionalInt32(status.RecommendedReplicas))
 	case autoscalingReasonAboveMaxReplicas:
-		return fmt.Sprintf("Advisory autoscaling recommends %d replicas because the current desired replica count is above the configured maximum", derefOptionalInt32(status.RecommendedReplicas))
+		return fmt.Sprintf("Autoscaling recommends %d replicas because the current desired replica count is above the configured maximum", derefOptionalInt32(status.RecommendedReplicas))
 	case autoscalingReasonQueuePressure:
-		return fmt.Sprintf("Advisory autoscaling recommends %d replicas because root process-group backlog is present while NiFi timer-driven threads are saturated. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summarizeAutoscalingSignals(status.Signals))
+		return fmt.Sprintf("Autoscaling recommends %d replicas because root process-group backlog is present while NiFi timer-driven threads are saturated. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summarizeAutoscalingSignals(status.Signals))
 	case autoscalingReasonCPUSaturation:
-		return fmt.Sprintf("Advisory autoscaling recommends %d replicas because NiFi system diagnostics report CPU saturation. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summarizeAutoscalingSignals(status.Signals))
+		return fmt.Sprintf("Autoscaling recommends %d replicas because NiFi system diagnostics report CPU saturation. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summarizeAutoscalingSignals(status.Signals))
 	case autoscalingReasonMaxReplicasReached:
-		return fmt.Sprintf("Advisory autoscaling is observing scale-up pressure, but the recommendation remains at %d replicas because the configured maximum has already been reached. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summarizeAutoscalingSignals(status.Signals))
+		return fmt.Sprintf("Autoscaling is observing scale-up pressure, but the recommendation remains at %d replicas because the configured maximum has already been reached. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summarizeAutoscalingSignals(status.Signals))
 	default:
 		summary := summarizeAutoscalingSignals(status.Signals)
 		if summary == "" {
-			return fmt.Sprintf("Advisory autoscaling recommends %d replicas; no actionable advisory signals are currently available", derefOptionalInt32(status.RecommendedReplicas))
+			return fmt.Sprintf("Autoscaling recommends %d replicas; no actionable signals are currently available", derefOptionalInt32(status.RecommendedReplicas))
 		}
-		return fmt.Sprintf("Advisory autoscaling recommends %d replicas; no actionable advisory signals are currently driving a scale-up. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summary)
+		return fmt.Sprintf("Autoscaling recommends %d replicas; no actionable signals are currently driving a scale-up. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summary)
 	}
 }
 

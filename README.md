@@ -62,7 +62,7 @@ What is implemented now:
 - explicit `scaleUp.enabled` and `scaleDown.enabled` policy fields
 - minimal scale-up cooldown control
 - `status.autoscaling.recommendedReplicas`, `reason`, `signals`, `lastEvaluationTime`, `lastScalingDecision`, and `lastScaleUpTime`
-- advisory-only events and metrics
+- autoscaling recommendation events and metrics, plus enforced scale-up action metrics
 - explicit precedence rules that suppress recommendations while the cluster is progressing, hibernated, degraded, unavailable, or unmanaged
 - real queue-pressure sampling from NiFi root-process-group backlog
 - real timer-driven thread sampling from NiFi system diagnostics to decide whether backlog is actionable
@@ -71,7 +71,6 @@ What is implemented now:
 
 What is not implemented yet:
 
-- automatic scale-down
 - direct autoscaler mutation of `StatefulSet.spec.replicas`
 - automatic scale-down
 - sustained queue-age collection

@@ -38,6 +38,11 @@ spec:
     offloadTimeout: {{ .Values.cluster.hibernation.offloadTimeout | quote }}
   autoscaling:
     mode: {{ .Values.cluster.autoscaling.mode }}
+    scaleUp:
+      enabled: {{ ternary "true" "false" .Values.cluster.autoscaling.scaleUp.enabled }}
+      cooldown: {{ .Values.cluster.autoscaling.scaleUp.cooldown | quote }}
+    scaleDown:
+      enabled: {{ ternary "true" "false" .Values.cluster.autoscaling.scaleDown.enabled }}
     minReplicas: {{ .Values.cluster.autoscaling.minReplicas }}
     maxReplicas: {{ .Values.cluster.autoscaling.maxReplicas }}
     {{- if .Values.cluster.autoscaling.signals }}
