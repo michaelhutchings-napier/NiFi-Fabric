@@ -9,11 +9,13 @@ CONTAINER="${CONTAINER:-nifi}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-600}"
 INTERVAL_SECONDS="${INTERVAL_SECONDS:-10}"
 STABLE_POLLS="${STABLE_POLLS:-3}"
+ALLOW_FORMER_NODES="${ALLOW_FORMER_NODES:-false}"
 
 usage() {
   cat <<'EOF'
 Usage: hack/check-nifi-health.sh [--namespace ns] [--statefulset name] [--auth-secret name]
                                  [--timeout seconds] [--interval seconds] [--stable-polls count]
+                                 [--allow-former-nodes]
 
 Checks three separate signals for a standalone NiFi 2 cluster:
 1. Kubernetes pod readiness
@@ -22,6 +24,11 @@ Checks three separate signals for a standalone NiFi 2 cluster:
 
 The script exits 0 only after the convergence signal is stable for the requested
 number of consecutive polls. It exits 1 on timeout or any hard failure.
+
+`--allow-former-nodes` relaxes the total-node-count check so each healthy pod may
+report `totalNodeCount >= expected replicas` while the remaining connected nodes
+already match the new expected size. This is intended only for safe post-removal
+checks such as managed hibernation or autoscaling scale-down validation.
 EOF
 }
 
@@ -57,6 +64,10 @@ while [[ $# -gt 0 ]]; do
     --stable-polls)
       STABLE_POLLS="$2"
       shift 2
+      ;;
+    --allow-former-nodes)
+      ALLOW_FORMER_NODES="true"
+      shift
       ;;
     -h|--help)
       usage
@@ -188,7 +199,16 @@ print("\t".join([
       )"
       IFS=$'\t' read -r clustered connected_to_cluster connected_count total_count connected_nodes <<< "${parsed_summary}"
 
-      if [[ "${clustered}" == "true" && "${connected_to_cluster}" == "true" && "${connected_count}" == "${expected_replicas}" && "${total_count}" == "${expected_replicas}" ]]; then
+      total_count_matches="false"
+      if [[ "${ALLOW_FORMER_NODES}" == "true" ]]; then
+        if [[ "${total_count}" =~ ^[0-9]+$ ]] && (( total_count >= expected_replicas )); then
+          total_count_matches="true"
+        fi
+      elif [[ "${total_count}" == "${expected_replicas}" ]]; then
+        total_count_matches="true"
+      fi
+
+      if [[ "${clustered}" == "true" && "${connected_to_cluster}" == "true" && "${connected_count}" == "${expected_replicas}" && "${total_count_matches}" == "true" ]]; then
         converged_count="$((converged_count + 1))"
       fi
     else

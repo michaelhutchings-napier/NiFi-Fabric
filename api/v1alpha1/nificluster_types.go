@@ -89,7 +89,9 @@ type AutoscalingScaleUpPolicy struct {
 }
 
 type AutoscalingScaleDownPolicy struct {
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled             bool            `json:"enabled,omitempty"`
+	Cooldown            metav1.Duration `json:"cooldown,omitempty"`
+	StabilizationWindow metav1.Duration `json:"stabilizationWindow,omitempty"`
 }
 
 type NiFiClusterSpec struct {
@@ -126,6 +128,7 @@ type NodeOperationPurpose string
 const (
 	NodeOperationPurposeRestart     NodeOperationPurpose = "Restart"
 	NodeOperationPurposeHibernation NodeOperationPurpose = "Hibernation"
+	NodeOperationPurposeScaleDown   NodeOperationPurpose = "ScaleDown"
 )
 
 type NodeOperationStage string
@@ -187,8 +190,10 @@ type AutoscalingStatus struct {
 	Reason              string                    `json:"reason,omitempty"`
 	Signals             []AutoscalingSignalStatus `json:"signals,omitempty"`
 	LastEvaluationTime  *metav1.Time              `json:"lastEvaluationTime,omitempty"`
+	LowPressureSince    *metav1.Time              `json:"lowPressureSince,omitempty"`
 	LastScalingDecision string                    `json:"lastScalingDecision,omitempty"`
 	LastScaleUpTime     *metav1.Time              `json:"lastScaleUpTime,omitempty"`
+	LastScaleDownTime   *metav1.Time              `json:"lastScaleDownTime,omitempty"`
 }
 
 type NiFiClusterStatus struct {

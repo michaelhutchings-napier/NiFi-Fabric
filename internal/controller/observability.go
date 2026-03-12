@@ -84,7 +84,7 @@ var (
 	autoscalingScaleActionsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "nifi_platform_autoscaling_scale_actions_total",
-			Help: "Count of enforced autoscaling scale-up actions executed by the controller.",
+			Help: "Count of enforced autoscaling scale actions executed by the controller.",
 		},
 		[]string{"result"},
 	)
@@ -133,6 +133,8 @@ func warmObservabilityMetrics() {
 	nodePreparationOutcomesTotal.WithLabelValues(string(platformv1alpha1.NodeOperationPurposeRestart), "retrying")
 	autoscalingRecommendationsTotal.WithLabelValues(autoscalingReasonNoActionableInput, "hold")
 	autoscalingScaleActionsTotal.WithLabelValues("scaled_up")
+	autoscalingScaleActionsTotal.WithLabelValues("scaled_down")
+	autoscalingScaleActionsTotal.WithLabelValues("scale_down_failed")
 	autoscalingSignalSamples.WithLabelValues("", "", string(platformv1alpha1.AutoscalingSignalQueuePressure), "flow_files_queued")
 }
 

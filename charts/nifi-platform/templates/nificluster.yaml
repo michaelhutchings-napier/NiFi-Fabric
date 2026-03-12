@@ -43,6 +43,8 @@ spec:
       cooldown: {{ .Values.cluster.autoscaling.scaleUp.cooldown | quote }}
     scaleDown:
       enabled: {{ ternary "true" "false" .Values.cluster.autoscaling.scaleDown.enabled }}
+      cooldown: {{ .Values.cluster.autoscaling.scaleDown.cooldown | quote }}
+      stabilizationWindow: {{ .Values.cluster.autoscaling.scaleDown.stabilizationWindow | quote }}
     minReplicas: {{ .Values.cluster.autoscaling.minReplicas }}
     maxReplicas: {{ .Values.cluster.autoscaling.maxReplicas }}
     {{- if .Values.cluster.autoscaling.signals }}

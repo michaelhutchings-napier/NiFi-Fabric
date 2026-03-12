@@ -171,24 +171,37 @@ For GitOps users, the important implication is narrow and documented:
 
 ## Autoscaling Position
 
-Autoscaling now has two explicit modes on `NiFiCluster`:
+Autoscaling now has two execution scopes on `NiFiCluster`:
 
 - `Advisory`, which stays status-only
-- `Enforced`, which is currently limited to optional experimental scale-up only
+- `Enforced`, which is experimental and can execute bounded controller-owned scale actions
 
-The current slice is intentionally small:
+The current slice is intentionally conservative:
 
 - `spec.autoscaling.mode` supports `Disabled`, `Advisory`, and `Enforced`
 - the controller always computes a recommended replica count first
 - advisory mode does not mutate `StatefulSet.spec.replicas`
-- enforced mode can raise `StatefulSet.spec.replicas` only through the controller, one step at a time
+- enforced mode can change `StatefulSet.spec.replicas` only through the controller, one step at a time
 - enforced mode requires `scaleUp.enabled=true`
-- `scaleDown.enabled` exists only to keep the future shape explicit and must remain `false` in the current implementation
+- experimental automatic scale-down also requires `scaleDown.enabled=true`
+- scale-down remains more conservative than scale-up and requires sustained low pressure before any replica reduction
 - recommendations are suppressed while rollout, hibernation or restore, degraded state, or other non-steady conditions are active
 - enabled signals are typed and surfaced in status with real queue, thread, and CPU samples where NiFi exposes them today
-- cooldown state is kept on `NiFiCluster.status`, not in a second autoscaling API surface
-- the focused fast NiFi `2.8.0` runtime proof now covers advisory status-only behavior, one-step enforced scale-up, cooldown blocking, no automatic scale-down, and blocked autoscaling during progressing, hibernated or restoring, degraded, unresolved, and unmanaged states
+- low-pressure persistence and scale-action timestamps are kept on `NiFiCluster.status`, not in a second autoscaling API surface
+- the focused fast NiFi `2.8.0` runtime proof now covers advisory status-only behavior, one-step enforced scale-up, one-step experimental enforced scale-down, cooldown blocking, and blocked autoscaling during progressing, hibernated or restoring, degraded, unresolved, and unmanaged states
 - rollout failure and blocked autoscaling status must still persist even when reconcile returns an error, because degraded autoscaling is only useful if it survives the same failure path the operator is diagnosing
+
+The current autoscaling shape is:
+
+- `Advisory` computes only `status.autoscaling`
+- `Enforced` scale-up is opt-in through `scaleUp.enabled=true`
+- `Enforced` scale-down is separately opt-in through `scaleDown.enabled=true`
+- scale-down uses the same disconnect, offload, and highest-ordinal-first sequencing already used for hibernation
+- scale-down uses the same post-removal convergence gate already used for hibernation, so remaining nodes must stay connected and healthy even while NiFi still reports the former node in total-node counts for a short window
+- scale-down settlement is sampled and requeued per reconcile instead of holding the single worker inside one long blocking health wait
+- scale-down does not run while rollout, TLS restart, hibernation, restore, degraded state, or target-resolution problems are active
+- scale-down requires a healthy converged cluster and a sustained low-pressure window before the controller prepares a node
+- scale-down still runs only one step per decision and waits for that reduced replica count to settle before any new autoscaling decision is eligible
 
 Autoscaling is still not a trivial extension of the current managed design.
 
@@ -209,7 +222,7 @@ For this platform, the intended long-term direction is:
 - the recommendation should be written to the `NiFiCluster` control plane, not directly to the `StatefulSet`
 - the existing controller should decide whether the cluster is in a state where scaling is safe
 - the controller should execute ordered scale actions using the same health gates and NiFi API choreography already used for managed destructive steps
-- automatic scale-down remains deferred until that same controller-owned choreography is specified and proven for disconnect, offload, delete, hibernation, and restore interactions together
+- automatic scale-down remains experimental until that same controller-owned choreography is proven against interrupted restarts, stuck offload, PVC retention, and hibernation or restore interactions together
 
 This keeps the controller thin while preserving one place that owns destructive coordination.
 
@@ -307,7 +320,7 @@ Current implementation note:
 - the controller keeps recommendation output bounded
 - advisory mode remains read-only
 - enforced mode can apply a bounded one-step scale-up only after the same steady-state health gate passes
-- scale-down remains disabled
+- enforced mode can also apply a bounded one-step experimental scale-down only after the same steady-state health gate passes, sustained low pressure is recorded, and NiFi node preparation completes
 
 ### NiFi-Specific Constraints
 

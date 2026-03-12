@@ -70,8 +70,16 @@ func (in *AutoscalingStatus) DeepCopyInto(out *AutoscalingStatus) {
 		in, out := &in.LastEvaluationTime, &out.LastEvaluationTime
 		*out = (*in).DeepCopy()
 	}
+	if in.LowPressureSince != nil {
+		in, out := &in.LowPressureSince, &out.LowPressureSince
+		*out = (*in).DeepCopy()
+	}
 	if in.LastScaleUpTime != nil {
 		in, out := &in.LastScaleUpTime, &out.LastScaleUpTime
+		*out = (*in).DeepCopy()
+	}
+	if in.LastScaleDownTime != nil {
+		in, out := &in.LastScaleDownTime, &out.LastScaleDownTime
 		*out = (*in).DeepCopy()
 	}
 }

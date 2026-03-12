@@ -21,6 +21,10 @@ func (r *NiFiClusterReconciler) preparePodForHibernation(ctx context.Context, cl
 	return r.preparePodForOperation(ctx, cluster, target, pods, pod, platformv1alpha1.NodeOperationPurposeHibernation)
 }
 
+func (r *NiFiClusterReconciler) preparePodForScaleDown(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, pods []corev1.Pod, pod corev1.Pod) (bool, ctrl.Result, error) {
+	return r.preparePodForOperation(ctx, cluster, target, pods, pod, platformv1alpha1.NodeOperationPurposeScaleDown)
+}
+
 func (r *NiFiClusterReconciler) preparePodForOperation(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, pods []corev1.Pod, pod corev1.Pod, purpose platformv1alpha1.NodeOperationPurpose) (bool, ctrl.Result, error) {
 	clearNodeOperationIfPodMissing(cluster, pods)
 
@@ -169,6 +173,9 @@ func (r *NiFiClusterReconciler) markNodePreparationBlocked(cluster *platformv1al
 func progressingReasonForNodePreparation(purpose platformv1alpha1.NodeOperationPurpose) string {
 	if purpose == platformv1alpha1.NodeOperationPurposeHibernation {
 		return "PreparingNodeForHibernation"
+	}
+	if purpose == platformv1alpha1.NodeOperationPurposeScaleDown {
+		return "PreparingNodeForScaleDown"
 	}
 	return "PreparingNodeForRestart"
 }

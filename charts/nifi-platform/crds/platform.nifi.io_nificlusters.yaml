@@ -117,6 +117,10 @@ spec:
                       properties:
                         enabled:
                           type: boolean
+                        cooldown:
+                          type: string
+                        stabilizationWindow:
+                          type: string
                     minReplicas:
                       format: int32
                       type: integer
@@ -241,9 +245,15 @@ spec:
                     lastEvaluationTime:
                       format: date-time
                       type: string
+                    lowPressureSince:
+                      format: date-time
+                      type: string
                     lastScalingDecision:
                       type: string
                     lastScaleUpTime:
+                      format: date-time
+                      type: string
+                    lastScaleDownTime:
                       format: date-time
                       type: string
                 nodeOperation:
@@ -254,6 +264,7 @@ spec:
                       enum:
                         - Restart
                         - Hibernation
+                        - ScaleDown
                     podName:
                       type: string
                     podUid:

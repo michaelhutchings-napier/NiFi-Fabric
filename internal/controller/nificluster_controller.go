@@ -129,6 +129,10 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 		return ctrl.Result{}, nil
 	}
 
+	if autoscalingScaleDownInProgress(cluster) {
+		return r.reconcileAutoscalingScaleDown(ctx, cluster, target, pods)
+	}
+
 	drift, err := r.computeWatchedResourceDrift(ctx, cluster, target)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("compute watched-resource drift: %w", err)
@@ -148,7 +152,7 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 
 	plan := BuildRolloutPlan(target, pods, cluster.Status.Rollout)
 	if !plan.HasDrift() {
-		return r.finishSteadyState(ctx, cluster, target, drift)
+		return r.finishSteadyState(ctx, cluster, target, pods, drift)
 	}
 
 	progressReason, progressMessage := rolloutConditionDetails(plan, drift)
@@ -256,7 +260,7 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 
 	nextPod := plan.NextPodToDelete()
 	if nextPod == nil && rolloutManagedByPodState(plan) {
-		return r.finishSteadyState(ctx, cluster, target, drift)
+		return r.finishSteadyState(ctx, cluster, target, pods, drift)
 	}
 	if nextPod == nil {
 		cluster.Status.LastOperation = succeededOperation("Rollout", fmt.Sprintf("Waiting for StatefulSet status to converge to revision %q", plan.UpdateRevision))
@@ -313,7 +317,7 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 	return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 }
 
-func (r *NiFiClusterReconciler) finishSteadyState(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, drift WatchedResourceDrift) (ctrl.Result, error) {
+func (r *NiFiClusterReconciler) finishSteadyState(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, pods []corev1.Pod, drift WatchedResourceDrift) (ctrl.Result, error) {
 	healthResult, err := r.HealthChecker.WaitForClusterHealthy(ctx, cluster, target, clusterHealthTimeout(cluster))
 	r.applyClusterHealth(cluster, healthResult)
 	if err != nil {
@@ -366,6 +370,11 @@ func (r *NiFiClusterReconciler) finishSteadyState(ctx context.Context, cluster *
 		LastTransitionTime: metav1.Now(),
 	})
 	if scaled, result, err := r.maybeExecuteAutoscalingScaleUp(ctx, cluster, target); err != nil {
+		return ctrl.Result{}, err
+	} else if scaled {
+		return result, nil
+	}
+	if scaled, result, err := r.maybeExecuteAutoscalingScaleDown(ctx, cluster, target, pods); err != nil {
 		return ctrl.Result{}, err
 	} else if scaled {
 		return result, nil

@@ -186,9 +186,13 @@ func TestRecordAutoscalingScaleActionRecordsMetric(t *testing.T) {
 	resetObservabilityMetrics()
 
 	recordAutoscalingScaleAction("scaled_up")
+	recordAutoscalingScaleAction("scaled_down")
 
 	if got := testutil.ToFloat64(autoscalingScaleActionsTotal.WithLabelValues("scaled_up")); got != 1 {
 		t.Fatalf("expected one autoscaling scale action metric, got %v", got)
+	}
+	if got := testutil.ToFloat64(autoscalingScaleActionsTotal.WithLabelValues("scaled_down")); got != 1 {
+		t.Fatalf("expected one autoscaling scale-down action metric, got %v", got)
 	}
 }
 

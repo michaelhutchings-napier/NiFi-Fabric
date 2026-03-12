@@ -43,7 +43,7 @@ Current unit coverage in the scaffold includes:
 - advisory autoscaling signal-sample metrics for queue backlog, thread counts, and CPU diagnostics
 - advisory autoscaling status timestamp stability when the recommendation meaning does not change
 - enforced autoscaling scale-up eligibility, clamping, and cooldown behavior
-- enforced autoscaling never scaling down automatically
+- experimental enforced autoscaling scale-down eligibility, one-step execution, stabilization, cooldown behavior, and safe resume after controller restart
 - rollout-failure status persistence and blocked autoscaling status when reconcile returns an error during a managed destructive step
 - NiFi access-token and cluster-summary request handling
 - lifecycle transition metrics for rollout, TLS observation, hibernation, node-preparation retry or timeout paths, and autoscaling recommendation or scale-up updates
@@ -97,7 +97,9 @@ kind-based integration should cover:
 - a focused `make kind-nifi-2-8-e2e` path for a newer NiFi 2.x managed compatibility proof without rerunning the full alpha gate
 - a focused `make kind-flow-registry-gitlab-e2e` path for GitLab Flow Registry Client runtime on NiFi `2.8.0` without pulling in the full alpha gate
 - a focused `make kind-flow-registry-github-fast-e2e` path for GitHub Flow Registry Client runtime on NiFi `2.8.0` with the additive fast profile
-- a focused `make kind-autoscaling-scale-up-fast-e2e` path for autoscaling scale-up-only runtime proof on NiFi `2.8.0` with the additive fast profile
+- a focused `make kind-autoscaling-scale-up-fast-e2e` path for autoscaling scale-up runtime proof on NiFi `2.8.0` with the additive fast profile
+- a focused `make kind-autoscaling-scale-down-fast-e2e` path for experimental autoscaling scale-down runtime proof on NiFi `2.8.0` with the additive fast profile
+- the scale-down proof now also checks the controller-owned post-removal settle loop instead of depending on one long blocking health wait inside a single reconcile
 - preloading the NiFi runtime image into the fresh kind node so alpha validation is not gated by an in-cluster registry pull
 - phase-level fresh-kind reruns:
   - `make kind-e2e-rollout`
@@ -155,7 +157,8 @@ Current alpha note:
 - the repo now also has a green focused `make kind-nifi-2-8-e2e` workflow for the newer NiFi 2.x proof target
 - the repo now also has a focused `make kind-flow-registry-gitlab-e2e` workflow for GitLab Flow Registry Client runtime on NiFi `2.8.0`
 - the repo now also has a green focused `make kind-flow-registry-github-fast-e2e` workflow for GitHub Flow Registry Client runtime on NiFi `2.8.0` with the fast profile
-- the repo now also has a green focused `make kind-autoscaling-scale-up-fast-e2e` workflow for autoscaling scale-up-only runtime proof on NiFi `2.8.0` with the fast profile
+- the repo now also has a green focused `make kind-autoscaling-scale-up-fast-e2e` workflow for autoscaling scale-up runtime proof on NiFi `2.8.0` with the fast profile
+- the repo now also has a green focused `make kind-autoscaling-scale-down-fast-e2e` workflow for experimental autoscaling scale-down runtime proof on NiFi `2.8.0` with the fast profile
 - the unavailable autoscaling blocking path still relies on focused unit and reconcile coverage rather than a separate dedicated kind fault-injection flow
 - CI should treat `make kind-alpha-e2e` as the gate and use the phase-level targets for faster diagnosis
 - evaluator-facing examples and quickstarts should stay aligned with that same gate

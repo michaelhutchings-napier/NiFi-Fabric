@@ -247,7 +247,7 @@ configure_advisory_autoscaling() {
   local min_replicas="$1"
   local max_replicas="$2"
   patch_main_cluster "$(cat <<EOF
-{"spec":{"autoscaling":{"mode":"Advisory","scaleUp":{"enabled":false,"cooldown":"2m"},"scaleDown":{"enabled":false},"minReplicas":${min_replicas},"maxReplicas":${max_replicas},"signals":["QueuePressure","CPU"]}}}
+{"spec":{"autoscaling":{"mode":"Advisory","scaleUp":{"enabled":false,"cooldown":"5m"},"scaleDown":{"enabled":false},"minReplicas":${min_replicas},"maxReplicas":${max_replicas},"signals":["QueuePressure","CPU"]}}}
 EOF
 )"
 }
@@ -256,13 +256,13 @@ configure_enforced_autoscaling() {
   local min_replicas="$1"
   local max_replicas="$2"
   patch_main_cluster "$(cat <<EOF
-{"spec":{"autoscaling":{"mode":"Enforced","scaleUp":{"enabled":true,"cooldown":"2m"},"scaleDown":{"enabled":false},"minReplicas":${min_replicas},"maxReplicas":${max_replicas},"signals":["QueuePressure","CPU"]}}}
+{"spec":{"autoscaling":{"mode":"Enforced","scaleUp":{"enabled":true,"cooldown":"5m"},"scaleDown":{"enabled":false},"minReplicas":${min_replicas},"maxReplicas":${max_replicas},"signals":["QueuePressure","CPU"]}}}
 EOF
 )"
 }
 
 configure_disabled_autoscaling() {
-  patch_main_cluster '{"spec":{"autoscaling":{"mode":"Disabled","scaleUp":{"enabled":false,"cooldown":"2m"},"scaleDown":{"enabled":false},"minReplicas":0,"maxReplicas":0,"signals":[]}}}'
+  patch_main_cluster '{"spec":{"autoscaling":{"mode":"Disabled","scaleUp":{"enabled":false,"cooldown":"5m"},"scaleDown":{"enabled":false},"minReplicas":0,"maxReplicas":0,"signals":[]}}}'
 }
 
 set_desired_state() {
@@ -549,7 +549,7 @@ phase "Proving automatic scale-down remains disabled"
 configure_enforced_autoscaling 1 2
 wait_for_cluster_reason "${HELM_RELEASE}" "${autoscalingReasonAboveMaxReplicas:-AboveMaxReplicas}" 180
 wait_for_cluster_recommended "${HELM_RELEASE}" 2 180
-wait_for_cluster_decision_contains "${HELM_RELEASE}" "automatic scale-down is disabled" 180
+wait_for_cluster_decision_contains "${HELM_RELEASE}" "scale-down is not enabled" 180
 require_main_replicas 3
 
 phase "Proving target unresolved and unmanaged branches stay status-only"

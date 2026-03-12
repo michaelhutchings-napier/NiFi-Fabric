@@ -42,7 +42,7 @@ This means ordinary certificate renewal is not treated as a restart-only operato
 Autoscaling is now implemented in two explicit modes on `NiFiCluster`:
 
 - `Advisory`, which remains status-only
-- `Enforced`, which is currently limited to optional experimental scale-up only
+- `Enforced`, which is experimental and can execute bounded controller-owned scale actions
 
 NiFi is a stateful clustered system with managed rollout, TLS drift handling, node preparation, hibernation, and restore behavior already in scope. Because NiFi documents node removal as disconnect, then offload, then delete, direct `StatefulSet` autoscaling is not the preferred first architecture for this platform.
 
@@ -60,32 +60,36 @@ What is implemented now:
 - advisory bounds with `minReplicas` and `maxReplicas`
 - a typed advisory signal list
 - explicit `scaleUp.enabled` and `scaleDown.enabled` policy fields
-- minimal scale-up cooldown control
-- `status.autoscaling.recommendedReplicas`, `reason`, `signals`, `lastEvaluationTime`, `lastScalingDecision`, and `lastScaleUpTime`
-- autoscaling recommendation events and metrics, plus enforced scale-up action metrics
+- minimal scale-up and scale-down cooldown or stabilization controls
+- `status.autoscaling.recommendedReplicas`, `reason`, `signals`, `lastEvaluationTime`, `lastScalingDecision`, `lowPressureSince`, `lastScaleUpTime`, and `lastScaleDownTime`
+- autoscaling recommendation events and metrics, plus enforced scale-up and scale-down action metrics
 - explicit precedence rules that suppress recommendations while the cluster is progressing, hibernated, degraded, unavailable, or unmanaged
 - real queue-pressure sampling from NiFi root-process-group backlog
 - real timer-driven thread sampling from NiFi system diagnostics to decide whether backlog is actionable
 - real CPU sampling from NiFi system diagnostics as a secondary advisory signal
 - optional enforced one-step scale-up through the controller only, after the existing steady-state health gate passes
-- focused fast runtime proof on NiFi `2.8.0` for advisory status-only behavior, one-step enforced scale-up, cooldown enforcement, no automatic scale-down, and blocked recommendations during progressing, hibernated or restoring, degraded, unresolved, and unmanaged states
+- optional experimental one-step scale-down through the controller only, after sustained low pressure and the existing safe disconnect or offload sequence complete for the highest ordinal node
+- focused fast runtime proof on NiFi `2.8.0` for advisory status-only behavior, one-step enforced scale-up, one-step experimental enforced scale-down, cooldown enforcement, and blocked autoscaling during progressing, hibernated or restoring, degraded, unresolved, and unmanaged states
 
 What is not implemented yet:
 
 - direct autoscaler mutation of `StatefulSet.spec.replicas`
-- automatic scale-down
 - sustained queue-age collection
 - CPU-driven autoscaling as a primary signal
 - richer NiFi-native stuck-backlog analysis beyond root backlog and timer-driven thread saturation
 - runtime proof for the unavailable-target blocking path beyond unit and reconcile coverage
+- production-ready automatic scale-down beyond the current experimental one-step path
 
 Current enforced-scope limit:
 
 - `Advisory` mode never changes replicas
-- `Enforced` mode changes replicas only when `scaleUp.enabled=true`
-- each reconcile can increase by only one replica
-- the controller never scales down automatically, even if the recommendation drops
-- enforced scale-up is blocked by the same lifecycle precedence used for advisory recommendations
+- `Enforced` mode changes replicas only when the matching `scaleUp.enabled=true` or `scaleDown.enabled=true` policy is explicitly enabled
+- each reconcile can change replicas by only one step
+- scale-down is more conservative than scale-up and requires healthy convergence, sustained low pressure, and successful NiFi node preparation before replicas are reduced
+- post-scale-down health reuse follows the same hibernation-style convergence gate, so remaining nodes must be healthy and connected even if NiFi still reports the former node in total-node counts briefly
+- post-scale-down settlement is polled one reconcile at a time so the single controller worker stays responsive while the reduced cluster converges
+- automatic scale-down still does not bulk-remove nodes and does not bypass cooldown or stabilization rules
+- enforced scale actions are blocked by the same lifecycle precedence used for advisory recommendations
 
 Why direct HPA or KEDA-to-StatefulSet scaling is not the first step:
 
@@ -104,7 +108,8 @@ Recommended order:
 
 1. advisory-only recommendations
 2. optional experimental scale-up only
-3. scale-down only after safe coordination is designed and proven
+3. optional experimental scale-down only after safe coordination is designed and proven
+4. anything broader only after interruption, stuck-offload, and hibernation or restore interactions are runtime-proven together
 
 ## Private Alpha Quickstart
 
@@ -157,11 +162,18 @@ make kind-flow-registry-gitlab-e2e
 make kind-flow-registry-github-fast-e2e
 ```
 
-Focused autoscaling scale-up-only path:
+Focused autoscaling scale-up proof path:
 
 ```bash
 make kind-autoscaling-scale-up-fast-e2e
 make kind-autoscaling-scale-up-fast-e2e-reuse
+```
+
+Focused autoscaling experimental scale-down proof path:
+
+```bash
+make kind-autoscaling-scale-down-fast-e2e
+make kind-autoscaling-scale-down-fast-e2e-reuse
 ```
 
 Fast profile note:
@@ -1137,7 +1149,7 @@ The focused cert-manager path additionally covers:
 | NiFi image focused newer proof | `apache/nifi:2.8.0` | 2-replica managed install + health gate + config-drift restart proven with `make kind-nifi-2-8-e2e` |
 | GitLab Flow Registry Client on `2.8.0` | proven on kind with a GitLab-compatible evaluator service | `make kind-flow-registry-gitlab-e2e` proves chart-prepared client definition, NiFi client creation, and bucket listing |
 | GitHub Flow Registry Client on `2.8.0` | proven on kind with a GitHub-compatible evaluator service and the fast profile | `make kind-flow-registry-github-fast-e2e` proves chart-prepared client definition, NiFi client creation, and bucket listing |
-| Autoscaling scale-up only on `2.8.0` | proven on kind with the fast profile | `make kind-autoscaling-scale-up-fast-e2e` proves advisory status-only behavior, enforced one-step scale-up, cooldown blocking, no automatic scale-down, and blocked autoscaling during progressing, hibernated or restoring, degraded, unresolved, and unmanaged states |
+| Autoscaling on `2.8.0` | proven on kind with the fast profile | `make kind-autoscaling-scale-up-fast-e2e` proves advisory status-only behavior, enforced one-step scale-up, cooldown blocking, and blocked autoscaling during progressing, hibernated or restoring, degraded, unresolved, and unmanaged states; `make kind-autoscaling-scale-down-fast-e2e` proves experimental one-step enforced scale-down, cooldown blocking, and no bulk or repeated immediate scale-down |
 | Kubernetes runtime | `kindest/node:v1.31.0` | single control-plane kind cluster |
 | Managed rollout model | proven | `StatefulSet` with `OnDelete` |
 | Persistent storage assumptions | proven on kind | PVC retention on scale-down and delete |

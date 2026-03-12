@@ -27,72 +27,130 @@ const (
 	autoscalingReasonAboveMaxReplicas   = "AboveMaxReplicas"
 	autoscalingReasonQueuePressure      = "QueuePressureDetected"
 	autoscalingReasonCPUSaturation      = "CPUSaturationDetected"
+	autoscalingReasonLowPressure        = "LowPressureDetected"
 	autoscalingReasonMaxReplicasReached = "MaxReplicasReached"
 	autoscalingReasonNoActionableInput  = "NoActionableSignals"
 
-	defaultAutoscalingScaleUpCooldown = 5 * time.Minute
+	defaultAutoscalingScaleUpCooldown           = 5 * time.Minute
+	defaultAutoscalingScaleDownCooldown         = 10 * time.Minute
+	defaultAutoscalingScaleDownStabilization    = 5 * time.Minute
 )
 
 func (r *NiFiClusterReconciler) syncAutoscalingStatus(ctx context.Context, cluster *platformv1alpha1.NiFiCluster) {
+	persisted := r.latestAutoscalingStatus(ctx, cluster)
 	desired, samples := r.buildAutoscalingStatus(ctx, cluster)
 	if autoscalingStatusEqual(cluster.Status.Autoscaling, desired) {
-		if cluster.Status.Autoscaling.LastEvaluationTime != nil {
-			desired.LastEvaluationTime = cluster.Status.Autoscaling.LastEvaluationTime.DeepCopy()
+		if persisted.LastEvaluationTime != nil {
+			desired.LastEvaluationTime = persisted.LastEvaluationTime.DeepCopy()
 		}
 	} else {
 		now := metav1.NewTime(time.Now().UTC())
 		desired.LastEvaluationTime = &now
 	}
-	desired.LastScalingDecision = cluster.Status.Autoscaling.LastScalingDecision
-	if shouldRefreshAutoscalingDecision(cluster, desired) {
-		desired.LastScalingDecision = autoscalingNoScaleDecision(cluster, desired)
+	desired.LowPressureSince = updatedAutoscalingLowPressureSince(persisted, desired, samples)
+	if persisted.LastScaleUpTime != nil {
+		desired.LastScaleUpTime = persisted.LastScaleUpTime.DeepCopy()
 	}
-	if cluster.Status.Autoscaling.LastScaleUpTime != nil {
-		desired.LastScaleUpTime = cluster.Status.Autoscaling.LastScaleUpTime.DeepCopy()
+	if persisted.LastScaleDownTime != nil {
+		desired.LastScaleDownTime = persisted.LastScaleDownTime.DeepCopy()
+	}
+	desired.LastScalingDecision = persisted.LastScalingDecision
+	if shouldRefreshAutoscalingDecision(cluster, desired.LastScalingDecision) {
+		desired.LastScalingDecision = autoscalingNoScaleDecision(cluster, desired)
 	}
 	cluster.Status.Autoscaling = desired
 	recordAutoscalingSignalSamples(cluster, samples)
 }
 
-func shouldRefreshAutoscalingDecision(cluster *platformv1alpha1.NiFiCluster, status platformv1alpha1.AutoscalingStatus) bool {
-	if strings.HasPrefix(cluster.Status.Autoscaling.LastScalingDecision, "ScaleUp:") {
-		return false
-	}
-	if condition := cluster.GetCondition(platformv1alpha1.ConditionProgressing); conditionIsTrue(condition) && condition.Reason == "AutoscalingScaleUp" {
-		return false
+func (r *NiFiClusterReconciler) latestAutoscalingStatus(ctx context.Context, cluster *platformv1alpha1.NiFiCluster) platformv1alpha1.AutoscalingStatus {
+	status := cluster.Status.Autoscaling
+	if r.APIReader == nil {
+		return status
 	}
 
-	policy := cluster.Spec.Autoscaling
-	if autoscalingMode(policy) != platformv1alpha1.AutoscalingModeEnforced {
-		return true
+	latest := &platformv1alpha1.NiFiCluster{}
+	if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(cluster), latest); err != nil {
+		return status
 	}
-	if !policy.ScaleUp.Enabled {
-		return true
+	return mergedAutoscalingStatus(status, latest.Status.Autoscaling)
+}
+
+func mergedAutoscalingStatus(current, persisted platformv1alpha1.AutoscalingStatus) platformv1alpha1.AutoscalingStatus {
+	merged := current
+	preservedScaleAction := false
+
+	if merged.LastEvaluationTime == nil || (persisted.LastEvaluationTime != nil && persisted.LastEvaluationTime.After(merged.LastEvaluationTime.Time)) {
+		merged.LastEvaluationTime = persisted.LastEvaluationTime.DeepCopy()
 	}
-	if status.RecommendedReplicas == nil {
-		return true
+	if merged.LastScaleUpTime == nil || (persisted.LastScaleUpTime != nil && persisted.LastScaleUpTime.After(merged.LastScaleUpTime.Time)) {
+		merged.LastScaleUpTime = persisted.LastScaleUpTime.DeepCopy()
+		preservedScaleAction = preservedScaleAction || persisted.LastScaleUpTime != nil
 	}
-	return derefOptionalInt32(status.RecommendedReplicas) <= cluster.Status.Replicas.Desired
+	if merged.LastScaleDownTime == nil || (persisted.LastScaleDownTime != nil && persisted.LastScaleDownTime.After(merged.LastScaleDownTime.Time)) {
+		merged.LastScaleDownTime = persisted.LastScaleDownTime.DeepCopy()
+		preservedScaleAction = preservedScaleAction || persisted.LastScaleDownTime != nil
+	}
+	if merged.LastScalingDecision == "" || preservedScaleAction {
+		merged.LastScalingDecision = persisted.LastScalingDecision
+	}
+
+	return merged
+}
+
+func shouldRefreshAutoscalingDecision(cluster *platformv1alpha1.NiFiCluster, currentDecision string) bool {
+	if autoscalingExecutionInProgress(cluster) {
+		return false
+	}
+	if autoscalingTimedBlockStillActive(currentDecision) {
+		return false
+	}
+	return true
 }
 
 func autoscalingNoScaleDecision(cluster *platformv1alpha1.NiFiCluster, status platformv1alpha1.AutoscalingStatus) string {
 	policy := cluster.Spec.Autoscaling
 	switch autoscalingMode(policy) {
 	case platformv1alpha1.AutoscalingModeDisabled, platformv1alpha1.AutoscalingModeAdvisory:
-		return "NoScaleUp: autoscaling is not in enforced mode"
-	}
-
-	if !policy.ScaleUp.Enabled {
-		return "NoScaleUp: scale-up is not enabled"
+		return "NoScale: autoscaling is not in enforced mode"
 	}
 	if status.RecommendedReplicas == nil {
-		return fmt.Sprintf("NoScaleUp: recommendation is unavailable because %s", status.Reason)
+		return fmt.Sprintf("NoScale: recommendation is unavailable because %s", status.Reason)
 	}
 
-	if derefOptionalInt32(status.RecommendedReplicas) < cluster.Status.Replicas.Desired {
-		return "NoScaleUp: automatic scale-down is disabled"
+	currentReplicas := cluster.Status.Replicas.Desired
+	recommendedReplicas := derefOptionalInt32(status.RecommendedReplicas)
+	switch {
+	case recommendedReplicas > currentReplicas:
+		if !policy.ScaleUp.Enabled {
+			return "NoScaleUp: scale-up is not enabled"
+		}
+		if status.LastScaleUpTime != nil {
+			nextEligibleTime := status.LastScaleUpTime.Time.Add(autoscalingScaleUpCooldown(policy))
+			if time.Now().UTC().Before(nextEligibleTime) {
+				return fmt.Sprintf("NoScaleUp: cooldown is active until %s", nextEligibleTime.UTC().Format(time.RFC3339))
+			}
+		}
+		return "NoScaleUp: waiting for the steady-state autoscaling executor"
+	case recommendedReplicas < currentReplicas:
+		if !policy.ScaleDown.Enabled {
+			return "NoScaleDown: scale-down is not enabled"
+		}
+		if status.LowPressureSince == nil {
+			return "NoScaleDown: low pressure is not currently observed"
+		}
+		nextStableTime := status.LowPressureSince.Time.Add(autoscalingScaleDownStabilizationWindow(policy))
+		if time.Now().UTC().Before(nextStableTime) {
+			return fmt.Sprintf("NoScaleDown: low pressure must remain stable until %s", nextStableTime.UTC().Format(time.RFC3339))
+		}
+		if status.LastScaleDownTime != nil {
+			nextEligibleTime := status.LastScaleDownTime.Time.Add(autoscalingScaleDownCooldown(policy))
+			if time.Now().UTC().Before(nextEligibleTime) {
+				return fmt.Sprintf("NoScaleDown: cooldown is active until %s", nextEligibleTime.UTC().Format(time.RFC3339))
+			}
+		}
+		return "NoScaleDown: waiting for the steady-state autoscaling executor"
 	}
-	return "NoScaleUp: recommended replicas are already satisfied"
+	return "NoScale: recommended replicas are already satisfied"
 }
 
 func (r *NiFiClusterReconciler) buildAutoscalingStatus(ctx context.Context, cluster *platformv1alpha1.NiFiCluster) (platformv1alpha1.AutoscalingStatus, autoscalingSignalCollection) {
@@ -136,7 +194,7 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleUp(ctx context.Conte
 	mode := autoscalingMode(policy)
 	switch mode {
 	case platformv1alpha1.AutoscalingModeDisabled, platformv1alpha1.AutoscalingModeAdvisory:
-		cluster.Status.Autoscaling.LastScalingDecision = "NoScaleUp: autoscaling is not in enforced mode"
+		cluster.Status.Autoscaling.LastScalingDecision = "NoScale: autoscaling is not in enforced mode"
 		return false, ctrl.Result{}, nil
 	}
 
@@ -153,10 +211,10 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleUp(ctx context.Conte
 	recommendedReplicas := derefOptionalInt32(status.RecommendedReplicas)
 	switch {
 	case recommendedReplicas < currentReplicas:
-		cluster.Status.Autoscaling.LastScalingDecision = "NoScaleUp: automatic scale-down is disabled"
+		cluster.Status.Autoscaling.LastScalingDecision = "NoScaleUp: recommended replicas require a smaller cluster"
 		return false, ctrl.Result{}, nil
 	case recommendedReplicas == currentReplicas:
-		cluster.Status.Autoscaling.LastScalingDecision = "NoScaleUp: recommended replicas are already satisfied"
+		cluster.Status.Autoscaling.LastScalingDecision = "NoScale: recommended replicas are already satisfied"
 		return false, ctrl.Result{}, nil
 	}
 
@@ -223,8 +281,9 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleUp(ctx context.Conte
 }
 
 type autoscalingExecutionState struct {
-	currentReplicas int32
-	lastScaleUpTime *metav1.Time
+	currentReplicas   int32
+	lastScaleUpTime   *metav1.Time
+	lastScaleDownTime *metav1.Time
 }
 
 func (r *NiFiClusterReconciler) autoscalingExecutionState(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet) autoscalingExecutionState {
@@ -233,6 +292,9 @@ func (r *NiFiClusterReconciler) autoscalingExecutionState(ctx context.Context, c
 	}
 	if cluster.Status.Autoscaling.LastScaleUpTime != nil {
 		state.lastScaleUpTime = cluster.Status.Autoscaling.LastScaleUpTime.DeepCopy()
+	}
+	if cluster.Status.Autoscaling.LastScaleDownTime != nil {
+		state.lastScaleDownTime = cluster.Status.Autoscaling.LastScaleDownTime.DeepCopy()
 	}
 	if target != nil && target.Spec.Replicas != nil && *target.Spec.Replicas > state.currentReplicas {
 		state.currentReplicas = *target.Spec.Replicas
@@ -252,6 +314,11 @@ func (r *NiFiClusterReconciler) autoscalingExecutionState(ctx context.Context, c
 	if latestCluster.Status.Autoscaling.LastScaleUpTime != nil {
 		if state.lastScaleUpTime == nil || latestCluster.Status.Autoscaling.LastScaleUpTime.After(state.lastScaleUpTime.Time) {
 			state.lastScaleUpTime = latestCluster.Status.Autoscaling.LastScaleUpTime.DeepCopy()
+		}
+	}
+	if latestCluster.Status.Autoscaling.LastScaleDownTime != nil {
+		if state.lastScaleDownTime == nil || latestCluster.Status.Autoscaling.LastScaleDownTime.After(state.lastScaleDownTime.Time) {
+			state.lastScaleDownTime = latestCluster.Status.Autoscaling.LastScaleDownTime.DeepCopy()
 		}
 	}
 	return state
@@ -312,6 +379,9 @@ func buildAutoscalingSteadyStateStatus(cluster *platformv1alpha1.NiFiCluster, po
 	case collection.CPU.Actionable:
 		recommended = currentReplicas + 1
 		reason = autoscalingReasonCPUSaturation
+	case collection.QueuePressure.LowPressure && currentReplicas > minReplicas:
+		recommended = currentReplicas - 1
+		reason = autoscalingReasonLowPressure
 	}
 
 	if recommended > maxReplicas {
@@ -343,6 +413,20 @@ func autoscalingScaleUpCooldown(policy platformv1alpha1.AutoscalingPolicy) time.
 		return policy.ScaleUp.Cooldown.Duration
 	}
 	return defaultAutoscalingScaleUpCooldown
+}
+
+func autoscalingScaleDownCooldown(policy platformv1alpha1.AutoscalingPolicy) time.Duration {
+	if policy.ScaleDown.Cooldown.Duration > 0 {
+		return policy.ScaleDown.Cooldown.Duration
+	}
+	return defaultAutoscalingScaleDownCooldown
+}
+
+func autoscalingScaleDownStabilizationWindow(policy platformv1alpha1.AutoscalingPolicy) time.Duration {
+	if policy.ScaleDown.StabilizationWindow.Duration > 0 {
+		return policy.ScaleDown.StabilizationWindow.Duration
+	}
+	return defaultAutoscalingScaleDownStabilization
 }
 
 func autoscalingSignals(policy platformv1alpha1.AutoscalingPolicy) []platformv1alpha1.AutoscalingSignal {
@@ -403,6 +487,9 @@ func autoscalingStatusEqual(left, right platformv1alpha1.AutoscalingStatus) bool
 	if !equalOptionalInt32(left.RecommendedReplicas, right.RecommendedReplicas) {
 		return false
 	}
+	if !equalOptionalTime(left.LowPressureSince, right.LowPressureSince) {
+		return false
+	}
 	if len(left.Signals) != len(right.Signals) {
 		return false
 	}
@@ -419,6 +506,9 @@ func autoscalingStatusMeaningEqual(left, right platformv1alpha1.AutoscalingStatu
 		return false
 	}
 	if !equalOptionalInt32(left.RecommendedReplicas, right.RecommendedReplicas) {
+		return false
+	}
+	if !equalOptionalTime(left.LowPressureSince, right.LowPressureSince) {
 		return false
 	}
 	if len(left.Signals) != len(right.Signals) {
@@ -440,6 +530,17 @@ func equalOptionalInt32(left, right *int32) bool {
 		return false
 	default:
 		return *left == *right
+	}
+}
+
+func equalOptionalTime(left, right *metav1.Time) bool {
+	switch {
+	case left == nil && right == nil:
+		return true
+	case left == nil || right == nil:
+		return false
+	default:
+		return left.Equal(right)
 	}
 }
 
@@ -467,6 +568,8 @@ func autoscalingStatusMessage(status platformv1alpha1.AutoscalingStatus) string 
 		return fmt.Sprintf("Autoscaling recommends %d replicas because root process-group backlog is present while NiFi timer-driven threads are saturated. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summarizeAutoscalingSignals(status.Signals))
 	case autoscalingReasonCPUSaturation:
 		return fmt.Sprintf("Autoscaling recommends %d replicas because NiFi system diagnostics report CPU saturation. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summarizeAutoscalingSignals(status.Signals))
+	case autoscalingReasonLowPressure:
+		return fmt.Sprintf("Autoscaling recommends %d replicas because NiFi root process-group backlog is low and no higher-priority scale-up pressure is active. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summarizeAutoscalingSignals(status.Signals))
 	case autoscalingReasonMaxReplicasReached:
 		return fmt.Sprintf("Autoscaling is observing scale-up pressure, but the recommendation remains at %d replicas because the configured maximum has already been reached. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summarizeAutoscalingSignals(status.Signals))
 	default:
@@ -484,7 +587,7 @@ func autoscalingStatusOutcome(status platformv1alpha1.AutoscalingStatus) string 
 		return "disabled"
 	case autoscalingReasonBelowMinReplicas:
 		return "increase"
-	case autoscalingReasonAboveMaxReplicas:
+	case autoscalingReasonAboveMaxReplicas, autoscalingReasonLowPressure:
 		return "decrease"
 	case autoscalingReasonQueuePressure, autoscalingReasonCPUSaturation:
 		return "increase"
@@ -500,6 +603,56 @@ func derefOptionalInt32(value *int32) int32 {
 		return 0
 	}
 	return *value
+}
+
+func autoscalingExecutionInProgress(cluster *platformv1alpha1.NiFiCluster) bool {
+	decision := cluster.Status.Autoscaling.LastScalingDecision
+	if strings.HasPrefix(decision, "ScaleUp:") || strings.HasPrefix(decision, "ScaleDown:") {
+		return true
+	}
+
+	condition := cluster.GetCondition(platformv1alpha1.ConditionProgressing)
+	return conditionIsTrue(condition) && (condition.Reason == "AutoscalingScaleUp" ||
+		condition.Reason == "AutoscalingScaleDown" ||
+		condition.Reason == "PreparingNodeForScaleDown" ||
+		condition.Reason == "WaitingForAutoscalingScaleDown")
+}
+
+func autoscalingTimedBlockStillActive(decision string) bool {
+	untilIndex := strings.LastIndex(decision, "until ")
+	if untilIndex < 0 {
+		return false
+	}
+	value := strings.TrimSpace(decision[untilIndex+len("until "):])
+	if value == "" {
+		return false
+	}
+	timestamp, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return false
+	}
+	return time.Now().UTC().Before(timestamp)
+}
+
+func updatedAutoscalingLowPressureSince(previous, desired platformv1alpha1.AutoscalingStatus, samples autoscalingSignalCollection) *metav1.Time {
+	if desired.Reason == autoscalingReasonProgressing && previous.LowPressureSince != nil {
+		return previous.LowPressureSince.DeepCopy()
+	}
+	if !autoscalingLowPressureObserved(samples) {
+		return nil
+	}
+	if previous.LowPressureSince != nil {
+		return previous.LowPressureSince.DeepCopy()
+	}
+	if desired.LastEvaluationTime != nil {
+		return desired.LastEvaluationTime.DeepCopy()
+	}
+	now := metav1.NewTime(time.Now().UTC())
+	return &now
+}
+
+func autoscalingLowPressureObserved(samples autoscalingSignalCollection) bool {
+	return samples.QueuePressure.LowPressure
 }
 
 func conditionIsTrue(condition *metav1.Condition) bool {

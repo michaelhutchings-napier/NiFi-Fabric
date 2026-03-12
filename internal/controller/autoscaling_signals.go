@@ -33,6 +33,7 @@ type autoscalingQueuePressureSample struct {
 	MaxTimerDrivenThreads    int32
 	ThreadCountsObserved     bool
 	Actionable               bool
+	LowPressure              bool
 }
 
 type autoscalingCPUSample struct {
@@ -104,6 +105,8 @@ func (c *LiveAutoscalingSignalCollector) Collect(ctx context.Context, _ *platfor
 		collection.QueuePressure.FlowFilesQueued = rootStatus.FlowFilesQueued
 		collection.QueuePressure.BytesQueued = rootStatus.BytesQueued
 		collection.QueuePressure.BytesQueuedObserved = rootStatus.BytesQueuedObserved
+		collection.QueuePressure.LowPressure = rootStatus.FlowFilesQueued == 0 &&
+			(!rootStatus.BytesQueuedObserved || rootStatus.BytesQueued == 0)
 	}
 	if needsQueuePressure && systemDiagErr == nil {
 		collection.QueuePressure.ActiveTimerDrivenThreads = systemDiagnostics.ActiveTimerDrivenThreads
@@ -117,7 +120,6 @@ func (c *LiveAutoscalingSignalCollector) Collect(ctx context.Context, _ *platfor
 			collection.QueuePressure.Actionable = true
 		}
 	}
-
 	if needsCPU && systemDiagErr == nil {
 		collection.CPU.Observed = systemDiagnostics.CPULoadObserved && systemDiagnostics.AvailableProcessors > 0
 		collection.CPU.LoadAverage = systemDiagnostics.CPULoadAverage
@@ -125,6 +127,9 @@ func (c *LiveAutoscalingSignalCollector) Collect(ctx context.Context, _ *platfor
 		if collection.CPU.Observed && collection.CPU.LoadAverage >= float64(collection.CPU.AvailableProcessors) {
 			collection.CPU.Actionable = true
 		}
+	}
+	if collection.QueuePressure.LowPressure && collection.CPU.Actionable {
+		collection.QueuePressure.LowPressure = false
 	}
 
 	for _, signal := range signals {
@@ -256,6 +261,8 @@ func buildQueuePressureSignalStatus(sample autoscalingQueuePressureSample, queue
 	)
 	if sample.Actionable {
 		message += " backlog is actionable"
+	} else if sample.LowPressure {
+		message += " backlog is low"
 	}
 
 	return platformv1alpha1.AutoscalingSignalStatus{

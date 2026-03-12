@@ -45,6 +45,8 @@ cluster:
       cooldown: 5m
     scaleDown:
       enabled: false
+      cooldown: 10m
+      stabilizationWindow: 5m
     minReplicas: 0
     maxReplicas: 0
     signals: []
