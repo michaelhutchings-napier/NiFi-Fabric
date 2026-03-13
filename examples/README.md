@@ -65,19 +65,23 @@ Metrics note:
 - [platform-managed-metrics-native-values.yaml](platform-managed-metrics-native-values.yaml) is an optional overlay for the first-class native API metrics subsystem
 - it enables `nifi.observability.metrics.mode=nativeApi`
 - it renders a dedicated metrics `Service` plus multiple named `ServiceMonitor` resources
-- it expects a bearer-token Secret and CA Secret to exist already; this slice defines the contract but does not provision or rotate them
+- it uses the provider-agnostic machine-auth Secret and CA Secret contract shared by the metrics subsystem
+- `hack/bootstrap-metrics-machine-auth.sh` can create those Kubernetes Secrets from a pre-minted token or from existing NiFi-accepted credentials
 - the focused live runtime proof command is `make kind-metrics-native-api-fast-e2e`
+- the broader focused matrix command is `make kind-metrics-fast-e2e`
 - the current live proof covers the secured flow-metrics endpoint and two named scrape profiles against that same endpoint
 - [platform-managed-metrics-exporter-values.yaml](platform-managed-metrics-exporter-values.yaml) is an optional overlay for the experimental exporter metrics mode
 - it enables `nifi.observability.metrics.mode=exporter`
 - it renders a small companion exporter `Deployment`, a clean HTTP metrics `Service`, and one exporter `ServiceMonitor`
-- it expects the same operator-provided bearer-token Secret and CA Secret to exist already
+- it uses the same provider-agnostic machine-auth Secret and CA Secret contract
 - the focused live runtime proof command is `make kind-metrics-exporter-fast-e2e`
+- the broader focused matrix command is `make kind-metrics-fast-e2e`
 - the current live proof covers one secured upstream flow-metrics endpoint republished on the exporter `/metrics` endpoint
 - [platform-managed-metrics-site-to-site-values.yaml](platform-managed-metrics-site-to-site-values.yaml) is an optional prepared-only overlay for a future site-to-site metrics path
 - it enables `nifi.observability.metrics.mode=siteToSite`
 - it documents the intended destination, source, transport, and format contract for a future `SiteToSiteMetricsReportingTask` integration
 - it does not render a supported runtime path yet and currently fails clearly at Helm render time
+- it is intentionally excluded from the live metrics runtime proof matrix
 
 KEDA note:
 

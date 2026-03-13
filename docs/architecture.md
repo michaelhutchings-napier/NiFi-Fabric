@@ -68,11 +68,17 @@ Primary metrics path:
 - `observability.metrics.mode=nativeApi`
 - chart-owned Services and ServiceMonitors
 - provider-agnostic machine-auth Secret contract
+- focused live runtime proof for secured flow metrics scraping
 
 Experimental or prepared paths:
 
-- `exporter` is experimental
+- `exporter` is experimental and has focused live runtime proof for the current companion-exporter contract
 - `siteToSite` is prepared-only
+
+Current conservative boundary:
+
+- flow metrics are the only metrics family runtime-proven live today
+- machine-auth Secret bootstrap is partially automated, but machine principal provisioning and IdP write-back remain out of scope
 
 ## Install Architecture
 

@@ -48,6 +48,37 @@ Customer-facing docs should stay aligned with:
 - `helm template` for the standard chart install paths
 - focused checks for the feature being documented
 
+## Metrics Runtime Proof Matrix
+
+The current focused metrics runtime command is:
+
+- `make kind-metrics-fast-e2e`
+
+That matrix runs:
+
+- `make kind-metrics-native-api-fast-e2e`
+- `make kind-metrics-exporter-fast-e2e`
+
+What it proves for `nativeApi`:
+
+- the metrics-enabled platform overlay renders and applies
+- the dedicated metrics `Service` and named `ServiceMonitor` resources exist
+- the machine-auth Secret and CA Secret contract works with operator-provided material
+- the secured NiFi flow metrics endpoint can be scraped live end to end
+
+What it proves for `exporter`:
+
+- the experimental exporter overlay renders and applies
+- the exporter `Deployment`, metrics `Service`, and `ServiceMonitor` exist
+- the same machine-auth Secret and CA Secret contract is mounted and consumed correctly
+- Prometheus can scrape the exporter `/metrics` endpoint live end to end
+
+Current honest limit:
+
+- flow metrics are the only runtime-proven metrics family today
+- the second native scrape profile is a cadence variant of the same flow endpoint, not a second proven metrics family
+- `siteToSite` remains prepared-only and is intentionally excluded from the live matrix
+
 ## Current Conservative Boundaries
 
 - the repo does not yet claim a production-proven cloud runtime matrix

@@ -22,6 +22,10 @@ METRICS_AUTH_SECRET="${METRICS_AUTH_SECRET:-nifi-metrics-auth}"
 METRICS_CA_SECRET="${METRICS_CA_SECRET:-nifi-metrics-ca}"
 PROBE_POD_NAME="${PROBE_POD_NAME:-metrics-probe}"
 PROBE_IMAGE="${PROBE_IMAGE:-curlimages/curl:8.12.1}"
+SOURCE_AUTH_SECRET="${SOURCE_AUTH_SECRET:-nifi-auth}"
+CURRENT_PHASE="${CURRENT_PHASE:-bootstrap}"
+FAILURE_CATEGORY="${FAILURE_CATEGORY:-unknown}"
+FAILURE_ENDPOINT="${FAILURE_ENDPOINT:-}"
 START_EPOCH="$(date +%s)"
 
 TMPDIR_METRICS=""
@@ -40,38 +44,6 @@ configure_kind_kubeconfig() {
   export KUBECONFIG="${kubeconfig_path}"
 }
 
-cluster_jsonpath() {
-  local jsonpath="$1"
-  kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o "jsonpath=${jsonpath}" 2>/dev/null || true
-}
-
-wait_for_output() {
-  local description="$1"
-  local expected="$2"
-  local timeout_seconds="$3"
-  shift 3
-  local deadline=$(( $(date +%s) + timeout_seconds ))
-  local actual=""
-
-  while true; do
-    actual="$("$@" | tr -d '\n')"
-    if [[ "${actual}" == "${expected}" ]]; then
-      return 0
-    fi
-    if (( $(date +%s) >= deadline )); then
-      echo "timed out waiting for ${description}: expected ${expected}, got ${actual:-<empty>}" >&2
-      return 1
-    fi
-    sleep 5
-  done
-}
-
-wait_for_condition_true() {
-  local type="$1"
-  wait_for_output "condition ${type}=True" "True" 600 \
-    cluster_jsonpath "{.status.conditions[?(@.type==\"${type}\")].status}"
-}
-
 wait_for_probe_ready() {
   kubectl -n "${NAMESPACE}" wait --for=condition=Ready pod/"${PROBE_POD_NAME}" --timeout=3m >/dev/null
 }
@@ -86,49 +58,30 @@ install_prometheus_operator_crds() {
 }
 
 create_metrics_secrets() {
-  local ca_file=""
-
-  TMPDIR_METRICS="$(mktemp -d)"
-  ca_file="${TMPDIR_METRICS}/ca.crt"
-
-  kubectl -n "${NAMESPACE}" get secret nifi-tls -o jsonpath='{.data.ca\.crt}' | base64 --decode >"${ca_file}"
-
-  kubectl -n "${NAMESPACE}" create secret generic "${METRICS_AUTH_SECRET}" \
-    --from-literal=token=bootstrap-pending \
-    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-
-  kubectl -n "${NAMESPACE}" create secret generic "${METRICS_CA_SECRET}" \
-    --from-file=ca.crt="${ca_file}" \
-    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  CURRENT_PHASE="bootstrap-metrics-secrets"
+  FAILURE_CATEGORY="auth-material"
+  FAILURE_ENDPOINT="Secret/${METRICS_AUTH_SECRET},Secret/${METRICS_CA_SECRET}"
+  bash "${ROOT_DIR}/hack/bootstrap-metrics-machine-auth.sh" \
+    --namespace "${NAMESPACE}" \
+    --metrics-auth-secret "${METRICS_AUTH_SECRET}" \
+    --metrics-ca-secret "${METRICS_CA_SECRET}" \
+    --auth-mode authorizationHeader \
+    --token bootstrap-pending >/dev/null
 }
 
 mint_metrics_token() {
-  local username
-  local password
-  local token
-  local host
-
-  username="$(kubectl -n "${NAMESPACE}" get secret nifi-auth -o jsonpath='{.data.username}' | base64 --decode)"
-  password="$(kubectl -n "${NAMESPACE}" get secret nifi-auth -o jsonpath='{.data.password}' | base64 --decode)"
-  host="${HELM_RELEASE}-0.${HELM_RELEASE}-headless.${NAMESPACE}.svc.cluster.local"
-
-  token="$(
-    kubectl -n "${NAMESPACE}" exec "${HELM_RELEASE}-0" -c nifi -- \
-      env NIFI_HOST="${host}" NIFI_USERNAME="${username}" NIFI_PASSWORD="${password}" TLS_CA_PATH="/opt/nifi/tls/ca.crt" sh -ec '
-        curl --silent --show-error --fail \
-          --cacert "${TLS_CA_PATH}" \
-          -H "Content-Type: application/x-www-form-urlencoded; charset=UTF-8" \
-          --data-urlencode "username=${NIFI_USERNAME}" \
-          --data-urlencode "password=${NIFI_PASSWORD}" \
-          "https://${NIFI_HOST}:8443/nifi-api/access/token"
-      '
-  )"
-
-  [[ -n "${token}" ]]
-
-  kubectl -n "${NAMESPACE}" create secret generic "${METRICS_AUTH_SECRET}" \
-    --from-literal=token="${token}" \
-    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  CURRENT_PHASE="mint-metrics-machine-auth"
+  FAILURE_CATEGORY="auth-material"
+  FAILURE_ENDPOINT="https://${HELM_RELEASE}-0.${HELM_RELEASE}-headless.${NAMESPACE}.svc.cluster.local:8443/nifi-api/access/token"
+  bash "${ROOT_DIR}/hack/bootstrap-metrics-machine-auth.sh" \
+    --namespace "${NAMESPACE}" \
+    --metrics-auth-secret "${METRICS_AUTH_SECRET}" \
+    --metrics-ca-secret "${METRICS_CA_SECRET}" \
+    --auth-mode authorizationHeader \
+    --source-auth-secret "${SOURCE_AUTH_SECRET}" \
+    --mint-token \
+    --statefulset "${HELM_RELEASE}" \
+    --container nifi >/dev/null
 }
 
 install_probe_pod() {
@@ -166,44 +119,103 @@ EOF
   wait_for_probe_ready
 }
 
+assert_equals() {
+  local actual="$1"
+  local expected="$2"
+  local message="$3"
+  if [[ "${actual}" != "${expected}" ]]; then
+    echo "${message}: expected ${expected}, got ${actual:-<empty>}" >&2
+    return 1
+  fi
+}
+
+verify_metrics_secret_contract() {
+  local token_preview
+  local ca_present
+
+  token_preview="$(kubectl -n "${NAMESPACE}" get secret "${METRICS_AUTH_SECRET}" -o jsonpath='{.data.token}' | base64 --decode | cut -c1-18)"
+  ca_present="$(kubectl -n "${NAMESPACE}" get secret "${METRICS_CA_SECRET}" -o jsonpath='{.data.ca\.crt}' | tr -d '\n')"
+
+  if [[ -z "${token_preview}" || "${token_preview}" == "bootstrap-pending" ]]; then
+    echo "metrics auth Secret ${METRICS_AUTH_SECRET} was not updated with a live token" >&2
+    return 1
+  fi
+  if [[ -z "${ca_present}" ]]; then
+    echo "metrics CA Secret ${METRICS_CA_SECRET} does not contain ca.crt" >&2
+    return 1
+  fi
+}
+
 verify_metrics_secret_references() {
+  local name="$1"
+  local expected_interval="$2"
   local authorization_secret
   local authorization_type
   local ca_secret
   local server_name
+  local path
+  local interval
 
-  authorization_secret="$(kubectl -n "${NAMESPACE}" get servicemonitor "${HELM_RELEASE}-flow" -o jsonpath='{.spec.endpoints[0].authorization.credentials.name}')"
-  authorization_type="$(kubectl -n "${NAMESPACE}" get servicemonitor "${HELM_RELEASE}-flow" -o jsonpath='{.spec.endpoints[0].authorization.type}')"
-  ca_secret="$(kubectl -n "${NAMESPACE}" get servicemonitor "${HELM_RELEASE}-flow" -o jsonpath='{.spec.endpoints[0].tlsConfig.ca.secret.name}')"
-  server_name="$(kubectl -n "${NAMESPACE}" get servicemonitor "${HELM_RELEASE}-flow" -o jsonpath='{.spec.endpoints[0].tlsConfig.serverName}')"
+  authorization_secret="$(kubectl -n "${NAMESPACE}" get servicemonitor "${name}" -o jsonpath='{.spec.endpoints[0].authorization.credentials.name}')"
+  authorization_type="$(kubectl -n "${NAMESPACE}" get servicemonitor "${name}" -o jsonpath='{.spec.endpoints[0].authorization.type}')"
+  ca_secret="$(kubectl -n "${NAMESPACE}" get servicemonitor "${name}" -o jsonpath='{.spec.endpoints[0].tlsConfig.ca.secret.name}')"
+  server_name="$(kubectl -n "${NAMESPACE}" get servicemonitor "${name}" -o jsonpath='{.spec.endpoints[0].tlsConfig.serverName}')"
+  path="$(kubectl -n "${NAMESPACE}" get servicemonitor "${name}" -o jsonpath='{.spec.endpoints[0].path}')"
+  interval="$(kubectl -n "${NAMESPACE}" get servicemonitor "${name}" -o jsonpath='{.spec.endpoints[0].interval}')"
 
-  [[ "${authorization_secret}" == "${METRICS_AUTH_SECRET}" ]]
-  [[ "${authorization_type}" == "Bearer" ]]
-  [[ "${ca_secret}" == "${METRICS_CA_SECRET}" ]]
-  [[ "${server_name}" == "${HELM_RELEASE}.${NAMESPACE}.svc.cluster.local" ]]
+  assert_equals "${authorization_secret}" "${METRICS_AUTH_SECRET}" "${name} auth Secret mismatch"
+  assert_equals "${authorization_type}" "Bearer" "${name} authorization type mismatch"
+  assert_equals "${ca_secret}" "${METRICS_CA_SECRET}" "${name} CA Secret mismatch"
+  assert_equals "${server_name}" "${HELM_RELEASE}.${NAMESPACE}.svc.cluster.local" "${name} serverName mismatch"
+  assert_equals "${path}" "/nifi-api/flow/metrics/prometheus" "${name} path mismatch"
+  assert_equals "${interval}" "${expected_interval}" "${name} interval mismatch"
 }
 
 scrape_flow_metrics() {
   local metrics_service_ip
+  local attempt
+  local max_attempts=12
+  local http_code
+  CURRENT_PHASE="scrape-native-flow-metrics"
+  FAILURE_CATEGORY="scrape"
+  FAILURE_ENDPOINT="https://${HELM_RELEASE}.${NAMESPACE}.svc.cluster.local:8443/nifi-api/flow/metrics/prometheus"
   metrics_service_ip="$(kubectl -n "${NAMESPACE}" get service "${HELM_RELEASE}-metrics" -o jsonpath='{.spec.clusterIP}')"
   [[ -n "${metrics_service_ip}" ]]
 
-  kubectl -n "${NAMESPACE}" exec "${PROBE_POD_NAME}" -- /bin/sh -ec "
-    curl --silent --show-error --fail \
-      --cacert /etc/nifi-metrics-ca/ca.crt \
-      -H \"Authorization: Bearer \${METRICS_TOKEN}\" \
-      --resolve \"${HELM_RELEASE}.${NAMESPACE}.svc.cluster.local:8443:${metrics_service_ip}\" \
-      \"https://${HELM_RELEASE}.${NAMESPACE}.svc.cluster.local:8443/nifi-api/flow/metrics/prometheus\" \
-      | tee /tmp/flow-metrics.prom >/dev/null
-    grep -q '^# HELP ' /tmp/flow-metrics.prom
-    grep -q '^# TYPE ' /tmp/flow-metrics.prom
-  " >/dev/null
+  for attempt in $(seq 1 "${max_attempts}"); do
+    http_code="$(
+      kubectl -n "${NAMESPACE}" exec "${PROBE_POD_NAME}" -- /bin/sh -ec "
+        curl --silent --show-error \
+          --output /tmp/flow-metrics.prom \
+          --write-out '%{http_code}' \
+          --cacert /etc/nifi-metrics-ca/ca.crt \
+          -H \"Authorization: Bearer \${METRICS_TOKEN}\" \
+          --resolve \"${HELM_RELEASE}.${NAMESPACE}.svc.cluster.local:8443:${metrics_service_ip}\" \
+          \"https://${HELM_RELEASE}.${NAMESPACE}.svc.cluster.local:8443/nifi-api/flow/metrics/prometheus\"
+      "
+    )"
+    if [[ "${http_code}" == "200" ]] && kubectl -n "${NAMESPACE}" exec "${PROBE_POD_NAME}" -- /bin/sh -ec "
+      grep -q '^# HELP ' /tmp/flow-metrics.prom
+      grep -q '^# TYPE ' /tmp/flow-metrics.prom
+    " >/dev/null; then
+      return 0
+    fi
+    if (( attempt == max_attempts )); then
+      echo "nativeApi flow scrape never succeeded: final HTTP status ${http_code:-<empty>}" >&2
+      return 1
+    fi
+    sleep 5
+  done
 }
 
 dump_diagnostics() {
   set +e
   echo
   echo "==> metrics nativeApi diagnostics after failure at +$(elapsed)s"
+  echo "  mode: nativeApi"
+  echo "  failed phase: ${CURRENT_PHASE}"
+  echo "  failure category: ${FAILURE_CATEGORY}"
+  echo "  endpoint or contract: ${FAILURE_ENDPOINT:-n/a}"
   kubectl config use-context "kind-${KIND_CLUSTER_NAME}" >/dev/null 2>&1 || true
   kubectl config current-context || true
   helm -n "${NAMESPACE}" status "${HELM_RELEASE}" || true
@@ -265,38 +277,62 @@ else
   run_make kind-load-controller KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}"
 fi
 
+CURRENT_PHASE="install-prometheus-operator-crds"
+FAILURE_CATEGORY="rendering"
+FAILURE_ENDPOINT="ServiceMonitor CRD"
 phase "Installing Prometheus Operator CRDs for ServiceMonitor acceptance"
 install_prometheus_operator_crds
 
+CURRENT_PHASE="create-bootstrap-metrics-secrets"
+FAILURE_CATEGORY="auth-material"
+FAILURE_ENDPOINT="Secret/${METRICS_AUTH_SECRET},Secret/${METRICS_CA_SECRET}"
 phase "Creating operator-provided metrics Secrets"
 create_metrics_secrets
 
+CURRENT_PHASE="install-platform-chart"
+FAILURE_CATEGORY="rendering"
+FAILURE_ENDPOINT="nativeApi metrics Service and ServiceMonitor resources"
 phase "Installing product chart managed release${profile_label}"
 helm upgrade --install "${HELM_RELEASE}" "${ROOT_DIR}/charts/nifi-platform" \
   --namespace "${NAMESPACE}" \
   --create-namespace \
   "${helm_values_args[@]}"
 
+CURRENT_PHASE="verify-platform-install"
+FAILURE_CATEGORY="rendering"
+FAILURE_ENDPOINT="managed platform install"
 phase "Verifying platform resources and controller rollout"
 helm -n "${NAMESPACE}" status "${HELM_RELEASE}" >/dev/null
 kubectl -n "${CONTROLLER_NAMESPACE}" rollout status deployment/"${CONTROLLER_DEPLOYMENT}" --timeout=5m
 kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" >/dev/null
 kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" >/dev/null
 
+CURRENT_PHASE="verify-cluster-health"
+FAILURE_CATEGORY="scrape"
+FAILURE_ENDPOINT="secured NiFi API readiness"
 phase "Verifying secured NiFi cluster health"
 run_make kind-health KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NAMESPACE="${NAMESPACE}" HELM_RELEASE="${HELM_RELEASE}"
-wait_for_condition_true TargetResolved
-wait_for_condition_true Available
 
+CURRENT_PHASE="mint-machine-auth"
+FAILURE_CATEGORY="auth-material"
+FAILURE_ENDPOINT="NiFi access token bootstrap"
 phase "Minting a bearer token for the operator-provided metrics Secret"
 mint_metrics_token
 
+CURRENT_PHASE="verify-nativeapi-contract"
+FAILURE_CATEGORY="rendering"
+FAILURE_ENDPOINT="Service/nifi-metrics and ServiceMonitor/nifi-flow,nifi-flow-fast"
 phase "Verifying metrics Service and ServiceMonitor objects"
 kubectl -n "${NAMESPACE}" get service "${HELM_RELEASE}-metrics" >/dev/null
 kubectl -n "${NAMESPACE}" get servicemonitor "${HELM_RELEASE}-flow" >/dev/null
 kubectl -n "${NAMESPACE}" get servicemonitor "${HELM_RELEASE}-flow-fast" >/dev/null
-verify_metrics_secret_references
+verify_metrics_secret_contract
+verify_metrics_secret_references "${HELM_RELEASE}-flow" "30s"
+verify_metrics_secret_references "${HELM_RELEASE}-flow-fast" "15s"
 
+CURRENT_PHASE="probe-nativeapi-flow"
+FAILURE_CATEGORY="scrape"
+FAILURE_ENDPOINT="/nifi-api/flow/metrics/prometheus"
 phase "Probing the secured native flow metrics endpoint with machine auth"
 install_probe_pod
 scrape_flow_metrics

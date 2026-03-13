@@ -1,31 +1,98 @@
+# NiFi-Fabric app chart values
+#
+# This chart deploys the NiFi workload directly. Use it for standalone installs or
+# as the workload nested under `charts/nifi-platform`.
+#
+# Start here:
+# - Install guide: ../../docs/install/helm.md
+# - App chart values reference: ../../docs/reference/nifi-values.md
+# - NiFiCluster reference for managed mode: ../../docs/reference/nificluster.md
+
+# ------------------------------------------------------------------------------
+# Workload Shape and Version
+# Docs: ../../docs/install/helm.md
+# ------------------------------------------------------------------------------
+
+# -- Number of NiFi pods.
+# @default -- 3
 replicaCount: 3
 
-podAnnotations: {}
-
+# -- NiFi container image settings.
+# @default -- {"repository":"apache/nifi","tag":"2.0.0","pullPolicy":"IfNotPresent"}
 image:
   repository: apache/nifi
-  # Private-alpha runtime proof currently covers 2.0.0 and a focused 2.8.0 path.
-  # Use examples/nifi-2.8.0-values.yaml for the newer compatibility overlay.
   tag: "2.0.0"
   pullPolicy: IfNotPresent
 
+# -- Enables the managed OnDelete workload shape expected by the controller path.
+# Set this to `true` when the workload is controlled through `charts/nifi-platform`.
+# @default -- {"enabled":false}
 controllerManaged:
   enabled: false
 
+# ------------------------------------------------------------------------------
+# Identity, Service, and Exposure
+# Docs: ../../docs/manage/authentication.md
+# Docs: ../../docs/install/advanced.md
+# ------------------------------------------------------------------------------
+
+# -- Workload ServiceAccount settings.
+# @default -- {"create":true,"name":""}
 serviceAccount:
   create: true
   name: ""
 
+# -- Main NiFi Service settings.
+# @default -- {"type":"ClusterIP","annotations":{},"sessionAffinity":"None"}
 service:
   type: ClusterIP
   annotations: {}
   sessionAffinity: None
 
+# -- NiFi Service ports.
+# @default -- {"https":8443,"cluster":11443,"loadBalance":6342}
 ports:
   https: 8443
   cluster: 11443
   loadBalance: 6342
 
+# -- Explicit proxy hosts passed to NiFi for ingress, Route, or external proxy access.
+# @default -- []
+web:
+  proxyHosts: []
+
+# -- Standard Kubernetes Ingress settings.
+# @default -- {"enabled":false,"className":"","annotations":{},"hosts":[{"host":"nifi.local","paths":[{"path":"/","pathType":"Prefix"}]}],"tls":[]}
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+  - host: nifi.local
+    paths:
+    - path: /
+      pathType: Prefix
+  tls: []
+
+# -- OpenShift Route settings for passthrough HTTPS access.
+# @default -- {"route":{"enabled":false,"host":"","annotations":{},"tls":{"termination":"passthrough","insecureEdgeTerminationPolicy":"None"}}}
+openshift:
+  route:
+    enabled: false
+    host: ""
+    annotations: {}
+    tls:
+      termination: passthrough
+      insecureEdgeTerminationPolicy: None
+
+# ------------------------------------------------------------------------------
+# TLS and Certificates
+# Docs: ../../docs/manage/tls-and-cert-manager.md
+# ------------------------------------------------------------------------------
+
+# -- TLS source, mounted Secret keys, and optional cert-manager integration.
+# Use `externalSecret` when operators create the TLS Secret separately.
+# Use `certManager` when cert-manager is already installed in the cluster.
 tls:
   mode: externalSecret
   existingSecret: nifi-tls
@@ -53,9 +120,8 @@ tls:
     secretName: nifi-tls
     duration: 2160h
     renewBefore: 360h
-    # Leave empty to default the certificate subject to the Service FQDN.
-    # NiFi derives its node identity from the certificate subject, so cert-manager
-    # mode must not leave the subject empty.
+    # -- Leave empty to default the certificate subject to the Service FQDN.
+    # NiFi node identity comes from the certificate subject.
     commonName: ""
     dnsNames: []
     usages:
@@ -73,6 +139,13 @@ tls:
         name: ""
         key: ""
 
+# ------------------------------------------------------------------------------
+# Authentication and Authorization
+# Docs: ../../docs/manage/authentication.md
+# ------------------------------------------------------------------------------
+
+# -- NiFi authentication mode and provider settings.
+# Supported modes are `singleUser`, `oidc`, and `ldap`.
 auth:
   mode: singleUser
   singleUser:
@@ -130,6 +203,7 @@ auth:
       memberAttribute: ""
       memberReferencedUserAttribute: ""
 
+# -- NiFi authorization mode, bootstrap, groups, and policies.
 authz:
   mode: fileManaged
   bootstrap:
@@ -138,45 +212,28 @@ authz:
   applicationGroups: []
   policies: []
 
-web:
-  proxyHosts: []
+# ------------------------------------------------------------------------------
+# Observability and Metrics
+# Docs: ../../docs/manage/observability.md
+# ------------------------------------------------------------------------------
 
-ingress:
-  enabled: false
-  className: ""
-  annotations: {}
-  hosts:
-  - host: nifi.local
-    paths:
-    - path: /
-      pathType: Prefix
-  tls: []
-
-openshift:
-  route:
-    enabled: false
-    host: ""
-    annotations: {}
-    tls:
-      termination: passthrough
-      insecureEdgeTerminationPolicy: None
-
+# -- Deprecated compatibility shim for older ServiceMonitor-only values.
+# Prefer `observability.metrics`.
+# @default -- {"enabled":false,"interval":"30s","scrapeTimeout":"10s"}
 serviceMonitor:
   enabled: false
   interval: 30s
   scrapeTimeout: 10s
-  # Deprecated compatibility shim. Prefer observability.metrics.
 
+# -- First-class metrics subsystem.
+# `nativeApi` is the primary supported mode.
+# `exporter` is experimental.
+# `siteToSite` is prepared-only and not runtime-enabled in this release.
 observability:
   metrics:
     mode: disabled
-    # Supported modes:
-    # - disabled
-    # - nativeApi
-    # - exporter
-    # Prepared-only contract in this slice:
-    # - siteToSite
     nativeApi:
+      # -- Native secured NiFi API scraping with chart-managed Service and ServiceMonitors.
       service:
         enabled: true
         annotations: {}
@@ -190,11 +247,11 @@ observability:
           labels: {}
           annotations: {}
       machineAuth:
+        # -- Provider-agnostic machine-auth contract.
+        # Operators still provide the referenced Secret out of band.
         type: none
         secretRef:
           name: ""
-        # Machine-auth bootstrap is provider-agnostic by contract only in this slice.
-        # Supply the Secret out of band; the chart does not provision the principal.
         basicAuth:
           usernameKey: username
           passwordKey: password
@@ -204,9 +261,7 @@ observability:
           type: Bearer
           credentialsKey: token
       tlsConfig:
-        # When a tlsConfig block is rendered, serverName defaults to the main NiFi
-        # Service FQDN so secure scraping still works even when using the dedicated
-        # metrics Service.
+        # -- When left empty, serverName defaults to the main NiFi Service FQDN.
         serverName: ""
         insecureSkipVerify: false
         ca:
@@ -225,6 +280,7 @@ observability:
         labels: {}
         annotations: {}
     exporter:
+      # -- Experimental companion exporter that republishes secured NiFi metrics on `/metrics`.
       image:
         repository: python
         tag: "3.12-alpine"
@@ -269,9 +325,8 @@ observability:
               key: ""
       resources: {}
     siteToSite:
-      # Prepared-only contract for a future SiteToSiteMetricsReportingTask path.
-      # This slice does not yet create or manage NiFi reporting tasks or the
-      # destination receiver pipeline.
+      # -- Prepared-only contract for a future SiteToSiteMetricsReportingTask path.
+      # This release does not create or manage reporting tasks or the receiver pipeline.
       destination:
         url: ""
         inputPortName: ""
@@ -287,10 +342,30 @@ observability:
         type: AmbariFormat
         includeNullValues: false
 
+# ------------------------------------------------------------------------------
+# Flow Registry Clients
+# Docs: ../../docs/manage/flow-registry-clients.md
+# ------------------------------------------------------------------------------
+
+# -- Prepared Flow Registry Client catalog entries mounted into the NiFi pod.
+flowRegistryClients:
+  enabled: false
+  mountPath: /opt/nifi/fabric/flow-registry-clients
+  clients: []
+
+# ------------------------------------------------------------------------------
+# Availability, Storage, and Resources
+# Docs: ../../docs/reference/nifi-values.md
+# ------------------------------------------------------------------------------
+
+# -- Pod disruption budget settings.
+# @default -- {"enabled":true,"minAvailable":1}
 pdb:
   enabled: true
   minAvailable: 1
 
+# -- Persistent repository storage settings.
+# @default -- {"enabled":true,"storageClassName":"","accessModes":["ReadWriteOnce"],"databaseRepository":{"size":"2Gi"},"flowfileRepository":{"size":"2Gi"},"contentRepository":{"size":"4Gi"},"provenanceRepository":{"size":"4Gi"}}
 persistence:
   enabled: true
   storageClassName: ""
@@ -305,21 +380,49 @@ persistence:
   provenanceRepository:
     size: 4Gi
 
+# -- NiFi container resource requests and limits.
+# @default -- {}
 resources: {}
 
+# ------------------------------------------------------------------------------
+# Scheduling and Security
+# Docs: ../../docs/reference/nifi-values.md
+# ------------------------------------------------------------------------------
+
+# -- Pod scheduling preferences.
+# @default -- {}
 affinity: {}
+
+# -- Pod tolerations.
+# @default -- []
 tolerations: []
+
+# -- Pod node selector.
+# @default -- {}
 nodeSelector: {}
+
+# -- Pod topology spread constraints.
+# @default -- []
 topologySpreadConstraints: []
 
+# -- Pod security context.
+# @default -- {"fsGroup":1000}
 podSecurityContext:
   fsGroup: 1000
 
+# -- Container security context.
+# @default -- {"runAsUser":1000,"runAsGroup":1000,"runAsNonRoot":true}
 securityContext:
   runAsUser: 1000
   runAsGroup: 1000
   runAsNonRoot: true
 
+# ------------------------------------------------------------------------------
+# NiFi Runtime and Health Checks
+# Docs: ../../docs/reference/nifi-values.md
+# ------------------------------------------------------------------------------
+
+# -- Core NiFi runtime settings rendered into the workload.
 nifi:
   jvmHeapInit: 1g
   jvmHeapMax: 1g
@@ -333,6 +436,8 @@ nifi:
     loadBalanceMaxThreadCount: 8
     loadBalanceCommsTimeout: 30 sec
 
+# -- Startup, readiness, and liveness probes.
+# @default -- {"startup":{"periodSeconds":10,"failureThreshold":90,"timeoutSeconds":3},"readiness":{"periodSeconds":10,"failureThreshold":6,"timeoutSeconds":3},"liveness":{"periodSeconds":20,"failureThreshold":6,"timeoutSeconds":3}}
 probes:
   startup:
     periodSeconds: 10
@@ -347,12 +452,7 @@ probes:
     failureThreshold: 6
     timeoutSeconds: 3
 
+# -- Extra `nifi.properties` entries rendered by the chart.
+# @default -- {"extraProperties":{}}
 config:
-  # This chart writes a baseline nifi.properties and lets the official image patch pod-specific values at startup.
-  # In certManager mode the chart renders Certificate resources and still expects stable password refs.
   extraProperties: {}
-
-flowRegistryClients:
-  enabled: false
-  mountPath: /opt/nifi/fabric/flow-registry-clients
-  clients: []

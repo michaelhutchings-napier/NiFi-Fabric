@@ -96,8 +96,8 @@ See [Compatibility](docs/compatibility.md) for the detailed matrix.
 - `charts/nifi` is the standalone-capable app chart
 - built-in controller-owned autoscaling is the primary autoscaling model
 - KEDA is optional, experimental, and secondary as an external intent source
-- native API metrics are the primary supported metrics path
-- exporter metrics are experimental
+- native API metrics are the primary supported metrics path and are runtime-proven on kind
+- exporter metrics are experimental and are runtime-proven on kind
 - site-to-site metrics are prepared-only
 
 ## Experimental Features
@@ -111,6 +111,30 @@ These features are available but intentionally marked experimental:
 Prepared-only, not runtime-enabled:
 
 - site-to-site metrics mode
+
+## Metrics Runtime Proof
+
+The repo now carries a focused metrics runtime proof matrix:
+
+- `make kind-metrics-fast-e2e`
+- `make kind-metrics-fast-e2e-reuse`
+
+That matrix proves:
+
+- secured `nativeApi` scraping with chart-managed `Service` and `ServiceMonitor` resources
+- experimental `exporter` mode with its companion `Deployment`, `Service`, and `ServiceMonitor`
+- the documented machine-auth Secret and CA Secret contract used by both modes
+
+Current conservative boundary:
+
+- flow metrics are the only metrics family runtime-proven live today
+- two named native scrape profiles are proven, but they scrape the same flow endpoint at different cadence
+- `siteToSite` remains outside the live proof matrix because it is still prepared-only
+
+Operators still provide, out of band:
+
+- a machine credential already accepted by NiFi, or a pre-minted token
+- the machine principal lifecycle itself, including IdP-side provisioning and rotation policy
 
 ## Install Surface Note
 

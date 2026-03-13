@@ -23,6 +23,10 @@ METRICS_CA_SECRET="${METRICS_CA_SECRET:-nifi-metrics-ca}"
 PROBE_POD_NAME="${PROBE_POD_NAME:-metrics-exporter-probe}"
 PROBE_IMAGE="${PROBE_IMAGE:-curlimages/curl:8.12.1}"
 EXPORTER_DEPLOYMENT_NAME="${EXPORTER_DEPLOYMENT_NAME:-${HELM_RELEASE}-metrics-exporter}"
+SOURCE_AUTH_SECRET="${SOURCE_AUTH_SECRET:-nifi-auth}"
+CURRENT_PHASE="${CURRENT_PHASE:-bootstrap}"
+FAILURE_CATEGORY="${FAILURE_CATEGORY:-unknown}"
+FAILURE_ENDPOINT="${FAILURE_ENDPOINT:-}"
 START_EPOCH="$(date +%s)"
 
 TMPDIR_METRICS=""
@@ -59,49 +63,30 @@ install_prometheus_operator_crds() {
 }
 
 create_metrics_secrets() {
-  local ca_file=""
-
-  TMPDIR_METRICS="$(mktemp -d)"
-  ca_file="${TMPDIR_METRICS}/ca.crt"
-
-  kubectl -n "${NAMESPACE}" get secret nifi-tls -o jsonpath='{.data.ca\.crt}' | base64 --decode >"${ca_file}"
-
-  kubectl -n "${NAMESPACE}" create secret generic "${METRICS_AUTH_SECRET}" \
-    --from-literal=token=bootstrap-pending \
-    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-
-  kubectl -n "${NAMESPACE}" create secret generic "${METRICS_CA_SECRET}" \
-    --from-file=ca.crt="${ca_file}" \
-    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  CURRENT_PHASE="bootstrap-metrics-secrets"
+  FAILURE_CATEGORY="auth-material"
+  FAILURE_ENDPOINT="Secret/${METRICS_AUTH_SECRET},Secret/${METRICS_CA_SECRET}"
+  bash "${ROOT_DIR}/hack/bootstrap-metrics-machine-auth.sh" \
+    --namespace "${NAMESPACE}" \
+    --metrics-auth-secret "${METRICS_AUTH_SECRET}" \
+    --metrics-ca-secret "${METRICS_CA_SECRET}" \
+    --auth-mode authorizationHeader \
+    --token bootstrap-pending >/dev/null
 }
 
 mint_metrics_token() {
-  local username
-  local password
-  local token
-  local host
-
-  username="$(kubectl -n "${NAMESPACE}" get secret nifi-auth -o jsonpath='{.data.username}' | base64 --decode)"
-  password="$(kubectl -n "${NAMESPACE}" get secret nifi-auth -o jsonpath='{.data.password}' | base64 --decode)"
-  host="${HELM_RELEASE}-0.${HELM_RELEASE}-headless.${NAMESPACE}.svc.cluster.local"
-
-  token="$(
-    kubectl -n "${NAMESPACE}" exec "${HELM_RELEASE}-0" -c nifi -- \
-      env NIFI_HOST="${host}" NIFI_USERNAME="${username}" NIFI_PASSWORD="${password}" TLS_CA_PATH="/opt/nifi/tls/ca.crt" sh -ec '
-        curl --silent --show-error --fail \
-          --cacert "${TLS_CA_PATH}" \
-          -H "Content-Type: application/x-www-form-urlencoded; charset=UTF-8" \
-          --data-urlencode "username=${NIFI_USERNAME}" \
-          --data-urlencode "password=${NIFI_PASSWORD}" \
-          "https://${NIFI_HOST}:8443/nifi-api/access/token"
-      '
-  )"
-
-  [[ -n "${token}" ]]
-
-  kubectl -n "${NAMESPACE}" create secret generic "${METRICS_AUTH_SECRET}" \
-    --from-literal=token="${token}" \
-    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  CURRENT_PHASE="mint-metrics-machine-auth"
+  FAILURE_CATEGORY="auth-material"
+  FAILURE_ENDPOINT="https://${HELM_RELEASE}-0.${HELM_RELEASE}-headless.${NAMESPACE}.svc.cluster.local:8443/nifi-api/access/token"
+  bash "${ROOT_DIR}/hack/bootstrap-metrics-machine-auth.sh" \
+    --namespace "${NAMESPACE}" \
+    --metrics-auth-secret "${METRICS_AUTH_SECRET}" \
+    --metrics-ca-secret "${METRICS_CA_SECRET}" \
+    --auth-mode authorizationHeader \
+    --source-auth-secret "${SOURCE_AUTH_SECRET}" \
+    --mint-token \
+    --statefulset "${HELM_RELEASE}" \
+    --container nifi >/dev/null
 }
 
 install_probe_pod() {
@@ -123,6 +108,33 @@ spec:
     - sleep 3600
 EOF
   wait_for_probe_ready
+}
+
+assert_equals() {
+  local actual="$1"
+  local expected="$2"
+  local message="$3"
+  if [[ "${actual}" != "${expected}" ]]; then
+    echo "${message}: expected ${expected}, got ${actual:-<empty>}" >&2
+    return 1
+  fi
+}
+
+verify_metrics_secret_contract() {
+  local token_preview
+  local ca_present
+
+  token_preview="$(kubectl -n "${NAMESPACE}" get secret "${METRICS_AUTH_SECRET}" -o jsonpath='{.data.token}' | base64 --decode | cut -c1-18)"
+  ca_present="$(kubectl -n "${NAMESPACE}" get secret "${METRICS_CA_SECRET}" -o jsonpath='{.data.ca\.crt}' | tr -d '\n')"
+
+  if [[ -z "${token_preview}" || "${token_preview}" == "bootstrap-pending" ]]; then
+    echo "metrics auth Secret ${METRICS_AUTH_SECRET} was not updated with a live token" >&2
+    return 1
+  fi
+  if [[ -z "${ca_present}" ]]; then
+    echo "metrics CA Secret ${METRICS_CA_SECRET} does not contain ca.crt" >&2
+    return 1
+  fi
 }
 
 verify_exporter_resources() {
@@ -148,14 +160,14 @@ verify_exporter_resources() {
   service_monitor_path="$(kubectl -n "${NAMESPACE}" get servicemonitor "${HELM_RELEASE}-exporter" -o jsonpath='{.spec.endpoints[0].path}')"
   service_monitor_scheme="$(kubectl -n "${NAMESPACE}" get servicemonitor "${HELM_RELEASE}-exporter" -o jsonpath='{.spec.endpoints[0].scheme}')"
 
-  [[ "${auth_secret}" == "${METRICS_AUTH_SECRET}" ]]
-  [[ "${ca_secret}" == "${METRICS_CA_SECRET}" ]]
-  [[ "${auth_type}" == "authorizationHeader" ]]
-  [[ "${auth_header_type}" == "Bearer" ]]
-  [[ "${source_host}" == "${HELM_RELEASE}.${NAMESPACE}.svc.cluster.local" ]]
-  [[ "${source_path}" == "/nifi-api/flow/metrics/prometheus" ]]
-  [[ "${service_monitor_path}" == "/metrics" ]]
-  [[ "${service_monitor_scheme}" == "http" ]]
+  assert_equals "${auth_secret}" "${METRICS_AUTH_SECRET}" "exporter auth Secret mismatch"
+  assert_equals "${ca_secret}" "${METRICS_CA_SECRET}" "exporter CA Secret mismatch"
+  assert_equals "${auth_type}" "authorizationHeader" "exporter auth type mismatch"
+  assert_equals "${auth_header_type}" "Bearer" "exporter header type mismatch"
+  assert_equals "${source_host}" "${HELM_RELEASE}.${NAMESPACE}.svc.cluster.local" "exporter source host mismatch"
+  assert_equals "${source_path}" "/nifi-api/flow/metrics/prometheus" "exporter source path mismatch"
+  assert_equals "${service_monitor_path}" "/metrics" "exporter ServiceMonitor path mismatch"
+  assert_equals "${service_monitor_scheme}" "http" "exporter ServiceMonitor scheme mismatch"
 }
 
 verify_exporter_mounts() {
@@ -172,13 +184,33 @@ verify_exporter_mounts() {
 }
 
 scrape_exporter_metrics() {
-  kubectl -n "${NAMESPACE}" exec "${PROBE_POD_NAME}" -- /bin/sh -ec "
-    curl --silent --show-error --fail \
-      http://${HELM_RELEASE}-metrics.${NAMESPACE}.svc.cluster.local:9090/metrics \
-      | tee /tmp/exporter-metrics.prom >/dev/null
-    grep -q '^# HELP ' /tmp/exporter-metrics.prom
-    grep -q '^# TYPE ' /tmp/exporter-metrics.prom
-  " >/dev/null
+  local attempt
+  local max_attempts=12
+  local http_code
+  CURRENT_PHASE="scrape-exporter-metrics"
+  FAILURE_CATEGORY="scrape"
+  FAILURE_ENDPOINT="http://${HELM_RELEASE}-metrics.${NAMESPACE}.svc.cluster.local:9090/metrics"
+  for attempt in $(seq 1 "${max_attempts}"); do
+    http_code="$(
+      kubectl -n "${NAMESPACE}" exec "${PROBE_POD_NAME}" -- /bin/sh -ec "
+        curl --silent --show-error \
+          --output /tmp/exporter-metrics.prom \
+          --write-out '%{http_code}' \
+          http://${HELM_RELEASE}-metrics.${NAMESPACE}.svc.cluster.local:9090/metrics
+      "
+    )"
+    if [[ "${http_code}" == "200" ]] && kubectl -n "${NAMESPACE}" exec "${PROBE_POD_NAME}" -- /bin/sh -ec "
+      grep -q '^# HELP ' /tmp/exporter-metrics.prom
+      grep -q '^# TYPE ' /tmp/exporter-metrics.prom
+    " >/dev/null; then
+      return 0
+    fi
+    if (( attempt == max_attempts )); then
+      echo "exporter scrape never succeeded: final HTTP status ${http_code:-<empty>}" >&2
+      return 1
+    fi
+    sleep 5
+  done
 }
 
 restart_exporter_deployment() {
@@ -190,6 +222,10 @@ dump_diagnostics() {
   set +e
   echo
   echo "==> metrics exporter diagnostics after failure at +$(elapsed)s"
+  echo "  mode: exporter"
+  echo "  failed phase: ${CURRENT_PHASE}"
+  echo "  failure category: ${FAILURE_CATEGORY}"
+  echo "  endpoint or contract: ${FAILURE_ENDPOINT:-n/a}"
   kubectl config use-context "kind-${KIND_CLUSTER_NAME}" >/dev/null 2>&1 || true
   kubectl config current-context || true
   helm -n "${NAMESPACE}" status "${HELM_RELEASE}" || true
@@ -251,18 +287,30 @@ else
   run_make kind-load-controller KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}"
 fi
 
+CURRENT_PHASE="install-prometheus-operator-crds"
+FAILURE_CATEGORY="rendering"
+FAILURE_ENDPOINT="ServiceMonitor CRD"
 phase "Installing Prometheus Operator CRDs for ServiceMonitor acceptance"
 install_prometheus_operator_crds
 
+CURRENT_PHASE="create-bootstrap-metrics-secrets"
+FAILURE_CATEGORY="auth-material"
+FAILURE_ENDPOINT="Secret/${METRICS_AUTH_SECRET},Secret/${METRICS_CA_SECRET}"
 phase "Creating operator-provided metrics Secrets"
 create_metrics_secrets
 
+CURRENT_PHASE="install-platform-chart"
+FAILURE_CATEGORY="rendering"
+FAILURE_ENDPOINT="exporter metrics Deployment, Service, and ServiceMonitor resources"
 phase "Installing product chart managed release${profile_label}"
 helm upgrade --install "${HELM_RELEASE}" "${ROOT_DIR}/charts/nifi-platform" \
   --namespace "${NAMESPACE}" \
   --create-namespace \
   "${helm_values_args[@]}"
 
+CURRENT_PHASE="verify-platform-install"
+FAILURE_CATEGORY="rendering"
+FAILURE_ENDPOINT="managed platform install"
 phase "Verifying platform resources and controller rollout"
 helm -n "${NAMESPACE}" status "${HELM_RELEASE}" >/dev/null
 kubectl -n "${CONTROLLER_NAMESPACE}" rollout status deployment/"${CONTROLLER_DEPLOYMENT}" --timeout=5m
@@ -270,19 +318,35 @@ kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" >/dev/null
 kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" >/dev/null
 wait_for_exporter_ready
 
+CURRENT_PHASE="verify-cluster-health"
+FAILURE_CATEGORY="scrape"
+FAILURE_ENDPOINT="secured NiFi API readiness"
 phase "Verifying secured NiFi cluster health"
 run_make kind-health KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NAMESPACE="${NAMESPACE}" HELM_RELEASE="${HELM_RELEASE}"
 
+CURRENT_PHASE="mint-machine-auth"
+FAILURE_CATEGORY="auth-material"
+FAILURE_ENDPOINT="NiFi access token bootstrap"
 phase "Minting a bearer token for the operator-provided metrics Secret"
 mint_metrics_token
 
+CURRENT_PHASE="restart-exporter"
+FAILURE_CATEGORY="auth-material"
+FAILURE_ENDPOINT="Deployment/${EXPORTER_DEPLOYMENT_NAME}"
 phase "Restarting the exporter to pick up the fresh machine-auth token"
 restart_exporter_deployment
 
+CURRENT_PHASE="verify-exporter-contract"
+FAILURE_CATEGORY="rendering"
+FAILURE_ENDPOINT="Deployment/${EXPORTER_DEPLOYMENT_NAME},Service/${HELM_RELEASE}-metrics,ServiceMonitor/${HELM_RELEASE}-exporter"
 phase "Verifying exporter deployment, Service, and ServiceMonitor wiring"
+verify_metrics_secret_contract
 verify_exporter_resources
 verify_exporter_mounts
 
+CURRENT_PHASE="probe-exporter-metrics"
+FAILURE_CATEGORY="scrape"
+FAILURE_ENDPOINT="/metrics"
 phase "Probing the clean exporter /metrics endpoint"
 install_probe_pod
 scrape_exporter_metrics

@@ -1,5 +1,32 @@
+# NiFi-Fabric platform chart values
+#
+# This is the standard one-release customer install surface. It can install the
+# standalone app chart directly or the managed platform path with the controller
+# and `NiFiCluster`.
+#
+# Start here:
+# - Install guide: ../../docs/install/helm.md
+# - Platform chart values reference: ../../docs/reference/nifi-platform-values.md
+# - App chart values reference for `nifi.*`: ../../docs/reference/nifi-values.md
+
+# ------------------------------------------------------------------------------
+# Install Mode
+# Docs: ../../docs/install/helm.md
+# ------------------------------------------------------------------------------
+
+# -- Install mode for this release.
+# Use `standalone` for Helm-only NiFi.
+# Use `managed` for the standard platform path with the controller and `NiFiCluster`.
+# @default -- "standalone"
 mode: standalone
 
+# ------------------------------------------------------------------------------
+# Controller Settings
+# Docs: ../../docs/architecture.md
+# ------------------------------------------------------------------------------
+
+# -- Controller namespace, image, arguments, and resources.
+# These settings apply only to the managed platform path.
 controller:
   namespace:
     name: nifi-system
@@ -11,7 +38,7 @@ controller:
     tag: dev
     pullPolicy: IfNotPresent
   args:
-    - --leader-elect
+  - --leader-elect
   resources:
     requests:
       cpu: 100m
@@ -20,6 +47,15 @@ controller:
       cpu: 500m
       memory: 512Mi
 
+# ------------------------------------------------------------------------------
+# Managed NiFiCluster Settings
+# Docs: ../../docs/reference/nificluster.md
+# Docs: ../../docs/manage/hibernation-and-restore.md
+# Docs: ../../docs/manage/autoscaling.md
+# ------------------------------------------------------------------------------
+
+# -- Managed-mode `NiFiCluster` settings rendered by the platform chart.
+# These values are ignored when `mode=standalone`.
 cluster:
   create: true
   name: ""
@@ -48,6 +84,8 @@ cluster:
       cooldown: 10m
       stabilizationWindow: 5m
     external:
+      # -- Controller-owned external autoscaling intent surface.
+      # Used by the experimental KEDA integration when enabled.
       enabled: false
       source: ""
       scaleDownEnabled: false
@@ -58,6 +96,15 @@ cluster:
   safety:
     requireClusterHealthy: true
 
+# ------------------------------------------------------------------------------
+# Experimental KEDA Integration
+# Docs: ../../docs/keda.md
+# ------------------------------------------------------------------------------
+
+# -- Optional experimental KEDA integration for managed mode.
+# KEDA targets `NiFiCluster`, not the NiFi StatefulSet.
+# The controller remains the only executor of actual scale actions.
+# @default -- {"enabled":false,"pollingInterval":30,"cooldownPeriod":300,"minReplicaCount":1,"maxReplicaCount":3,"triggers":[]}
 keda:
   enabled: false
   pollingInterval: 30
@@ -66,6 +113,26 @@ keda:
   maxReplicaCount: 3
   triggers: []
 
+# ------------------------------------------------------------------------------
+# Nested App Chart Values
+# Docs: ../../docs/reference/nifi-values.md
+# Docs: ../../docs/manage/tls-and-cert-manager.md
+# Docs: ../../docs/manage/authentication.md
+# Docs: ../../docs/manage/observability.md
+# ------------------------------------------------------------------------------
+
+# -- Nested `charts/nifi` values passed through by the platform chart.
+# This is where customers set NiFi version, TLS, auth, ingress, storage, metrics,
+# and other workload-level settings for the standard one-release install path.
+#
+# Common starting points:
+# - `nifi.replicaCount`
+# - `nifi.image.tag`
+# - `nifi.tls.*`
+# - `nifi.auth.*`
+# - `nifi.authz.*`
+# - `nifi.ingress.*` or `nifi.openshift.route.*`
+# - `nifi.observability.metrics.*`
 nifi:
   observability:
     metrics:

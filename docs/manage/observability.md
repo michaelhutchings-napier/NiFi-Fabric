@@ -64,3 +64,17 @@ What remains operator-provided:
 - `nativeApi`: primary supported path
 - `exporter`: experimental
 - `siteToSite`: prepared-only
+
+## Runtime Proof
+
+Focused live proof is available through:
+
+- `make kind-metrics-native-api-fast-e2e`
+- `make kind-metrics-exporter-fast-e2e`
+- `make kind-metrics-fast-e2e`
+
+Current live scope:
+
+- secured flow metrics are runtime-proven for `nativeApi`
+- the same flow metrics family republished on exporter `/metrics` is runtime-proven for `exporter`
+- no second distinct metrics family is claimed live yet
