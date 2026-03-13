@@ -1,205 +1,55 @@
-# Testing Strategy
+# Verification and Support Levels
 
-## Goals
+This page explains how NiFi-Fabric support claims are grounded in repository proof.
 
-Testing must prove the thin-controller design is safe, idempotent, and understandable. The focus is on rollout safety, hibernation restore, and clear ownership boundaries between Helm, the controller, and NiFi.
+## Verification Layers
 
-## Unit Tests
+NiFi-Fabric uses several layers of verification:
 
-Unit tests should cover:
+- unit and envtest coverage for controller behavior
+- Helm render and lint coverage for chart behavior
+- focused kind runtime workflows for supported feature paths
 
-- watched Secret and ConfigMap hash calculation
-- revision and rollout predicates
-- condition transition helpers
-- `lastOperation` updates
-- hibernation restore state handling
-- TLS restart policy selection
-- NiFi API client request and error handling
+## What Is Proven Today
 
-Current unit coverage in the scaffold includes:
+Focused runtime proof in this repository includes:
 
-- stable watched-resource hash calculation across input ordering
-- revision drift detection
-- config-triggered rollout planning from `status.rollout.startedAt`
-- rollout blocked while the health gate is failing
-- one-pod-at-a-time advancement
-- safe resume from current status and StatefulSet state after controller restart
-- ConfigMap drift triggering the managed `OnDelete` rollout path
-- watched non-TLS Secret drift triggering the managed `OnDelete` rollout path
-- TLS content drift entering and resolving through the autoreload observation window
-- TLS content drift escalating to rollout when health degrades or policy requires it
-- material TLS configuration drift triggering rollout immediately
-- safe resume of TLS observation and TLS rollout after controller restart
-- capture of `status.hibernation.lastRunningReplicas` before managed scale-to-zero
-- restore to the prior running replica count
-- fallback restore to `1` replica when no prior running size was recorded
-- safe resume while hibernation is already waiting for pods to terminate
-- restore remaining `Progressing=True` until stable health returns
-- rollout waits for NiFi disconnect and offload before deleting the target pod
-- hibernation removes the highest ordinal node only after NiFi disconnect and offload complete
-- node-preparation timeout keeps `status.nodeOperation` persisted and blocks destructive progress
-- advisory autoscaling recommendation calculation and precedence blocking
-- advisory autoscaling NiFi signal parsing and aggregation from read-only NiFi API payloads
-- advisory autoscaling signal-sample metrics for queue backlog, thread counts, and CPU diagnostics
-- advisory autoscaling status timestamp stability when the recommendation meaning does not change
-- autoscaling persisted execution-state resume and clear behavior for scale-up settle and scale-down prepare or settle paths
-- autoscaling low-pressure evidence accumulation from repeated zero-backlog observations
-- enforced autoscaling scale-up eligibility, clamping, and cooldown behavior
-- experimental enforced autoscaling scale-down eligibility, one-step execution, low-pressure evidence gating, stabilization, cooldown behavior, stuck-offload blocking, and safe resume after controller restart
-- rollout-failure status persistence and blocked autoscaling status when reconcile returns an error during a managed destructive step
-- NiFi access-token and cluster-summary request handling
-- lifecycle transition metrics for rollout, TLS observation, hibernation, node-preparation retry or timeout paths, and autoscaling recommendation or scale-up updates
+- standard managed platform install on kind
+- cert-manager integration on kind
+- OIDC and LDAP focused auth paths on kind
+- native API metrics on kind
+- exporter metrics on kind
+- controller-owned autoscaling focused flows on NiFi `2.8.0`
+- optional experimental KEDA intent-source flows on NiFi `2.8.0`
+- GitHub and GitLab Flow Registry Client focused flows on NiFi `2.8.0`
 
-## controller-runtime `envtest`
+## What Is Render-Validated or Prepared
 
-`envtest` should cover:
+- site-to-site metrics remains prepared-only
+- AKS guidance is published but still conservative
+- OpenShift guidance is published but still conservative
+- Bitbucket and Azure DevOps Flow Registry Client definitions are prepared and render-validated
 
-- target resolution from `spec.targetRef.name`
-- rejection of missing or invalid targets
-- status updates for `TargetResolved`, `Available`, `Progressing`, `Degraded`, and `Hibernated`
-- drift detection from watched Secrets and ConfigMaps
-- persistence of `status.observedConfigHash` and `status.observedCertificateHash`
-- persistence of `status.observedTLSConfigurationHash`
-- persistence of `status.tls.observationStartedAt`, `status.tls.targetCertificateHash`, and `status.tls.targetTLSConfigurationHash`
-- persistence of `status.rollout.startedAt` and `status.rollout.targetConfigHash`
-- persistence of `status.rollout.targetCertificateHash` and `status.rollout.targetTLSConfigurationHash`
-- blocked rollout when health gates fail
-- backoff and retry behavior for NiFi API failures
-- capture and restore of `status.hibernation.lastRunningReplicas`
-- safe resume after controller restart during an in-flight operation
+## Customer Meaning of Support Levels
 
-## Helm Template Tests
+Use the categories in [Compatibility](compatibility.md):
 
-Helm template tests should cover:
+- `Focused-runtime-proven` means the feature is exercised in focused runtime workflows in this repository
+- `Prepared / render-validated` means the shape is intentionally documented and rendered, but the repo does not claim runtime proof yet
+- `Production-proven` is reserved for broader runtime proof than the current focused kind baseline
 
-- standalone chart rendering with no CRD dependency
-- one-release platform-chart rendering for `standalone`, `managed`, and `managed-cert-manager`
-- managed-mode rendering with `StatefulSet.updateStrategy=OnDelete`
-- Services, PVCs, PDB, and `ServiceMonitor`
-- first-class `observability.metrics` rendering for `disabled`, `nativeApi`, and `exporter`, with `siteToSite` explicitly failing as prepared-only
-- multiple named native API metrics endpoints rendered as multiple `ServiceMonitor` resources
-- machine-auth Secret reference validation for native API metrics scraping
-- exporter deployment and ServiceMonitor rendering for the experimental `/metrics` companion path
-- RBAC needed for NiFi Kubernetes coordination and shared state
-- cert-manager integration assumptions and Secret references
-- scheduling fields such as affinity, tolerations, and topology spread
-- OpenShift-friendly notes or templates without breaking AKS-first defaults
-- optional KEDA template rendering should target `NiFiCluster`, not the NiFi `StatefulSet`
-- invalid KEDA combinations should fail clearly at Helm render time
-- KEDA template and API validation should stay backed by unit, reconcile, and render coverage even when the focused runtime gate is green
+## Validation Used for Documentation Consistency
 
-Focused metrics render checks should include at least:
+Customer-facing docs should stay aligned with:
 
-- `helm template nifi charts/nifi`
-- `helm template nifi charts/nifi-platform -f examples/platform-managed-values.yaml -f examples/platform-managed-metrics-native-values.yaml`
-- `helm template nifi charts/nifi-platform -f examples/platform-managed-values.yaml -f examples/platform-managed-metrics-exporter-values.yaml`
-- one `helm template` site-to-site overlay that fails clearly as prepared-only
-- one invalid native API auth configuration that fails clearly at render time
-- one invalid exporter auth configuration that fails clearly at render time
-- `bash -n hack/bootstrap-metrics-machine-auth.sh`
-- `bash hack/bootstrap-metrics-machine-auth.sh --help`
+- `go test ./...`
+- `helm lint charts/nifi`
+- `helm lint charts/nifi-platform`
+- `helm template` for the standard chart install paths
+- focused checks for the feature being documented
 
-## kind Integration Tests
+## Current Conservative Boundaries
 
-kind-based integration should cover:
-
-- a single fresh-kind `make kind-alpha-e2e` path for private-alpha validation
-- a focused fresh-kind `make kind-platform-managed-fast-e2e` path that installs the one-release platform chart in managed mode and proves CRD, controller, app, and `NiFiCluster` startup on the fast profile
-- a focused fresh-kind `make kind-platform-managed-cert-manager-fast-e2e` path that verifies the platform chart fails clearly before cert-manager exists, then succeeds once cert-manager is bootstrapped, all on the fast profile
-- additive focused fast-profile reruns that keep NiFi multi-node but reduce the shape to the smallest stable two-node footprint for local kind validation
-- a separate `make kind-bootstrap-cert-manager` path that installs cert-manager from the official Helm chart source and bootstraps the evaluator issuer flow without modifying the NiFi chart
-- a focused fresh-kind `make kind-cert-manager-e2e` path for cert-manager validation without changing the main alpha gate
-- a focused fresh-kind `make kind-cert-manager-nifi-2-8-e2e` path for cert-manager validation on NiFi `2.8.0`
-- a focused fresh-kind `make kind-cert-manager-nifi-2-8-fast-e2e` path for cert-manager validation on NiFi `2.8.0` with the additive fast profile
-- a focused `make kind-auth-oidc-e2e` path for OIDC runtime validation without pulling in the main lifecycle gate
-- a focused `make kind-auth-oidc-nifi-2-8-fast-e2e` path for OIDC runtime validation on NiFi `2.8.0` with the additive fast profile
-- a focused `make kind-auth-ldap-e2e` path for LDAP runtime validation without pulling in the main lifecycle gate
-- a focused `make kind-nifi-2-8-e2e` path for a newer NiFi 2.x managed compatibility proof without rerunning the full alpha gate
-- a focused `make kind-flow-registry-gitlab-e2e` path for GitLab Flow Registry Client runtime on NiFi `2.8.0` without pulling in the full alpha gate
-- a focused `make kind-flow-registry-github-fast-e2e` path for GitHub Flow Registry Client runtime on NiFi `2.8.0` with the additive fast profile
-- a focused `make kind-autoscaling-scale-up-fast-e2e` path for autoscaling scale-up runtime proof on NiFi `2.8.0` with the additive fast profile
-- a focused `make kind-autoscaling-scale-down-fast-e2e` path for experimental autoscaling scale-down runtime proof on NiFi `2.8.0` with the additive fast profile
-- a focused `make kind-autoscaling-churn-fast-e2e` path that proves repeated `2 -> 3 -> 2 -> 3` controller-owned autoscaling churn, settle behavior, highest-ordinal removal, ordinal reuse, and PVC retention on NiFi `2.8.0` with the additive fast profile
-- a focused `make kind-metrics-native-api-fast-e2e` path that installs Prometheus Operator CRDs for `ServiceMonitor` acceptance, installs the metrics-enabled platform overlay, verifies the chart-rendered metrics `Service` and `ServiceMonitor` objects, mints an operator-provided bearer token Secret out of band for the harness, and proves one live scrape against `/nifi-api/flow/metrics/prometheus`
-- a focused `make kind-metrics-exporter-fast-e2e` path that installs the exporter overlay, verifies the companion exporter deployment plus its `Service` and `ServiceMonitor`, mints an operator-provided bearer token Secret out of band for the harness, and proves one live scrape from the clean exporter `/metrics` endpoint
-- a focused `make kind-keda-scale-up-fast-e2e` path that installs real KEDA, renders the platform-chart `ScaledObject`, proves that KEDA targets `NiFiCluster` through `/scale`, proves that the controller still executes the actual safe `StatefulSet` scale-up, and proves that unsupported external scale-down intent is ignored while the `StatefulSet` remains unchanged
-- a focused `make kind-keda-scale-down-fast-e2e` path that installs real KEDA, proves that KEDA lowers `NiFiCluster` `/scale` intent back to `minReplicaCount`, proves one-step controller-owned `3 -> 2` execution with restart-safe settle, and proves below-min external downscale intent is still ignored
-- the scale-down proof now also checks the controller-owned post-removal settle loop instead of depending on one long blocking health wait inside a single reconcile
-- preloading the NiFi runtime image into the fresh kind node so alpha validation is not gated by an in-cluster registry pull
-- phase-level fresh-kind reruns:
-  - `make kind-e2e-rollout`
-  - `make kind-e2e-config-drift`
-  - `make kind-e2e-tls`
-  - `make kind-e2e-hibernate`
-- fresh multi-node NiFi cluster formation without ZooKeeper
-- ConfigMap drift triggering a health-gated sequential rollout
-- TLS content drift resolving without restart when policy allows
-- TLS configuration drift triggering a health-gated sequential rollout
-- cert-manager installation, issuer bootstrap, and `Certificate` readiness on kind
-- cert-manager renewal updating the mounted Secret without forcing restart when refs, paths, and passwords remain stable
-- restart-required TLS config change continuing to use the managed rollout path even when the TLS Secret is cert-manager-managed
-- Keycloak bootstrap, NiFi OIDC discovery and login wiring, exact group-claim prerequisites, Initial Admin Identity fallback bootstrap, and non-admin denial checks
-- Keycloak bootstrap, NiFi OIDC discovery and login wiring, exact identifying-user and groups claim wiring, seeded NiFi application-group prerequisites, Initial Admin Identity fallback bootstrap, and non-admin denial checks on NiFi `2.8.0`
-- LDAP bootstrap, NiFi LDAP login and LDAP user or group provider wiring, Initial Admin Identity bootstrap, and non-admin denial checks
-- GitLab-compatible evaluator bootstrap, NiFi GitLab Flow Registry Client creation through NiFi's own API, and bucket listing on NiFi `2.8.0`
-- GitHub-compatible evaluator bootstrap, NiFi GitHub Flow Registry Client creation through NiFi's own API, and bucket listing on NiFi `2.8.0` with the fast profile
-- image or template upgrade through the `OnDelete` coordinator
-- hibernation to zero and restore to the prior running size
-- controller restart during rollout and during hibernation
-- controller metrics exposure for rollout, TLS, hibernation, and node-preparation counters
-- Kubernetes events for `NiFiCluster` lifecycle transitions
-
-## Upgrade, Restart, And Cert Rotation Cases
-
-The minimum acceptance suite should include:
-
-- no rollout begins while cluster health is failing
-- no second pod deletion occurs before the prior pod is Ready and reconnected
-- watched non-TLS drift uses the same restart path as StatefulSet revision drift
-- TLS content drift advances `status.observedCertificateHash` only after the controller considers TLS state reconciled
-- material TLS drift advances `status.observedCertificateHash` and `status.observedTLSConfigurationHash` only after rollout success
-- hibernation preserves PVCs and restores `status.hibernation.lastRunningReplicas`
-- rollout state resumes correctly after controller failure
-- autoscaling prepare and settle state resumes correctly after controller failure without repeating destructive work
-
-## Test Environment Notes
-
-- use `envtest` for reconciliation logic and status assertions
-- use Helm template tests for values-to-manifest behavior
-- use kind for end-to-end lifecycle behavior
-- add AKS smoke validation after kind coverage is stable
-- keep [docs/aks.md](aks.md) and `examples/aks/*` honest: prepared for evaluation, not validated, until a real AKS run is recorded
-- keep [docs/openshift.md](openshift.md) and `examples/openshift/*` honest: prepared for evaluation, not validated, until a real OpenShift run is recorded
-
-Current alpha note:
-
-- the repo now has a green fresh-kind private-alpha workflow
-- the repo now has a render-validated `charts/nifi-platform` install path for one-release standalone, managed, and managed-cert-manager installs
-- the repo now also has green focused `make kind-platform-managed-fast-e2e` and `make kind-platform-managed-cert-manager-fast-e2e` workflows for the product-chart install path
-- the repo now also has green fresh-kind `make kind-cert-manager-e2e` and `make kind-cert-manager-nifi-2-8-e2e` workflows
-- the repo now also has a green focused `make kind-cert-manager-nifi-2-8-fast-e2e` workflow for cert-manager on NiFi `2.8.0` with the fast profile
-- the repo now also has green focused `make kind-auth-oidc-e2e` and `make kind-auth-ldap-e2e` workflows
-- the repo now also has a green focused `make kind-auth-oidc-nifi-2-8-fast-e2e` workflow for OIDC on NiFi `2.8.0` with the fast profile
-- the repo now also has a green focused `make kind-nifi-2-8-e2e` workflow for the newer NiFi 2.x proof target
-- the repo now also has a focused `make kind-flow-registry-gitlab-e2e` workflow for GitLab Flow Registry Client runtime on NiFi `2.8.0`
-- the repo now also has a green focused `make kind-flow-registry-github-fast-e2e` workflow for GitHub Flow Registry Client runtime on NiFi `2.8.0` with the fast profile
-- the repo now also has a green focused `make kind-autoscaling-scale-up-fast-e2e` workflow for autoscaling scale-up runtime proof on NiFi `2.8.0` with the fast profile
-- the repo now also has a green focused `make kind-autoscaling-scale-down-fast-e2e` workflow for experimental autoscaling scale-down runtime proof on NiFi `2.8.0` with the fast profile
-- the repo now also has a green focused `make kind-autoscaling-churn-fast-e2e` workflow for repeated autoscaling churn proof on NiFi `2.8.0` with the fast profile
-- the repo now also has a green focused `make kind-metrics-native-api-fast-e2e` workflow for secured native API metrics proof on kind
-- the repo now also has a green focused `make kind-metrics-exporter-fast-e2e` workflow for the experimental exporter `/metrics` proof on kind
-- `siteToSite` remains prepared-only and therefore has render-only coverage, not a live runtime gate
-- the repo now also has a green focused `make kind-keda-scale-up-fast-e2e` workflow for experimental KEDA intent-source runtime proof on NiFi `2.8.0` with the fast profile
-- the repo now also has a focused `make kind-keda-scale-down-fast-e2e` workflow for experimental controller-mediated KEDA downscale intent proof on NiFi `2.8.0` with the fast profile
-- the KEDA gates prove that KEDA only writes `NiFiCluster` intent and that the controller still owns every real scale-up and scale-down action
-- the unavailable autoscaling blocking path still relies on focused unit and reconcile coverage rather than a separate dedicated kind fault-injection flow
-- CI should treat `make kind-alpha-e2e` as the gate and use the phase-level targets for faster diagnosis
-- evaluator-facing examples and quickstarts should stay aligned with that same gate
-- cert-manager mode should still render in CI via `helm template`
-- the focused cert-manager path is an additional evaluation workflow, not a replacement for `make kind-alpha-e2e`
-- the focused auth paths are additional evaluator workflows, not replacements for `make kind-alpha-e2e`
-- the focused newer-version path is an additional compatibility workflow, not a replacement for `make kind-alpha-e2e`
-- the focused GitLab Flow Registry path is an additional runtime workflow, not a replacement for `make kind-alpha-e2e`
-- focused fast-profile commands are additional local-cost controls, not replacements for the baseline profiles or the alpha gate
-- cert-manager itself remains a cluster dependency and should stay outside the NiFi chart
-- CI diagnostics should include compact `NiFiCluster` status, compact `StatefulSet` status, pod revision or UID state, recent events, controller logs, and a controller metrics snapshot before falling back to large YAML dumps
+- the repo does not yet claim a production-proven cloud runtime matrix
+- AKS and OpenShift remain conservative until real-cluster proof is recorded
+- experimental features stay explicitly marked experimental even when focused runtime proof exists
