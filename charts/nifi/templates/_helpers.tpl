@@ -129,12 +129,29 @@ nativeApiLegacy
 app.kubernetes.io/component: metrics
 {{- end -}}
 
+{{- define "nifi.metricsExporterName" -}}
+{{- printf "%s-metrics-exporter" (include "nifi.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "nifi.metricsExporterLabels" -}}
+{{- include "nifi.labels" . }}
+app.kubernetes.io/component: metrics-exporter
+{{- end -}}
+
+{{- define "nifi.metricsExporterSelectorLabels" -}}
+{{- include "nifi.selectorLabels" . }}
+app.kubernetes.io/component: metrics-exporter
+{{- end -}}
+
 {{- define "nifi.metricsServiceSelectorLabels" -}}
 {{- $observability := default (dict) .Values.observability -}}
 {{- $metrics := default (dict) $observability.metrics -}}
 {{- $native := default (dict) $metrics.nativeApi -}}
 {{- $service := default (dict) $native.service -}}
-{{- if $service.enabled -}}
+{{- $mode := default "disabled" $metrics.mode -}}
+{{- if eq $mode "exporter" -}}
+{{- include "nifi.metricsExporterSelectorLabels" . }}
+{{- else if $service.enabled -}}
 {{- include "nifi.selectorLabels" . }}
 app.kubernetes.io/component: metrics
 {{- else -}}
@@ -149,6 +166,30 @@ app.kubernetes.io/component: metrics
 {{- trimAll "-" $clean -}}
 {{- end -}}
 
+{{- define "nifi.metricsTLSServerName" -}}
+{{- $observability := default (dict) .Values.observability -}}
+{{- $metrics := default (dict) $observability.metrics -}}
+{{- $native := default (dict) $metrics.nativeApi -}}
+{{- $tlsConfig := default (dict) $native.tlsConfig -}}
+{{- if $tlsConfig.serverName -}}
+{{- $tlsConfig.serverName -}}
+{{- else -}}
+{{- printf "%s.%s.svc.cluster.local" (include "nifi.fullname" .) .Release.Namespace -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "nifi.exporterSourceHost" -}}
+{{- $observability := default (dict) .Values.observability -}}
+{{- $metrics := default (dict) $observability.metrics -}}
+{{- $exporter := default (dict) $metrics.exporter -}}
+{{- $source := default (dict) $exporter.source -}}
+{{- if $source.host -}}
+{{- $source.host -}}
+{{- else -}}
+{{- printf "%s.%s.svc.cluster.local" (include "nifi.fullname" .) .Release.Namespace -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "nifi.validate" -}}
 {{- $mode := include "nifi.metricsMode" . -}}
 {{- $observability := default (dict) .Values.observability -}}
@@ -161,10 +202,48 @@ app.kubernetes.io/component: metrics
 {{- fail "serviceMonitor.enabled is deprecated and cannot be combined with observability.metrics.mode; use observability.metrics only" -}}
 {{- end -}}
 {{- if eq $mode "exporter" -}}
-{{- fail "observability.metrics.mode=exporter is not implemented in this slice; use disabled or nativeApi" -}}
+{{- $exporter := default (dict) $metrics.exporter -}}
+{{- $machineAuth := default (dict) $exporter.machineAuth -}}
+{{- $source := default (dict) $exporter.source -}}
+{{- $service := default (dict) $exporter.service -}}
+{{- $serviceMonitor := default (dict) $exporter.serviceMonitor -}}
+{{- if and (ne $machineAuth.type "bearerToken") (ne $machineAuth.type "authorizationHeader") -}}
+{{- fail "observability.metrics.exporter.machineAuth.type must be one of: bearerToken, authorizationHeader" -}}
+{{- end -}}
+{{- if not $machineAuth.secretRef.name -}}
+{{- fail "observability.metrics.exporter.machineAuth.secretRef.name is required when observability.metrics.mode=exporter" -}}
+{{- end -}}
+{{- if eq $machineAuth.type "bearerToken" -}}
+{{- if not $machineAuth.bearerToken.tokenKey -}}
+{{- fail "observability.metrics.exporter.machineAuth.bearerToken.tokenKey is required for bearerToken" -}}
+{{- end -}}
+{{- end -}}
+{{- if eq $machineAuth.type "authorizationHeader" -}}
+{{- if not $machineAuth.authorization.type -}}
+{{- fail "observability.metrics.exporter.machineAuth.authorization.type is required for authorizationHeader" -}}
+{{- end -}}
+{{- if not $machineAuth.authorization.credentialsKey -}}
+{{- fail "observability.metrics.exporter.machineAuth.authorization.credentialsKey is required for authorizationHeader" -}}
+{{- end -}}
+{{- end -}}
+{{- if and (ne $source.scheme "http") (ne $source.scheme "https") -}}
+{{- fail "observability.metrics.exporter.source.scheme must be one of: http, https" -}}
+{{- end -}}
+{{- if not $source.path -}}
+{{- fail "observability.metrics.exporter.source.path is required when observability.metrics.mode=exporter" -}}
+{{- end -}}
+{{- if and (not $service.enabled) (default true $serviceMonitor.enabled) -}}
+{{- fail "observability.metrics.exporter.service.enabled=false cannot be combined with an enabled exporter ServiceMonitor" -}}
+{{- end -}}
+{{- $sourceTLSConfig := default (dict) $source.tlsConfig -}}
+{{- $sourceTLSCA := default (dict) $sourceTLSConfig.ca -}}
+{{- $sourceTLSCASecretRef := default (dict) $sourceTLSCA.secretRef -}}
+{{- if and $sourceTLSCASecretRef.name (not $sourceTLSCASecretRef.key) -}}
+{{- fail "observability.metrics.exporter.source.tlsConfig.ca.secretRef.key is required when a CA Secret reference is configured" -}}
+{{- end -}}
 {{- end -}}
 {{- if eq $mode "siteToSite" -}}
-{{- fail "observability.metrics.mode=siteToSite is not implemented in this slice; use disabled or nativeApi" -}}
+{{- fail "observability.metrics.mode=siteToSite is prepared-only in this slice; the chart defines observability.metrics.siteToSite.* for a future SiteToSiteMetricsReportingTask path but does not yet manage NiFi reporting tasks or the destination receiver pipeline. Use nativeApi or exporter." -}}
 {{- end -}}
 {{- if eq $mode "nativeApi" -}}
 {{- $native := default (dict) $metrics.nativeApi -}}

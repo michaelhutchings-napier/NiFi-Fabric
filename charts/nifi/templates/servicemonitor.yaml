@@ -21,6 +21,7 @@ spec:
 {{- $defaults := $native.serviceMonitor.defaults -}}
 {{- $machineAuth := $native.machineAuth -}}
 {{- $tlsConfig := $native.tlsConfig -}}
+{{- $tlsServerName := include "nifi.metricsTLSServerName" $ -}}
 {{- range $endpoint := $native.endpoints }}
 {{- if $endpoint.enabled }}
 {{- $defaultAnnotations := default (dict) $defaults.annotations }}
@@ -89,9 +90,7 @@ spec:
     {{- if or $tlsConfig.serverName $tlsConfig.insecureSkipVerify $tlsConfig.ca.secretRef.name }}
     tlsConfig:
       insecureSkipVerify: {{ $tlsConfig.insecureSkipVerify }}
-      {{- with $tlsConfig.serverName }}
-      serverName: {{ . }}
-      {{- end }}
+      serverName: {{ $tlsServerName }}
       {{- with $tlsConfig.ca.secretRef.name }}
       ca:
         secret:
@@ -101,5 +100,39 @@ spec:
     {{- end }}
 ---
 {{- end }}
+{{- end }}
+{{- else if eq $mode "exporter" }}
+{{- $exporter := .Values.observability.metrics.exporter -}}
+{{- $serviceMonitor := $exporter.serviceMonitor -}}
+{{- $defaults := $exporter.serviceMonitor.defaults -}}
+{{- $service := $exporter.service -}}
+{{- if and (default true $serviceMonitor.enabled) $service.enabled }}
+{{- $annotations := default (dict) $defaults.annotations }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ printf "%s-exporter" (include "nifi.fullname" .) | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "nifi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: metrics
+    {{- with $defaults.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- if $annotations }}
+  annotations:
+    {{- toYaml $annotations | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "nifi.metricsServiceSelectorLabels" . | nindent 6 }}
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: {{ $defaults.interval }}
+    scrapeTimeout: {{ $defaults.scrapeTimeout }}
+    scheme: {{ $defaults.scheme }}
+    honorLabels: {{ $defaults.honorLabels }}
+---
 {{- end }}
 {{- end }}

@@ -1,14 +1,18 @@
 # Optional managed-platform overlay for secured native NiFi metrics scraping.
-# Bootstrap the machine principal Secret out of band; this slice only defines the contract.
+# Supply a bearer token Secret and CA Secret out of band; this slice does not
+# provision or rotate machine principals or tokens for you.
 nifi:
   observability:
     metrics:
       mode: nativeApi
       nativeApi:
         machineAuth:
-          type: basicAuth
+          type: authorizationHeader
           secretRef:
             name: nifi-metrics-auth
+          authorization:
+            type: Bearer
+            credentialsKey: token
         tlsConfig:
           ca:
             secretRef:

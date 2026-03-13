@@ -1,0 +1,22 @@
+# Optional managed-platform overlay for the prepared-only site-to-site metrics contract.
+# This does not enable a runtime path yet. It documents the intended operator-facing
+# values for a future SiteToSiteMetricsReportingTask integration once reporting-task
+# lifecycle and receiver assumptions are deliberately modeled.
+nifi:
+  observability:
+    metrics:
+      mode: siteToSite
+      siteToSite:
+        destination:
+          url: https://metrics-receiver.example.com/nifi
+          inputPortName: nifi-metrics
+        source:
+          applicationId: nifi
+          instanceUrl: https://nifi.example.com/nifi
+        transport:
+          protocol: RAW
+          communicationsTimeout: 30 secs
+          compressEvents: true
+        format:
+          type: AmbariFormat
+          includeNullValues: false

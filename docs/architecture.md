@@ -110,8 +110,9 @@ Observability stays chart-first as well:
 
 - Helm owns the metrics `Service`, `ServiceMonitor` resources, scrape endpoint shapes, and machine-auth Secret references.
 - The first-class chart API is `observability.metrics`.
-- `nativeApi` is the only fully implemented metrics mode in this slice.
-- `exporter` and `siteToSite` remain explicit future work and must not be treated as complete runtime paths.
+- `nativeApi` is the primary supported metrics mode.
+- `exporter` is an experimental companion path in this slice.
+- `siteToSite` is now a prepared-only contract and must not be treated as a complete runtime path.
 - The controller is not part of machine-auth bootstrap for NiFi metrics in this slice.
 
 ### Metrics Subsystem Shape
@@ -122,6 +123,8 @@ The metrics contract is intentionally boring:
 - `observability.metrics.nativeApi.endpoints[]` defines named scrape profiles
 - `observability.metrics.nativeApi.machineAuth` defines provider-agnostic Secret references for scraper credentials
 - `observability.metrics.nativeApi.tlsConfig` defines optional TLS material for Prometheus Operator
+- `observability.metrics.exporter` defines one experimental companion exporter path for a Prometheus-friendly `/metrics` endpoint
+- `observability.metrics.siteToSite` defines one prepared-only contract for a future SiteToSiteMetricsReportingTask path
 
 This keeps the first runtime slice chart-owned and explainable:
 
@@ -133,8 +136,25 @@ This keeps the first runtime slice chart-owned and explainable:
 Bootstrap expectation in this slice:
 
 - the chart does not create the NiFi machine principal or its Secret
-- operators provide that Secret out of band using whatever identity provider or credential workflow they already trust
+- operators still own the machine principal and whatever identity provider or credential workflow they already trust
+- a small helper script, `hack/bootstrap-metrics-machine-auth.sh`, can now create the Kubernetes metrics auth Secret and optional metrics CA Secret from that existing credential material
 - Prometheus Operator then scrapes the secured NiFi API using chart-rendered `ServiceMonitor` resources
+- the helper can either accept a pre-minted token or mint a NiFi access token from any NiFi-accepted username/password pair already available to the operator
+- this is intentionally Secret/bootstrap automation only, not provider provisioning
+
+Exporter expectation in this slice:
+
+- the chart can run a small companion exporter deployment
+- that exporter uses operator-provided machine auth material to fetch one secured NiFi metrics endpoint
+- the exporter republishes that result on a clean cluster-local `/metrics` endpoint
+- this is intentionally smaller than a general exporter framework and currently supports the flow metrics family only
+
+Site-to-site expectation in this slice:
+
+- Apache NiFi does provide a `SiteToSiteMetricsReportingTask`, but using it cleanly here would require declarative management of NiFi reporting tasks plus a receiver-side input-port contract
+- this repo does not yet model reporting-task lifecycle or the external receiver pipeline as chart-owned runtime resources
+- the chart therefore exposes a small prepared contract only: destination URL, input port name, source identity, transport, and output format
+- `mode=siteToSite` fails clearly today so operators do not mistake the prepared values shape for a supported runtime path
 
 Flow Registry Client preparation also stays chart-first:
 

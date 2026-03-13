@@ -71,7 +71,7 @@ What is implemented now:
 - optional experimental one-step scale-down through the controller only, after sustained low pressure and the existing safe disconnect or offload sequence complete for the highest ordinal node
 - a first-class chart-owned metrics subsystem for secured NiFi scraping, with `observability.metrics.mode=nativeApi` fully implemented
 - dedicated metrics `Service` plus multiple named `ServiceMonitor` scrape targets for NiFi native API metrics, without requiring a human login flow
-- provider-agnostic machine-auth secret references for Prometheus scraping, with bootstrap documented but not automated
+- provider-agnostic machine-auth secret references for Prometheus scraping, with helper-based Secret bootstrap now available but principal provisioning still out of scope
 - focused fast runtime proof on NiFi `2.8.0` for advisory status-only behavior, one-step enforced scale-up, one-step experimental enforced scale-down, cooldown enforcement, restart-safe prepare or settle recovery, repeated `2 -> 3 -> 2 -> 3` churn, and blocked autoscaling during progressing, hibernated or restoring, degraded, unresolved, and unmanaged states
 
 What is not implemented yet:
@@ -250,6 +250,7 @@ What is proven:
 - focused GitLab Flow Registry Client runtime proof on NiFi `2.8.0`
 - focused GitHub Flow Registry Client runtime proof on NiFi `2.8.0` with the fast profile
 - focused experimental KEDA intent-source runtime proof on NiFi `2.8.0` with the fast profile
+- focused secured native API metrics runtime proof on kind
 
 What is not proven:
 
@@ -830,18 +831,66 @@ Metrics is now a first-class chart-owned subsystem instead of an afterthought la
 Implemented now:
 
 - `observability.metrics.mode=disabled|nativeApi|exporter|siteToSite`
-- `nativeApi` is the only implemented mode in this slice
+- `nativeApi` remains the primary supported mode
+- `exporter` is now implemented experimentally as a smaller companion path
+- `siteToSite` now has a prepared-only chart contract for a future reporting-task path
 - multiple named native API scrape targets rendered as multiple `ServiceMonitor` resources
 - chart-owned auth and TLS Secret references for secured Prometheus scraping
 - optional dedicated metrics `Service` for clean scrape selection
+- a focused live kind proof for one secured native flow-metrics endpoint through the chart-owned metrics path
+- a focused live kind proof for one experimental exporter `/metrics` endpoint backed by secured NiFi flow metrics
 
 Not implemented yet:
 
-- `exporter` mode
-- `siteToSite` mode
+- `siteToSite` runtime wiring
 - automatic machine-principal bootstrap or IdP write-back
 
+Experimental exporter mode:
+
+- exists in addition to `nativeApi`, not instead of it
+- runs as a small chart-owned companion deployment
+- uses operator-provided machine auth material to reach NiFi
+- republishes one secured NiFi Prometheus-format endpoint on a stable `/metrics` HTTP endpoint for Prometheus
+- is intentionally narrower than a full observability platform or plugin system
+
 The machine-auth contract is provider-agnostic and Secret-based. You supply the Secret out of band, and the chart wires it into Prometheus Operator resources without assuming Keycloak, human OIDC login flows, or reverse-proxy hacks.
+
+What is automated now:
+
+- `hack/bootstrap-metrics-machine-auth.sh` can create the metrics auth Secret expected by `observability.metrics.*.machineAuth`
+- it can also derive the metrics CA Secret from the existing NiFi TLS Secret
+- it can either use a pre-minted token or mint a NiFi access token from any NiFi-accepted machine credential you already have
+
+What remains operator-provided:
+
+- the machine principal itself
+- any IdP-side object creation, credential issuance, or rotation
+- any provider-specific write-back or lifecycle management
+
+Current live-proof scope:
+
+- live-proven: one secured native flow-metrics endpoint at `/nifi-api/flow/metrics/prometheus`
+- live-proven: two named scrape profiles can target that endpoint with different cadence
+- live-proven: one experimental exporter `/metrics` endpoint that republishes the secured flow-metrics upstream path
+- not yet live-proven: a second distinct metrics family such as JVM or system metrics
+- operator-provided requirement: a CA Secret plus a bearer-token Secret that NiFi will accept for API access
+- helper path: `bash hack/bootstrap-metrics-machine-auth.sh --namespace nifi --auth-mode authorizationHeader --source-auth-secret nifi-auth --mint-token`
+
+Current exporter scope:
+
+- implemented experimentally as a companion exporter deployment
+- supports the flow metrics family only in this slice
+- exposes a clean `/metrics` endpoint for Prometheus
+- still requires operator-provided auth and CA material
+- does not provision machine principals or rotate tokens
+
+Prepared-only site-to-site scope:
+
+- exists for environments that prefer NiFi to push metrics to another NiFi or receiver instead of being scraped directly
+- defines a small chart contract for destination URL, input port name, source identity, transport, and output format
+- does not yet create or manage NiFi reporting tasks
+- does not yet create or validate the destination input-port or receiver pipeline
+- remains prepared-only until those lifecycle assumptions can be modeled without broadening product scope
 
 Example platform overlay:
 
@@ -849,6 +898,27 @@ Example platform overlay:
 helm template nifi charts/nifi-platform \
   -f examples/platform-managed-values.yaml \
   -f examples/platform-managed-metrics-native-values.yaml
+```
+
+```bash
+helm template nifi charts/nifi-platform \
+  -f examples/platform-managed-values.yaml \
+  -f examples/platform-managed-metrics-exporter-values.yaml
+```
+
+```bash
+helm template nifi charts/nifi-platform \
+  -f examples/platform-managed-values.yaml \
+  -f examples/platform-managed-metrics-site-to-site-values.yaml
+```
+
+The `siteToSite` overlay is currently a prepared-only contract check, so that command is expected to fail with a clear message explaining that reporting-task and receiver lifecycle are not wired yet.
+
+Focused live runtime proof:
+
+```bash
+make kind-metrics-native-api-fast-e2e
+make kind-metrics-exporter-fast-e2e
 ```
 
 ## Non-Goals

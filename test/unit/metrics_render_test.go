@@ -53,6 +53,8 @@ func TestPlatformManagedNativeMetricsExampleRendersMultipleServiceMonitors(t *te
 		"name: test-nifi-flow-fast",
 		"name: nifi-metrics-auth",
 		"name: nifi-metrics-ca",
+		"type: Bearer",
+		"serverName: test-nifi.default.svc.cluster.local",
 		"path: /nifi-api/flow/metrics/prometheus",
 	} {
 		if !strings.Contains(output, want) {
@@ -76,16 +78,76 @@ func TestNativeMetricsAuthValidationFailsWithoutSecretRef(t *testing.T) {
 	}
 }
 
-func TestUnsupportedMetricsModeFailsClearly(t *testing.T) {
+func TestPlatformManagedExporterMetricsExampleRendersExporterResources(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi-platform",
+		"-f", "examples/platform-managed-values.yaml",
+		"-f", "examples/platform-managed-metrics-exporter-values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		"kind: Deployment",
+		"name: test-nifi-metrics-exporter",
+		"kind: Service",
+		"name: test-nifi-metrics",
+		"kind: ServiceMonitor",
+		"name: test-nifi-exporter",
+		"path: /metrics",
+		"EXPORTER_SOURCE_PATH",
+		"/nifi-api/flow/metrics/prometheus",
+		"secretName: nifi-metrics-auth",
+		"secretName: nifi-metrics-ca",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestExporterMetricsValidationFailsWithoutMachineAuthSecretRef(t *testing.T) {
 	output, err := helmTemplate(
 		t,
 		"charts/nifi",
 		"--set", "observability.metrics.mode=exporter",
+		"--set", "observability.metrics.exporter.machineAuth.authorization.type=Bearer",
+		"--set", "observability.metrics.exporter.machineAuth.authorization.credentialsKey=token",
 	)
 	if err == nil {
-		t.Fatalf("expected helm template to fail for exporter mode\n%s", output)
+		t.Fatalf("expected helm template to fail without an exporter machine-auth Secret reference\n%s", output)
 	}
-	if !strings.Contains(output, "observability.metrics.mode=exporter is not implemented in this slice") {
-		t.Fatalf("expected exporter-mode validation error\n%s", output)
+	if !strings.Contains(output, "observability.metrics.exporter.machineAuth.secretRef.name is required") {
+		t.Fatalf("expected validation error for missing exporter machine-auth Secret reference\n%s", output)
+	}
+}
+
+func TestUnsupportedMetricsModeFailsClearly(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.metrics.mode=siteToSite",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail for siteToSite mode\n%s", output)
+	}
+	if !strings.Contains(output, "observability.metrics.mode=siteToSite is prepared-only in this slice") {
+		t.Fatalf("expected siteToSite-mode validation error\n%s", output)
+	}
+}
+
+func TestPlatformManagedSiteToSiteMetricsExampleFailsClearlyAsPreparedOnly(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi-platform",
+		"-f", "examples/platform-managed-values.yaml",
+		"-f", "examples/platform-managed-metrics-site-to-site-values.yaml",
+	)
+	if err == nil {
+		t.Fatalf("expected siteToSite example render to fail until runtime wiring exists\n%s", output)
+	}
+	if !strings.Contains(output, "observability.metrics.mode=siteToSite is prepared-only in this slice") {
+		t.Fatalf("expected prepared-only siteToSite validation error\n%s", output)
 	}
 }

@@ -173,8 +173,8 @@ observability:
     # Supported modes:
     # - disabled
     # - nativeApi
-    # Future-only stubs in this slice:
     # - exporter
+    # Prepared-only contract in this slice:
     # - siteToSite
     nativeApi:
       service:
@@ -204,6 +204,9 @@ observability:
           type: Bearer
           credentialsKey: token
       tlsConfig:
+        # When a tlsConfig block is rendered, serverName defaults to the main NiFi
+        # Service FQDN so secure scraping still works even when using the dedicated
+        # metrics Service.
         serverName: ""
         insecureSkipVerify: false
         ca:
@@ -221,8 +224,68 @@ observability:
         honorLabels: false
         labels: {}
         annotations: {}
-    exporter: {}
-    siteToSite: {}
+    exporter:
+      image:
+        repository: python
+        tag: "3.12-alpine"
+        pullPolicy: IfNotPresent
+      deployment:
+        annotations: {}
+        labels: {}
+      service:
+        enabled: true
+        annotations: {}
+        labels: {}
+        port: 9090
+      serviceMonitor:
+        enabled: true
+        defaults:
+          interval: 30s
+          scrapeTimeout: 10s
+          scheme: http
+          honorLabels: false
+          labels: {}
+          annotations: {}
+      machineAuth:
+        type: authorizationHeader
+        secretRef:
+          name: ""
+        bearerToken:
+          tokenKey: token
+        authorization:
+          type: Bearer
+          credentialsKey: token
+      source:
+        scheme: https
+        host: ""
+        port: 8443
+        path: /nifi-api/flow/metrics/prometheus
+        timeoutSeconds: 10
+        tlsConfig:
+          insecureSkipVerify: false
+          ca:
+            secretRef:
+              name: ""
+              key: ""
+      resources: {}
+    siteToSite:
+      # Prepared-only contract for a future SiteToSiteMetricsReportingTask path.
+      # This slice does not yet create or manage NiFi reporting tasks or the
+      # destination receiver pipeline.
+      destination:
+        url: ""
+        inputPortName: ""
+      source:
+        applicationId: nifi
+        hostname: ""
+        instanceUrl: ""
+      transport:
+        protocol: RAW
+        communicationsTimeout: 30 secs
+        compressEvents: true
+      format:
+        type: AmbariFormat
+        includeNullValues: false
 
 pdb:
   enabled: true

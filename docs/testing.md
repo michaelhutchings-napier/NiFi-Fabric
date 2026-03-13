@@ -76,9 +76,10 @@ Helm template tests should cover:
 - one-release platform-chart rendering for `standalone`, `managed`, and `managed-cert-manager`
 - managed-mode rendering with `StatefulSet.updateStrategy=OnDelete`
 - Services, PVCs, PDB, and `ServiceMonitor`
-- first-class `observability.metrics` rendering for `disabled` vs `nativeApi`
+- first-class `observability.metrics` rendering for `disabled`, `nativeApi`, and `exporter`, with `siteToSite` explicitly failing as prepared-only
 - multiple named native API metrics endpoints rendered as multiple `ServiceMonitor` resources
 - machine-auth Secret reference validation for native API metrics scraping
+- exporter deployment and ServiceMonitor rendering for the experimental `/metrics` companion path
 - RBAC needed for NiFi Kubernetes coordination and shared state
 - cert-manager integration assumptions and Secret references
 - scheduling fields such as affinity, tolerations, and topology spread
@@ -91,7 +92,12 @@ Focused metrics render checks should include at least:
 
 - `helm template nifi charts/nifi`
 - `helm template nifi charts/nifi-platform -f examples/platform-managed-values.yaml -f examples/platform-managed-metrics-native-values.yaml`
+- `helm template nifi charts/nifi-platform -f examples/platform-managed-values.yaml -f examples/platform-managed-metrics-exporter-values.yaml`
+- one `helm template` site-to-site overlay that fails clearly as prepared-only
 - one invalid native API auth configuration that fails clearly at render time
+- one invalid exporter auth configuration that fails clearly at render time
+- `bash -n hack/bootstrap-metrics-machine-auth.sh`
+- `bash hack/bootstrap-metrics-machine-auth.sh --help`
 
 ## kind Integration Tests
 
@@ -114,6 +120,8 @@ kind-based integration should cover:
 - a focused `make kind-autoscaling-scale-up-fast-e2e` path for autoscaling scale-up runtime proof on NiFi `2.8.0` with the additive fast profile
 - a focused `make kind-autoscaling-scale-down-fast-e2e` path for experimental autoscaling scale-down runtime proof on NiFi `2.8.0` with the additive fast profile
 - a focused `make kind-autoscaling-churn-fast-e2e` path that proves repeated `2 -> 3 -> 2 -> 3` controller-owned autoscaling churn, settle behavior, highest-ordinal removal, ordinal reuse, and PVC retention on NiFi `2.8.0` with the additive fast profile
+- a focused `make kind-metrics-native-api-fast-e2e` path that installs Prometheus Operator CRDs for `ServiceMonitor` acceptance, installs the metrics-enabled platform overlay, verifies the chart-rendered metrics `Service` and `ServiceMonitor` objects, mints an operator-provided bearer token Secret out of band for the harness, and proves one live scrape against `/nifi-api/flow/metrics/prometheus`
+- a focused `make kind-metrics-exporter-fast-e2e` path that installs the exporter overlay, verifies the companion exporter deployment plus its `Service` and `ServiceMonitor`, mints an operator-provided bearer token Secret out of band for the harness, and proves one live scrape from the clean exporter `/metrics` endpoint
 - a focused `make kind-keda-scale-up-fast-e2e` path that installs real KEDA, renders the platform-chart `ScaledObject`, proves that KEDA targets `NiFiCluster` through `/scale`, proves that the controller still executes the actual safe `StatefulSet` scale-up, and proves that unsupported external scale-down intent is ignored while the `StatefulSet` remains unchanged
 - a focused `make kind-keda-scale-down-fast-e2e` path that installs real KEDA, proves that KEDA lowers `NiFiCluster` `/scale` intent back to `minReplicaCount`, proves one-step controller-owned `3 -> 2` execution with restart-safe settle, and proves below-min external downscale intent is still ignored
 - the scale-down proof now also checks the controller-owned post-removal settle loop instead of depending on one long blocking health wait inside a single reconcile
@@ -178,6 +186,9 @@ Current alpha note:
 - the repo now also has a green focused `make kind-autoscaling-scale-up-fast-e2e` workflow for autoscaling scale-up runtime proof on NiFi `2.8.0` with the fast profile
 - the repo now also has a green focused `make kind-autoscaling-scale-down-fast-e2e` workflow for experimental autoscaling scale-down runtime proof on NiFi `2.8.0` with the fast profile
 - the repo now also has a green focused `make kind-autoscaling-churn-fast-e2e` workflow for repeated autoscaling churn proof on NiFi `2.8.0` with the fast profile
+- the repo now also has a green focused `make kind-metrics-native-api-fast-e2e` workflow for secured native API metrics proof on kind
+- the repo now also has a green focused `make kind-metrics-exporter-fast-e2e` workflow for the experimental exporter `/metrics` proof on kind
+- `siteToSite` remains prepared-only and therefore has render-only coverage, not a live runtime gate
 - the repo now also has a green focused `make kind-keda-scale-up-fast-e2e` workflow for experimental KEDA intent-source runtime proof on NiFi `2.8.0` with the fast profile
 - the repo now also has a focused `make kind-keda-scale-down-fast-e2e` workflow for experimental controller-mediated KEDA downscale intent proof on NiFi `2.8.0` with the fast profile
 - the KEDA gates prove that KEDA only writes `NiFiCluster` intent and that the controller still owns every real scale-up and scale-down action

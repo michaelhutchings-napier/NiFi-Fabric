@@ -1,0 +1,113 @@
+{{- if eq (include "nifi.metricsMode" .) "exporter" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nifi.metricsExporterName" . }}-config
+  labels:
+    {{- include "nifi.metricsExporterLabels" . | nindent 4 }}
+data:
+  exporter.py: |
+    import http.server
+    import os
+    import socketserver
+    import ssl
+    import urllib.error
+    import urllib.request
+
+
+    LISTEN_PORT = int(os.environ.get("EXPORTER_LISTEN_PORT", "9090"))
+    SOURCE_SCHEME = os.environ.get("EXPORTER_SOURCE_SCHEME", "https")
+    SOURCE_HOST = os.environ["EXPORTER_SOURCE_HOST"]
+    SOURCE_PORT = os.environ["EXPORTER_SOURCE_PORT"]
+    SOURCE_PATH = os.environ["EXPORTER_SOURCE_PATH"]
+    SOURCE_TIMEOUT_SECONDS = float(os.environ.get("EXPORTER_SOURCE_TIMEOUT_SECONDS", "10"))
+    AUTH_TYPE = os.environ["EXPORTER_AUTH_TYPE"]
+    AUTH_HEADER_TYPE = os.environ.get("EXPORTER_AUTH_HEADER_TYPE", "Bearer")
+    AUTH_CREDENTIALS_FILE = os.environ["EXPORTER_AUTH_CREDENTIALS_FILE"]
+    TLS_CA_FILE = os.environ.get("EXPORTER_TLS_CA_FILE", "")
+    TLS_INSECURE_SKIP_VERIFY = os.environ.get("EXPORTER_TLS_INSECURE_SKIP_VERIFY", "false").lower() == "true"
+
+
+    def read_credentials():
+      with open(AUTH_CREDENTIALS_FILE, "r", encoding="utf-8") as handle:
+        return handle.read().strip()
+
+
+    def build_headers():
+      credentials = read_credentials()
+      if not credentials:
+        raise RuntimeError("metrics exporter auth credentials are empty")
+
+      if AUTH_TYPE == "bearerToken":
+        return {"Authorization": f"Bearer {credentials}"}
+      if AUTH_TYPE == "authorizationHeader":
+        return {"Authorization": f"{AUTH_HEADER_TYPE} {credentials}"}
+      raise RuntimeError(f"unsupported auth type: {AUTH_TYPE}")
+
+
+    def build_ssl_context():
+      if SOURCE_SCHEME != "https":
+        return None
+      if TLS_INSECURE_SKIP_VERIFY:
+        return ssl._create_unverified_context()
+      if TLS_CA_FILE:
+        return ssl.create_default_context(cafile=TLS_CA_FILE)
+      return ssl.create_default_context()
+
+
+    def scrape_metrics():
+      url = f"{SOURCE_SCHEME}://{SOURCE_HOST}:{SOURCE_PORT}{SOURCE_PATH}"
+      request = urllib.request.Request(url, headers=build_headers())
+      context = build_ssl_context()
+      with urllib.request.urlopen(request, timeout=SOURCE_TIMEOUT_SECONDS, context=context) as response:
+        return response.read()
+
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+      def do_GET(self):
+        if self.path == "/healthz":
+          payload = b"ok\n"
+          self.send_response(200)
+          self.send_header("Content-Type", "text/plain; version=0.0.4")
+          self.send_header("Content-Length", str(len(payload)))
+          self.end_headers()
+          self.wfile.write(payload)
+          return
+
+        if self.path != "/metrics":
+          payload = b"not found\n"
+          self.send_response(404)
+          self.send_header("Content-Type", "text/plain; charset=utf-8")
+          self.send_header("Content-Length", str(len(payload)))
+          self.end_headers()
+          self.wfile.write(payload)
+          return
+
+        try:
+          payload = scrape_metrics()
+        except Exception as exc:  # pragma: no cover - runtime diagnostics
+          payload = f"metrics scrape failed: {exc}\n".encode("utf-8")
+          self.send_response(502)
+          self.send_header("Content-Type", "text/plain; charset=utf-8")
+          self.send_header("Content-Length", str(len(payload)))
+          self.end_headers()
+          self.wfile.write(payload)
+          return
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; version=0.0.4")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+      def log_message(self, fmt, *args):
+        return
+
+
+    class ReusableTCPServer(socketserver.TCPServer):
+      allow_reuse_address = True
+
+
+    with ReusableTCPServer(("", LISTEN_PORT), Handler) as server:
+      server.serve_forever()
+{{- end }}

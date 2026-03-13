@@ -1,0 +1,134 @@
+{{- if eq (include "nifi.metricsMode" .) "exporter" }}
+{{- $exporter := .Values.observability.metrics.exporter -}}
+{{- $source := $exporter.source -}}
+{{- $machineAuth := $exporter.machineAuth -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nifi.metricsExporterName" . }}
+  labels:
+    {{- include "nifi.metricsExporterLabels" . | nindent 4 }}
+    {{- with $exporter.deployment.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "nifi.metricsExporterSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nifi.metricsExporterSelectorLabels" . | nindent 8 }}
+        {{- with $exporter.deployment.labels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/exporter-config: {{ include (print $.Template.BasePath "/metrics-exporter-configmap.yaml") . | sha256sum }}
+        {{- with $exporter.deployment.annotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "nifi.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: metrics-exporter
+        image: "{{ $exporter.image.repository }}:{{ $exporter.image.tag }}"
+        imagePullPolicy: {{ $exporter.image.pullPolicy }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
+        command:
+        - python
+        - /exporter/exporter.py
+        env:
+        - name: EXPORTER_LISTEN_PORT
+          value: {{ $exporter.service.port | quote }}
+        - name: EXPORTER_SOURCE_SCHEME
+          value: {{ $source.scheme | quote }}
+        - name: EXPORTER_SOURCE_HOST
+          value: {{ include "nifi.exporterSourceHost" . | quote }}
+        - name: EXPORTER_SOURCE_PORT
+          value: {{ $source.port | quote }}
+        - name: EXPORTER_SOURCE_PATH
+          value: {{ $source.path | quote }}
+        - name: EXPORTER_SOURCE_TIMEOUT_SECONDS
+          value: {{ $source.timeoutSeconds | quote }}
+        - name: EXPORTER_AUTH_TYPE
+          value: {{ $machineAuth.type | quote }}
+        - name: EXPORTER_AUTH_CREDENTIALS_FILE
+          value: {{ printf "/var/run/nifi-metrics-auth/%s" (ternary $machineAuth.bearerToken.tokenKey $machineAuth.authorization.credentialsKey (eq $machineAuth.type "bearerToken")) | quote }}
+        {{- if eq $machineAuth.type "authorizationHeader" }}
+        - name: EXPORTER_AUTH_HEADER_TYPE
+          value: {{ $machineAuth.authorization.type | quote }}
+        {{- end }}
+        - name: EXPORTER_TLS_INSECURE_SKIP_VERIFY
+          value: {{ $source.tlsConfig.insecureSkipVerify | quote }}
+        {{- if $source.tlsConfig.ca.secretRef.name }}
+        - name: EXPORTER_TLS_CA_FILE
+          value: {{ printf "/var/run/nifi-metrics-ca/%s" $source.tlsConfig.ca.secretRef.key | quote }}
+        {{- end }}
+        ports:
+        - name: metrics
+          containerPort: {{ $exporter.service.port }}
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: metrics
+          periodSeconds: 10
+          failureThreshold: 6
+          timeoutSeconds: 3
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: metrics
+          periodSeconds: 20
+          failureThreshold: 6
+          timeoutSeconds: 3
+        resources:
+          {{- toYaml $exporter.resources | nindent 10 }}
+        volumeMounts:
+        - name: exporter-config
+          mountPath: /exporter
+          readOnly: true
+        - name: exporter-auth
+          mountPath: /var/run/nifi-metrics-auth
+          readOnly: true
+        {{- if $source.tlsConfig.ca.secretRef.name }}
+        - name: exporter-ca
+          mountPath: /var/run/nifi-metrics-ca
+          readOnly: true
+        {{- end }}
+      volumes:
+      - name: exporter-config
+        configMap:
+          name: {{ include "nifi.metricsExporterName" . }}-config
+      - name: exporter-auth
+        secret:
+          secretName: {{ $machineAuth.secretRef.name }}
+      {{- if $source.tlsConfig.ca.secretRef.name }}
+      - name: exporter-ca
+        secret:
+          secretName: {{ $source.tlsConfig.ca.secretRef.name }}
+      {{- end }}
+{{- end }}
