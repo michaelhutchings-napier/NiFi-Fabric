@@ -31,6 +31,7 @@ func (r *NiFiClusterReconciler) preparePodForOperation(ctx context.Context, clus
 	result, err := r.NodeManager.PreparePodForOperation(ctx, cluster, target, pods, pod, purpose, cluster.Status.NodeOperation, nodePreparationTimeout(cluster))
 	if err != nil {
 		r.markNodePreparationBlocked(cluster, purpose, fmt.Sprintf("Waiting for NiFi node preparation: %v", err))
+		r.updateAutoscalingExecutionForNodePreparation(cluster, purpose, platformv1alpha1.AutoscalingExecutionStateBlocked, "NodePreparationRetrying", "", cluster.Status.LastOperation.Message)
 		return false, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 	}
 
@@ -42,14 +43,31 @@ func (r *NiFiClusterReconciler) preparePodForOperation(ctx context.Context, clus
 
 	if result.TimedOut {
 		r.markNodePreparationTimedOut(cluster, purpose, result.Message)
+		r.updateAutoscalingExecutionForNodePreparation(cluster, purpose, platformv1alpha1.AutoscalingExecutionStateBlocked, "NodePreparationTimedOut", "", result.Message)
 		return false, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 	}
 
 	r.markNodePreparationProgress(cluster, purpose, result.Message)
+	r.updateAutoscalingExecutionForNodePreparation(cluster, purpose, platformv1alpha1.AutoscalingExecutionStateRunning, "", "", result.Message)
 	if result.RequeueNow {
 		return false, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 	}
 	return false, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
+}
+
+func (r *NiFiClusterReconciler) updateAutoscalingExecutionForNodePreparation(cluster *platformv1alpha1.NiFiCluster, purpose platformv1alpha1.NodeOperationPurpose, state platformv1alpha1.AutoscalingExecutionState, blockedReason, failureReason, message string) {
+	if purpose != platformv1alpha1.NodeOperationPurposeScaleDown {
+		return
+	}
+
+	targetReplicas := cluster.Status.Replicas.Desired - 1
+	if targetReplicas < 0 {
+		targetReplicas = 0
+	}
+	if cluster.Status.Autoscaling.Execution.TargetReplicas != nil {
+		targetReplicas = *cluster.Status.Autoscaling.Execution.TargetReplicas
+	}
+	setAutoscalingExecutionStatus(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleDownPrepare, state, targetReplicas, blockedReason, failureReason, message)
 }
 
 func clearNodeOperationIfPodMissing(cluster *platformv1alpha1.NiFiCluster, pods []corev1.Pod) {

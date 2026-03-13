@@ -159,7 +159,7 @@ Managed mode is explicit. When `controllerManaged.enabled=true` in the app chart
 
 - writes to `NiFiCluster.status`
 - pod deletions used to advance a controlled `OnDelete` rollout
-- updates to `StatefulSet.spec.replicas` for hibernation and unhibernate only
+- updates to `StatefulSet.spec.replicas` for hibernation, restore, and controller-owned autoscaling actions only
 - NiFi API calls that request node offload and disconnect before restart or scale-down
 
 Everything else remains Helm-owned or NiFi-owned.
@@ -187,8 +187,8 @@ The current slice is intentionally conservative:
 - scale-down remains more conservative than scale-up and requires sustained low pressure before any replica reduction
 - recommendations are suppressed while rollout, hibernation or restore, degraded state, or other non-steady conditions are active
 - enabled signals are typed and surfaced in status with real queue, thread, and CPU samples where NiFi exposes them today
-- low-pressure persistence and scale-action timestamps are kept on `NiFiCluster.status`, not in a second autoscaling API surface
-- autoscaling resume state for scale-up settle and scale-down prepare or settle is also persisted on `NiFiCluster.status`, so restart recovery does not depend on transient condition text alone
+- low-pressure evidence and scale-action timestamps are kept on `NiFiCluster.status`, not in a second autoscaling API surface
+- autoscaling resume state for scale-up settle and scale-down prepare or settle is also persisted on `NiFiCluster.status`, with explicit blocked and failure reporting so restart recovery does not depend on transient condition text alone
 - the focused fast NiFi `2.8.0` runtime proof now covers advisory status-only behavior, one-step enforced scale-up, one-step experimental enforced scale-down, cooldown blocking, and blocked autoscaling during progressing, hibernated or restoring, degraded, unresolved, and unmanaged states
 - rollout failure and blocked autoscaling status must still persist even when reconcile returns an error, because degraded autoscaling is only useful if it survives the same failure path the operator is diagnosing
 
@@ -201,9 +201,47 @@ The current autoscaling shape is:
 - scale-down uses the same post-removal convergence gate already used for hibernation, so remaining nodes must stay connected and healthy even while NiFi still reports the former node in total-node counts for a short window
 - scale-down settlement is sampled and requeued per reconcile instead of holding the single worker inside one long blocking health wait
 - cooldown and stabilization remain timestamp-based, while prepare and settle execution state is persisted explicitly so the controller can resume safely after restart or requeue
+- scale-down requires both sustained zero-backlog evidence and the existing stabilization window before the controller prepares a node; the current implementation does not claim queue-age precision unless NiFi exposes it reliably
 - scale-down does not run while rollout, TLS restart, hibernation, restore, degraded state, or target-resolution problems are active
 - scale-down requires a healthy converged cluster and a sustained low-pressure window before the controller prepares a node
 - scale-down still runs only one step per decision and waits for that reduced replica count to settle before any new autoscaling decision is eligible
+
+### Autoscaling Precedence
+
+Autoscaling only runs from steady state. The controller applies precedence in this order:
+
+1. `spec.desiredState=Hibernated` and any in-flight restore logic
+2. active managed rollout, watched drift handling, or restart-required TLS work
+3. active hibernation or restore settle work
+4. active autoscaling execution that is already preparing or settling a prior step
+5. degraded or unavailable cluster state
+6. steady-state autoscaling recommendation and optional execution
+
+The practical GitOps implication is simple:
+
+- autoscaling does not create a second desired-replicas API
+- Helm or GitOps changes to the underlying `StatefulSet.spec.replicas` become the current running baseline the controller observes
+- the controller never lets an external autoscaler mutate the `StatefulSet` directly in this slice
+- GitOps users should ignore replica drift only for controller-owned lifecycle actions they intentionally enable: hibernation, restore, and controller-owned autoscaling
+
+### Restart-Safe Autoscaling State
+
+Autoscaling restart recovery follows the same boring-state principle used for rollout and hibernation:
+
+- `status.autoscaling.execution.phase` remains the durable checkpoint for scale-up settle and scale-down prepare or settle
+- `status.nodeOperation` remains the durable checkpoint for disconnect and offload sequencing during scale-down
+- `status.autoscaling` also carries the last scaling decision, low-pressure evidence, cooldown timestamps, blocked reason, failure reason, and execution message
+- blocked autoscaling does not silently clear execution state on controller restart; resume logic must pick up the same pod and ordinal safely
+- failed autoscaling keeps explicit status so operators can see why the controller stopped instead of inferring that from missing progress
+
+### Low-Pressure Evidence
+
+Automatic scale-down stays intentionally conservative.
+
+- Queue age is preferred if NiFi exposes it reliably enough for this platform.
+- Until then, the controller uses the strongest durable signal it can prove today: repeated zero-backlog observations from NiFi root process-group status, with CPU remaining secondary only.
+- Low-pressure evidence is persisted in status so the controller can distinguish one transient empty sample from sustained low pressure across requeues or restarts.
+- A recommendation may appear before execution is allowed, but execution still requires the documented evidence threshold, the stabilization window, cooldown, and successful highest-ordinal node preparation.
 
 Autoscaling is still not a trivial extension of the current managed design.
 

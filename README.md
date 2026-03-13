@@ -61,24 +61,24 @@ What is implemented now:
 - a typed advisory signal list
 - explicit `scaleUp.enabled` and `scaleDown.enabled` policy fields
 - minimal scale-up and scale-down cooldown or stabilization controls
-- `status.autoscaling.recommendedReplicas`, `reason`, `signals`, `lastEvaluationTime`, `lastScalingDecision`, `lowPressureSince`, `lastScaleUpTime`, `lastScaleDownTime`, and persisted `execution` state for scale-up settle and scale-down prepare or settle recovery
-- autoscaling recommendation events and metrics, plus enforced scale-up and scale-down action metrics
+- `status.autoscaling.recommendedReplicas`, `reason`, `signals`, `lastEvaluationTime`, `lastScalingDecision`, `lowPressureSince`, durable low-pressure evidence, `lastScaleUpTime`, `lastScaleDownTime`, and persisted `execution` state with explicit running, blocked, and failed reporting for scale-up settle and scale-down prepare or settle recovery
+- autoscaling recommendation events and metrics, plus enforced scale-up and scale-down action metrics and explicit execution-transition metrics
 - explicit precedence rules that suppress recommendations while the cluster is progressing, hibernated, degraded, unavailable, or unmanaged
 - real queue-pressure sampling from NiFi root-process-group backlog
 - real timer-driven thread sampling from NiFi system diagnostics to decide whether backlog is actionable
 - real CPU sampling from NiFi system diagnostics as a secondary advisory signal
 - optional enforced one-step scale-up through the controller only, after the existing steady-state health gate passes
 - optional experimental one-step scale-down through the controller only, after sustained low pressure and the existing safe disconnect or offload sequence complete for the highest ordinal node
-- focused fast runtime proof on NiFi `2.8.0` for advisory status-only behavior, one-step enforced scale-up, one-step experimental enforced scale-down, cooldown enforcement, restart-safe settle recovery, and blocked autoscaling during progressing, hibernated or restoring, degraded, unresolved, and unmanaged states
+- focused fast runtime proof on NiFi `2.8.0` for advisory status-only behavior, one-step enforced scale-up, one-step experimental enforced scale-down, cooldown enforcement, restart-safe prepare or settle recovery, repeated `2 -> 3 -> 2 -> 3` churn, and blocked autoscaling during progressing, hibernated or restoring, degraded, unresolved, and unmanaged states
 
 What is not implemented yet:
 
 - direct autoscaler mutation of `StatefulSet.spec.replicas`
-- sustained queue-age collection
+- sustained queue-age collection when NiFi exposes it reliably enough for this platform
 - CPU-driven autoscaling as a primary signal
 - richer NiFi-native stuck-backlog analysis beyond root backlog and timer-driven thread saturation
 - runtime proof for the unavailable-target blocking path beyond unit and reconcile coverage
-- production-ready automatic scale-down beyond the current experimental one-step path
+- bulk scale-down, policy engines, or any second autoscaling control plane
 
 Current enforced-scope limit:
 
@@ -86,11 +86,18 @@ Current enforced-scope limit:
 - `Enforced` mode changes replicas only when the matching `scaleUp.enabled=true` or `scaleDown.enabled=true` policy is explicitly enabled
 - each reconcile can change replicas by only one step
 - scale-down is more conservative than scale-up and requires healthy convergence, sustained low pressure, and successful NiFi node preparation before replicas are reduced
+- low-pressure evidence now requires repeated zero-backlog observations before the existing stabilization window can start; queue age remains intentionally unclaimed until NiFi exposes it reliably
 - post-scale-down health reuse follows the same hibernation-style convergence gate, so remaining nodes must be healthy and connected even if NiFi still reports the former node in total-node counts briefly
 - post-scale-down settlement is polled one reconcile at a time so the single controller worker stays responsive while the reduced cluster converges
-- autoscaling now persists settle and prepare execution state in status so controller restarts do not re-derive destructive progress from condition text alone
+- autoscaling now persists settle and prepare execution state, blocked reasons, and failure reasons in status so controller restarts do not re-derive destructive progress from condition text alone
 - automatic scale-down still does not bulk-remove nodes and does not bypass cooldown or stabilization rules
 - enforced scale actions are blocked by the same lifecycle precedence used for advisory recommendations
+
+Current production claim:
+
+- autoscaling is now production-ready in shape for one-controller advisory, enforced scale-up, and intentionally conservative one-step experimental scale-down
+- that claim is about controller shape, safety model, observability, and kind-based proof depth in this repo
+- it is not yet a blanket production recommendation for every NiFi workload, because queue-age evidence, broader NiFi-native stuck-backlog signals, and real AKS runtime proof are still pending
 
 Why direct HPA or KEDA-to-StatefulSet scaling is not the first step:
 

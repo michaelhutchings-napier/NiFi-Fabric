@@ -2649,6 +2649,30 @@ func healthyResultWithPods(stsName string, expectedReplicas int32) ClusterHealth
 	return result
 }
 
+func TestLiveTargetStateUsesBoundedReadContext(t *testing.T) {
+	var observedTimeout time.Duration
+	reconciler := &NiFiClusterReconciler{
+		APIReader: &fakeReader{
+			getFn: func(ctx context.Context, _ client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
+				deadline, ok := ctx.Deadline()
+				if !ok {
+					t.Fatalf("expected live target state reads to be bounded")
+				}
+				observedTimeout = time.Until(deadline)
+				return context.DeadlineExceeded
+			},
+		},
+	}
+
+	_, _, err := reconciler.liveTargetState(context.Background(), client.ObjectKey{Namespace: "nifi", Name: "nifi"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected bounded live target state read to return deadline exceeded, got %v", err)
+	}
+	if observedTimeout <= 0 || observedTimeout > controllerTargetStateReadTimeout+time.Second {
+		t.Fatalf("expected bounded live target state timeout near %s, got %s", controllerTargetStateReadTimeout, observedTimeout)
+	}
+}
+
 type healthResponse struct {
 	result ClusterHealthResult
 	err    error
@@ -2658,6 +2682,7 @@ type fakeHealthChecker struct {
 	podReadyResponses []error
 	checkResponses    []healthResponse
 	healthResponses   []healthResponse
+	checkFn           func(context.Context, *platformv1alpha1.NiFiCluster, *appsv1.StatefulSet) (ClusterHealthResult, error)
 	podReadyCalls     int
 	checkCalls        int
 	healthCalls       int
@@ -2693,9 +2718,12 @@ func (f *fakeHealthChecker) WaitForClusterHealthy(_ context.Context, _ *platform
 	return response.result, response.err
 }
 
-func (f *fakeHealthChecker) CheckClusterHealth(_ context.Context, _ *platformv1alpha1.NiFiCluster, sts *appsv1.StatefulSet) (ClusterHealthResult, error) {
+func (f *fakeHealthChecker) CheckClusterHealth(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, sts *appsv1.StatefulSet) (ClusterHealthResult, error) {
 	f.checkCalls++
 	f.checkReplicas = append(f.checkReplicas, derefInt32(sts.Spec.Replicas))
+	if f.checkFn != nil {
+		return f.checkFn(ctx, cluster, sts)
+	}
 	if len(f.checkResponses) == 0 {
 		return healthyResultWithPods(sts.Name, derefInt32(sts.Spec.Replicas)), nil
 	}
@@ -2705,6 +2733,25 @@ func (f *fakeHealthChecker) CheckClusterHealth(_ context.Context, _ *platformv1a
 	}
 	response := f.checkResponses[index]
 	return response.result, response.err
+}
+
+type fakeReader struct {
+	getFn  func(context.Context, client.ObjectKey, client.Object, ...client.GetOption) error
+	listFn func(context.Context, client.ObjectList, ...client.ListOption) error
+}
+
+func (f *fakeReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if f.getFn != nil {
+		return f.getFn(ctx, key, obj, opts...)
+	}
+	return nil
+}
+
+func (f *fakeReader) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if f.listFn != nil {
+		return f.listFn(ctx, list, opts...)
+	}
+	return nil
 }
 
 type nodePreparationResponse struct {

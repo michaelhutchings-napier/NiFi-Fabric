@@ -149,6 +149,40 @@ func TestBuildAutoscalingStatusBlocksWhileProgressing(t *testing.T) {
 	}
 }
 
+func TestBlockedAutoscalingStatusTreatsRolloutTLSAndRestoreAsProgressingPrecedence(t *testing.T) {
+	testCases := []string{
+		"RevisionDriftDetected",
+		"TLSAutoreloadObserving",
+		"Restoring",
+	}
+
+	for _, progressingReason := range testCases {
+		t.Run(progressingReason, func(t *testing.T) {
+			cluster := managedCluster()
+			cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+				Mode: platformv1alpha1.AutoscalingModeEnforced,
+			}
+			cluster.Status.Replicas.Desired = 3
+			setAutoscalingSteadyStateConditions(cluster)
+			cluster.SetCondition(metav1.Condition{
+				Type:               platformv1alpha1.ConditionProgressing,
+				Status:             metav1.ConditionTrue,
+				Reason:             progressingReason,
+				Message:            "managed lifecycle work is in progress",
+				LastTransitionTime: metav1.Now(),
+			})
+
+			blocked, reason := blockedAutoscalingStatus(cluster)
+			if !blocked {
+				t.Fatalf("expected autoscaling to be blocked while %s is active", progressingReason)
+			}
+			if reason != autoscalingReasonProgressing {
+				t.Fatalf("expected progressing precedence for %s, got %q", progressingReason, reason)
+			}
+		})
+	}
+}
+
 func TestBuildAutoscalingStatusBlocksWhileHibernatedOrDegraded(t *testing.T) {
 	t.Run("hibernated", func(t *testing.T) {
 		cluster := managedCluster()
@@ -885,6 +919,43 @@ func TestUpdatedAutoscalingLowPressureSincePreservesPreviousDuringProgressing(t 
 	}
 }
 
+func TestUpdatedAutoscalingLowPressureStatusCountsConsecutiveSamples(t *testing.T) {
+	previousObservedAt := metav1.NewTime(time.Now().UTC().Add(-10 * time.Second))
+	previous := platformv1alpha1.AutoscalingStatus{
+		LastEvaluationTime: &previousObservedAt,
+		LowPressure: platformv1alpha1.AutoscalingLowPressureStatus{
+			Since:                      &previousObservedAt,
+			LastObservedAt:             &previousObservedAt,
+			ConsecutiveSamples:         2,
+			RequiredConsecutiveSamples: 3,
+		},
+		LowPressureSince: &previousObservedAt,
+	}
+	currentObservedAt := metav1.NewTime(time.Now().UTC())
+	desired := platformv1alpha1.AutoscalingStatus{
+		Reason:             autoscalingReasonLowPressure,
+		LastEvaluationTime: &currentObservedAt,
+	}
+
+	status := updatedAutoscalingLowPressureStatus(previous, desired, autoscalingSignalCollection{
+		QueuePressure: autoscalingQueuePressureSample{
+			Observed:            true,
+			BytesQueuedObserved: true,
+			LowPressure:         true,
+		},
+	})
+
+	if status.ConsecutiveSamples != 3 {
+		t.Fatalf("expected low-pressure evidence to cap at 3 consecutive samples, got %+v", status)
+	}
+	if status.RequiredConsecutiveSamples != 3 {
+		t.Fatalf("expected required sample count to remain 3, got %+v", status)
+	}
+	if status.Since == nil || !status.Since.Equal(&previousObservedAt) {
+		t.Fatalf("expected low-pressure evidence to preserve its first observation time, got %+v", status)
+	}
+}
+
 func TestReconcileAdvisoryAutoscalingNeverScalesDown(t *testing.T) {
 	ctx := context.Background()
 	cluster := managedCluster()
@@ -1299,8 +1370,14 @@ func TestReconcileAutoscalingScaleDownFailsWhenNodePreparationTimesOut(t *testin
 	if condition := updatedCluster.GetCondition(platformv1alpha1.ConditionDegraded); condition == nil || condition.Reason != "NodePreparationTimedOut" {
 		t.Fatalf("expected node-preparation timeout degradation, got %#v", condition)
 	}
-	if updatedCluster.Status.Autoscaling.Execution.Phase != "" {
-		t.Fatalf("expected timed-out scale-down to clear execution state, got %#v", updatedCluster.Status.Autoscaling.Execution)
+	if updatedCluster.Status.Autoscaling.Execution.Phase != platformv1alpha1.AutoscalingExecutionPhaseScaleDownPrepare {
+		t.Fatalf("expected timed-out scale-down to keep prepare execution state, got %#v", updatedCluster.Status.Autoscaling.Execution)
+	}
+	if updatedCluster.Status.Autoscaling.Execution.State != platformv1alpha1.AutoscalingExecutionStateBlocked {
+		t.Fatalf("expected timed-out scale-down to stay blocked, got %#v", updatedCluster.Status.Autoscaling.Execution)
+	}
+	if updatedCluster.Status.Autoscaling.Execution.BlockedReason != "NodePreparationTimedOut" {
+		t.Fatalf("expected timed-out scale-down to report the timeout reason, got %#v", updatedCluster.Status.Autoscaling.Execution)
 	}
 
 	updatedStatefulSet := &appsv1.StatefulSet{}
@@ -1387,6 +1464,57 @@ func TestWaitForAutoscalingScaleDownStepToSettleUsesScaleDownHealthGate(t *testi
 	}
 	if result != (ctrl.Result{}) {
 		t.Fatalf("expected no requeue result, got %#v", result)
+	}
+}
+
+func TestWaitForAutoscalingScaleDownStepToSettleBoundsHealthCheck(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Safety.RequireClusterHealthy = true
+	cluster.Status.Autoscaling.LastScaleDownTime = &metav1.Time{Time: time.Now().UTC().Add(-2 * time.Minute)}
+
+	target := managedStatefulSet("nifi", 2, "nifi-rev", "nifi-rev")
+	target.Status.Replicas = 2
+	target.Status.ReadyReplicas = 2
+	target.Status.CurrentReplicas = 2
+	target.Status.UpdatedReplicas = 2
+
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+	}
+
+	var observedTimeout time.Duration
+	reconciler, _ := newTestReconciler(t, &fakeHealthChecker{
+		checkFn: func(ctx context.Context, _ *platformv1alpha1.NiFiCluster, _ *appsv1.StatefulSet) (ClusterHealthResult, error) {
+			deadline, ok := ctx.Deadline()
+			if !ok {
+				t.Fatalf("expected bounded autoscaling settle health-check context")
+			}
+			observedTimeout = time.Until(deadline)
+			<-ctx.Done()
+			return ClusterHealthResult{ExpectedReplicas: 2}, ctx.Err()
+		},
+	}, cluster, target)
+
+	settled, result, err := reconciler.waitForAutoscalingScaleDownStepToSettle(ctx, cluster, target, pods)
+	if err != nil {
+		t.Fatalf("waitForAutoscalingScaleDownStepToSettle returned error: %v", err)
+	}
+	if settled {
+		t.Fatalf("expected timed health check to block settlement")
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected timed health check to requeue after %s, got %#v", rolloutPollRequeue, result)
+	}
+	if observedTimeout <= 0 || observedTimeout > 2*time.Minute {
+		t.Fatalf("expected bounded health-check timeout, got %s", observedTimeout)
+	}
+	if cluster.Status.Autoscaling.Execution.State != platformv1alpha1.AutoscalingExecutionStateBlocked {
+		t.Fatalf("expected blocked execution state after timed health check, got %#v", cluster.Status.Autoscaling.Execution)
+	}
+	if cluster.Status.LastOperation.Phase != platformv1alpha1.OperationPhaseRunning {
+		t.Fatalf("expected running last operation while waiting for bounded health retry, got %#v", cluster.Status.LastOperation)
 	}
 }
 
@@ -1621,6 +1749,89 @@ func TestReconcileAutoscalingScaleDownResumesFromPersistedSettleExecution(t *tes
 	}
 	if updatedCluster.Status.Autoscaling.Execution.Phase != "" {
 		t.Fatalf("expected persisted settle execution to clear, got %#v", updatedCluster.Status.Autoscaling.Execution)
+	}
+}
+
+func TestReconcileAutoscalingScaleDownSettleDoesNotRepeatDestructiveWorkAfterRestart(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Safety.RequireClusterHealthy = true
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		ScaleDown: platformv1alpha1.AutoscalingScaleDownPolicy{
+			Enabled:             true,
+			Cooldown:            metav1.Duration{Duration: 10 * time.Minute},
+			StabilizationWindow: metav1.Duration{Duration: 30 * time.Second},
+		},
+		MinReplicas: 1,
+		MaxReplicas: 3,
+	}
+	cluster.Status.Autoscaling.Execution = platformv1alpha1.AutoscalingExecutionStatus{
+		Phase:          platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle,
+		State:          platformv1alpha1.AutoscalingExecutionStateBlocked,
+		StartedAt:      &metav1.Time{Time: time.Now().UTC().Add(-30 * time.Second)},
+		TargetReplicas: ptrTo(int32(2)),
+		BlockedReason:  "WaitingForAutoscalingScaleDown",
+		Message:        "Waiting for the previous autoscaling scale-down step to settle at 2 replicas",
+	}
+	cluster.Status.Autoscaling.LastScaleDownTime = &metav1.Time{Time: time.Now().UTC().Add(-20 * time.Second)}
+	cluster.Status.Autoscaling.LowPressureSince = &metav1.Time{Time: time.Now().UTC().Add(-5 * time.Minute)}
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionTargetResolved,
+		Status:             metav1.ConditionTrue,
+		Reason:             "TargetFound",
+		Message:            "Target StatefulSet was resolved successfully",
+		LastTransitionTime: metav1.Now(),
+	})
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionProgressing,
+		Status:             metav1.ConditionTrue,
+		Reason:             "WaitingForAutoscalingScaleDown",
+		Message:            "Waiting for autoscaling scale-down to settle",
+		LastTransitionTime: metav1.Now(),
+	})
+	cluster.Status.LastOperation = runningOperation("AutoscalingScaleDown", "Waiting for autoscaling scale-down to settle")
+
+	target := managedStatefulSet("nifi", 2, "nifi-rev", "nifi-rev")
+	target.Status.Replicas = 2
+	target.Status.ReadyReplicas = 2
+	target.Status.CurrentReplicas = 2
+	target.Status.UpdatedReplicas = 2
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+	}
+	health := healthResponse{
+		result: ClusterHealthResult{
+			ExpectedReplicas: 2,
+			ReadyPods:        2,
+			ReachablePods:    2,
+			ConvergedPods:    0,
+			Pods: []PodHealth{
+				{PodName: "nifi-0", Ready: true, APIReachable: true, Clustered: true, ConnectedToCluster: true, ConnectedNodeCount: 2, TotalNodeCount: 3},
+				{PodName: "nifi-1", Ready: true, APIReachable: true, Clustered: true, ConnectedToCluster: true, ConnectedNodeCount: 2, TotalNodeCount: 3},
+			},
+		},
+	}
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		checkResponses: []healthResponse{health},
+	}, cluster, target, &pods[0], &pods[1])
+	nodeManager := &fakeNodeManager{readyImmediately: true}
+	reconciler.NodeManager = nodeManager
+
+	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)}); err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if nodeManager.calls != 0 {
+		t.Fatalf("expected persisted settle execution not to re-run node preparation, got %d calls", nodeManager.calls)
+	}
+
+	updatedStatefulSet := &appsv1.StatefulSet{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(target), updatedStatefulSet); err != nil {
+		t.Fatalf("get updated StatefulSet: %v", err)
+	}
+	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != 2 {
+		t.Fatalf("expected persisted settle execution not to patch replicas again, got %d", got)
 	}
 }
 

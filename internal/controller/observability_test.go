@@ -156,6 +156,36 @@ func TestObserveStatusTransitionRecordsAutoscalingMetrics(t *testing.T) {
 	}
 }
 
+func TestObserveStatusTransitionRecordsAutoscalingExecutionTransitionMetrics(t *testing.T) {
+	resetObservabilityMetrics()
+
+	original := managedCluster()
+	original.Status.Autoscaling.Execution = platformv1alpha1.AutoscalingExecutionStatus{
+		Phase:   platformv1alpha1.AutoscalingExecutionPhaseScaleDownPrepare,
+		State:   platformv1alpha1.AutoscalingExecutionStateRunning,
+		Message: "Preparing pod nifi-2 for safe autoscaling scale-down",
+	}
+
+	updated := original.DeepCopy()
+	updated.Status.Autoscaling.Execution = platformv1alpha1.AutoscalingExecutionStatus{
+		Phase:         platformv1alpha1.AutoscalingExecutionPhaseScaleDownPrepare,
+		State:         platformv1alpha1.AutoscalingExecutionStateBlocked,
+		BlockedReason: "NodePreparationTimedOut",
+		Message:       "timed out waiting for NiFi node node-2 to reach OFFLOADED before proceeding",
+	}
+
+	reconciler := &NiFiClusterReconciler{}
+	reconciler.observeStatusTransition(original, updated)
+
+	if got := testutil.ToFloat64(autoscalingExecutionTransitionsTotal.WithLabelValues(
+		string(platformv1alpha1.AutoscalingExecutionPhaseScaleDownPrepare),
+		string(platformv1alpha1.AutoscalingExecutionStateBlocked),
+		"NodePreparationTimedOut",
+	)); got != 1 {
+		t.Fatalf("expected one autoscaling execution transition metric, got %v", got)
+	}
+}
+
 func TestObserveStatusTransitionIgnoresAutoscalingMessageOnlyChanges(t *testing.T) {
 	resetObservabilityMetrics()
 
@@ -207,6 +237,7 @@ func resetObservabilityMetrics() {
 	nodePreparationOutcomesTotal.Reset()
 	autoscalingRecommendationsTotal.Reset()
 	autoscalingScaleActionsTotal.Reset()
+	autoscalingExecutionTransitionsTotal.Reset()
 	autoscalingRecommendedReplicas.Reset()
 	autoscalingSignalSamples.Reset()
 }

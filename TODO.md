@@ -27,26 +27,25 @@ Completed in the scaffold:
 6. Keep README quickstarts, [examples/README.md](examples/README.md), `docs/local-kind.md`, and the cert-manager overlay docs aligned with the exact alpha gate and manual cert-manager commands.
 7. Decide whether trust-manager is needed later as an optional extension for broader CA bundle distribution without changing the current chart or controller scope.
 8. Run the first real AKS and OpenShift evaluations before claiming anything beyond kind-based private-alpha coverage.
-9. Keep autoscaling opt-in and bounded while experimental enforced scale-up and scale-down are evaluated.
+9. Keep autoscaling opt-in and bounded while experimental one-step scale-down continues to be evaluated beyond its now production-ready-in-shape controller contract.
 10. Preserve the single-control-plane rule: autoscaling intent belongs on `NiFiCluster`, not direct `StatefulSet` mutation.
-11. Finish the minimum NiFi-native pressure signal collection needed for autoscaling intent:
+11. Finish the minimum NiFi-native pressure signal collection still missing for stronger production claims:
    - sustained queue age
    - any additional NiFi-native pressure signals beyond root-process-group backlog and timer-driven thread saturation
    - CPU only if it remains useful after NiFi-native signals are in place
    - cluster health and convergence state
-12. Harden experimental automatic scale-down before calling enforced autoscaling production-ready:
-   - broader proof for stuck offload recovery and operator restart handling under repeated failures
+12. Extend autoscaling proof beyond kind before calling one-step scale-down broadly recommended:
+   - real AKS runtime validation
    - stronger convergence proof after downscale on slower clusters
    - queue-age-backed low-pressure evidence if NiFi exposes it reliably enough for this platform
-   - broader PVC and ordinal expectations under repeated scale-up then scale-down churn
-13. Decide whether the current experimental scale-up and scale-down cooldown defaults are sufficient before claiming enforced autoscaling as a recommended production feature.
-14. Keep the focused `make kind-autoscaling-scale-up-fast-e2e`, `make kind-autoscaling-scale-down-fast-e2e`, and `make kind-autoscaling-churn-fast-e2e` paths green while autoscaling remains experimental.
-15. Define how the unavailable-target blocking path should be fault-injected in kind if it needs runtime proof beyond the current unit and reconcile coverage.
-16. Expand NiFi-native low-pressure proof before broadening automatic scale-down:
+   - unavailable-target blocking proof if runtime fault injection becomes necessary
+13. Decide whether the current scale-up and scale-down cooldown defaults are sufficient before claiming enforced autoscaling as a recommended production feature.
+14. Keep the focused `make kind-autoscaling-scale-up-fast-e2e`, `make kind-autoscaling-scale-down-fast-e2e`, and `make kind-autoscaling-churn-fast-e2e` paths green while autoscaling scale-down remains intentionally conservative.
+15. Expand NiFi-native low-pressure proof before broadening automatic scale-down:
    - sustained queue age
    - richer stuck-backlog signals
    - stronger cluster-wide convergence evidence for safe node removal
-17. Keep automatic scale-down intentionally conservative:
+16. Keep automatic scale-down intentionally conservative:
    - one node at a time
    - highest ordinal first
    - reuse disconnect and offload before reducing replicas
@@ -79,9 +78,8 @@ Current rollout algorithm:
 What is still intentionally deferred:
 
 - richer restore target memory than `status.hibernation.lastRunningReplicas` with a `1` replica fallback
-- production-ready automatic scale-down behavior beyond the current experimental one-step path
 - sustained queue-age collection and richer NiFi-native stuck-backlog signals
-- any autoscaling execution path beyond the current optional one-step enforced scale-up and experimental one-step enforced scale-down behavior
+- any autoscaling execution path beyond the current optional one-step enforced scale-up and intentionally conservative one-step enforced scale-down behavior
 
 Current alpha gate:
 

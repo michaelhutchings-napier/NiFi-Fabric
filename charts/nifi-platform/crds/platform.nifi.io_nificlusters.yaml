@@ -248,31 +248,71 @@ spec:
                     lowPressureSince:
                       format: date-time
                       type: string
+                    lowPressure:
+                      type: object
+                      properties:
+                        since:
+                          format: date-time
+                          type: string
+                        lastObservedAt:
+                          format: date-time
+                          type: string
+                        consecutiveSamples:
+                          format: int32
+                          type: integer
+                        requiredConsecutiveSamples:
+                          format: int32
+                          type: integer
+                        flowFilesQueued:
+                          format: int64
+                          type: integer
+                        bytesQueued:
+                          format: int64
+                          type: integer
+                        bytesQueuedObserved:
+                          type: boolean
+                        message:
+                          type: string
                     lastScalingDecision:
                       type: string
                     lastScaleUpTime:
                       format: date-time
                       type: string
-                  lastScaleDownTime:
-                    format: date-time
-                    type: string
-                  execution:
-                    type: object
-                    properties:
-                      phase:
-                        type: string
-                        enum:
-                        - ScaleUpSettle
-                        - ScaleDownPrepare
-                        - ScaleDownSettle
-                      startedAt:
-                        format: date-time
-                        type: string
-                      targetReplicas:
-                        format: int32
-                        type: integer
-              nodeOperation:
-                type: object
+                    lastScaleDownTime:
+                      format: date-time
+                      type: string
+                    execution:
+                      type: object
+                      properties:
+                        phase:
+                          type: string
+                          enum:
+                            - ScaleUpSettle
+                            - ScaleDownPrepare
+                            - ScaleDownSettle
+                        state:
+                          type: string
+                          enum:
+                            - Running
+                            - Blocked
+                            - Failed
+                        startedAt:
+                          format: date-time
+                          type: string
+                        lastTransitionTime:
+                          format: date-time
+                          type: string
+                        targetReplicas:
+                          format: int32
+                          type: integer
+                        message:
+                          type: string
+                        blockedReason:
+                          type: string
+                        failureReason:
+                          type: string
+                nodeOperation:
+                  type: object
                   properties:
                     purpose:
                       type: string

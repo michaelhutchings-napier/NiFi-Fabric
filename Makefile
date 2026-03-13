@@ -197,10 +197,10 @@ kind-autoscaling-scale-down-fast-e2e-reuse:
 	NIFI_IMAGE=apache/nifi:2.8.0 VERSION_VALUES_FILE=examples/nifi-2.8.0-values.yaml KIND_CLUSTER_NAME=nifi-fabric-autoscaling-scale-down FAST_PROFILE=true SKIP_KIND_BOOTSTRAP=true bash hack/kind-autoscaling-scale-down-e2e.sh
 
 kind-autoscaling-churn-fast-e2e:
-	NIFI_IMAGE=apache/nifi:2.8.0 VERSION_VALUES_FILE=examples/nifi-2.8.0-values.yaml KIND_CLUSTER_NAME=nifi-fabric-autoscaling-churn FAST_PROFILE=true bash hack/kind-autoscaling-scale-down-e2e.sh
+	NIFI_IMAGE=apache/nifi:2.8.0 VERSION_VALUES_FILE=examples/nifi-2.8.0-values.yaml KIND_CLUSTER_NAME=nifi-fabric-autoscaling-churn FAST_PROFILE=true AUTOSCALING_CHURN_MODE=true bash hack/kind-autoscaling-scale-down-e2e.sh
 
 kind-autoscaling-churn-fast-e2e-reuse:
-	NIFI_IMAGE=apache/nifi:2.8.0 VERSION_VALUES_FILE=examples/nifi-2.8.0-values.yaml KIND_CLUSTER_NAME=nifi-fabric-autoscaling-churn FAST_PROFILE=true SKIP_KIND_BOOTSTRAP=true bash hack/kind-autoscaling-scale-down-e2e.sh
+	NIFI_IMAGE=apache/nifi:2.8.0 VERSION_VALUES_FILE=examples/nifi-2.8.0-values.yaml KIND_CLUSTER_NAME=nifi-fabric-autoscaling-churn FAST_PROFILE=true AUTOSCALING_CHURN_MODE=true SKIP_KIND_BOOTSTRAP=true bash hack/kind-autoscaling-scale-down-e2e.sh
 
 kind-flow-registry-gitlab-e2e:
 	bash hack/kind-flow-registry-gitlab-e2e.sh

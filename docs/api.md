@@ -73,6 +73,27 @@ status:
     startedAt: "2026-03-08T10:15:00Z"
     completedAt: "2026-03-08T10:22:00Z"
     message: All pods updated to the desired revision
+  autoscaling:
+    recommendedReplicas: 2
+    reason: LowPressureDetected
+    lowPressureSince: "2026-03-08T10:40:00Z"
+    lowPressure:
+      since: "2026-03-08T10:40:00Z"
+      lastObservedAt: "2026-03-08T10:40:30Z"
+      consecutiveSamples: 3
+      requiredConsecutiveSamples: 3
+      flowFilesQueued: 0
+      bytesQueued: 0
+      bytesQueuedObserved: true
+      message: zero backlog observed across 3/3 consecutive evaluations
+    execution:
+      phase: ScaleDownPrepare
+      state: Blocked
+      startedAt: "2026-03-08T10:42:00Z"
+      lastTransitionTime: "2026-03-08T10:45:00Z"
+      targetReplicas: 2
+      message: timed out waiting for NiFi node node-2 to reach OFFLOADED before proceeding
+      blockedReason: NodePreparationTimedOut
   conditions: []
 ```
 
@@ -91,6 +112,15 @@ status:
 | `spec.rollout.clusterHealthTimeout` | duration | yes | timeout for cluster health gates during rollout |
 | `spec.hibernation.offloadTimeout` | duration | yes | timeout for offload or disconnect before scale-down |
 | `spec.safety.requireClusterHealthy` | bool | yes | require cluster health before restart sequencing |
+| `spec.autoscaling.mode` | enum `Disabled|Advisory|Enforced` | no | controller-owned autoscaling intent |
+| `spec.autoscaling.scaleUp.enabled` | bool | no | allow one-step controller-owned scale-up |
+| `spec.autoscaling.scaleUp.cooldown` | duration | no | minimum time between controller-owned scale-up actions |
+| `spec.autoscaling.scaleDown.enabled` | bool | no | allow one-step controller-owned scale-down |
+| `spec.autoscaling.scaleDown.cooldown` | duration | no | minimum time between controller-owned scale-down actions |
+| `spec.autoscaling.scaleDown.stabilizationWindow` | duration | no | minimum stable low-pressure window before a scale-down step |
+| `spec.autoscaling.minReplicas` | integer | no | minimum advisory or enforced target size |
+| `spec.autoscaling.maxReplicas` | integer | no | maximum advisory or enforced target size |
+| `spec.autoscaling.signals[]` | enum list | no | enabled autoscaling signals |
 
 ### `spec.restartPolicy.tlsDrift`
 
@@ -129,6 +159,21 @@ Default for MVP:
 | `status.clusterNodes.offloaded` | integer | NiFi nodes explicitly offloaded |
 | `status.hibernation.lastRunningReplicas` | integer | last non-zero running size used for restore |
 | `status.hibernation.baselineReplicas` | integer | preserved non-zero running target used if the last running size is unavailable |
+| `status.autoscaling.recommendedReplicas` | integer | latest advisory or enforced autoscaling recommendation |
+| `status.autoscaling.reason` | string | current autoscaling recommendation or block reason |
+| `status.autoscaling.signals[]` | list | per-signal availability and current summary |
+| `status.autoscaling.lastEvaluationTime` | timestamp | last autoscaling evaluation that changed recommendation meaning |
+| `status.autoscaling.lowPressureSince` | timestamp | backward-compatible low-pressure checkpoint used for scale-down stabilization |
+| `status.autoscaling.lowPressure.*` | struct | durable low-pressure evidence, including consecutive zero-backlog samples |
+| `status.autoscaling.lastScalingDecision` | string | latest controller decision or block message |
+| `status.autoscaling.lastScaleUpTime` | timestamp | last successful controller-owned scale-up time |
+| `status.autoscaling.lastScaleDownTime` | timestamp | last successful controller-owned scale-down time |
+| `status.autoscaling.execution.phase` | enum | persisted scale-up settle or scale-down prepare or settle checkpoint |
+| `status.autoscaling.execution.state` | enum `Running|Blocked|Failed` | explicit execution state for resume and diagnostics |
+| `status.autoscaling.execution.lastTransitionTime` | timestamp | last blocked, resumed, or failed execution transition |
+| `status.autoscaling.execution.message` | string | current autoscaling execution summary |
+| `status.autoscaling.execution.blockedReason` | string | explicit blocked reason when execution is waiting or timed out |
+| `status.autoscaling.execution.failureReason` | string | explicit failure reason when execution stops |
 | `status.nodeOperation` | struct | persisted NiFi disconnect or offload step for restart or hibernation |
 | `status.lastOperation` | struct | current or last lifecycle action summary |
 | `status.conditions[]` | `metav1.Condition`-style list | machine-readable health and progress conditions |
@@ -271,6 +316,14 @@ That fallback is intentionally simple. It is only there to recover cleanly from 
 
 Disconnect and offload are live NiFi operations, not template drift. The controller needs one durable place to remember which pod and NiFi node it is currently preparing so a restart does not skip the safety step or repeat the wrong destructive action.
 
+### Why Autoscaling Status Carries Low-Pressure Evidence And Execution State
+
+Autoscaling stays inside the same controller-owned lifecycle plane.
+
+- `status.autoscaling.lowPressure.*` records the strongest durable low-pressure signal this platform can currently prove: repeated zero-backlog observations from NiFi runtime APIs.
+- `status.autoscaling.execution.*` records whether autoscaling is running, blocked, or failed, so restart recovery and operator debugging do not depend on transient logs or generic condition text.
+- `status.nodeOperation` and `status.autoscaling.execution` are separate on purpose: one tracks the NiFi disconnect or offload checkpoint, the other tracks the autoscaling lifecycle checkpoint that owns replica changes.
+
 ### Why Rollout And Safety Knobs Are Small And Typed
 
 The controller needs a few operational settings, but not an entire values tree. Small typed fields are easier to validate, document, and test than a generic values blob.
@@ -306,7 +359,6 @@ These are omitted on purpose:
 - flow deployment configuration
 - user, group, and policy configuration
 - NiFi Registry configuration
-- autoscaling configuration
 - per-node pool definitions
 - backup policy fields
 - generic arbitrary values maps

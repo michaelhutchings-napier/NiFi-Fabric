@@ -178,21 +178,10 @@ func shouldCaptureHibernationRestoreTarget(cluster *platformv1alpha1.NiFiCluster
 }
 
 func (r *NiFiClusterReconciler) liveHibernationTargetState(ctx context.Context, target *appsv1.StatefulSet) (*appsv1.StatefulSet, []corev1.Pod, error) {
-	reader := r.APIReader
-	if reader == nil {
-		reader = r.Client
-	}
-
-	freshTarget := &appsv1.StatefulSet{}
-	if err := reader.Get(ctx, client.ObjectKeyFromObject(target), freshTarget); err != nil {
+	freshTarget, pods, err := r.liveTargetState(ctx, client.ObjectKeyFromObject(target))
+	if err != nil {
 		return nil, nil, fmt.Errorf("refresh StatefulSet %s/%s for hibernation: %w", target.Namespace, target.Name, err)
 	}
-
-	pods, err := listTargetPodsWithReader(ctx, reader, freshTarget)
-	if err != nil {
-		return nil, nil, err
-	}
-
 	return freshTarget, pods, nil
 }
 

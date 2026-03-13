@@ -88,6 +88,13 @@ var (
 		},
 		[]string{"result"},
 	)
+	autoscalingExecutionTransitionsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "nifi_platform_autoscaling_execution_transitions_total",
+			Help: "Count of autoscaling execution state transitions by phase, state, and reason.",
+		},
+		[]string{"phase", "state", "reason"},
+	)
 	autoscalingRecommendedReplicas = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "nifi_platform_autoscaling_recommended_replicas",
@@ -116,6 +123,7 @@ func init() {
 		nodePreparationOutcomesTotal,
 		autoscalingRecommendationsTotal,
 		autoscalingScaleActionsTotal,
+		autoscalingExecutionTransitionsTotal,
 		autoscalingRecommendedReplicas,
 		autoscalingSignalSamples,
 	)
@@ -135,6 +143,7 @@ func warmObservabilityMetrics() {
 	autoscalingScaleActionsTotal.WithLabelValues("scaled_up")
 	autoscalingScaleActionsTotal.WithLabelValues("scaled_down")
 	autoscalingScaleActionsTotal.WithLabelValues("scale_down_failed")
+	autoscalingExecutionTransitionsTotal.WithLabelValues(string(platformv1alpha1.AutoscalingExecutionPhaseScaleDownPrepare), string(platformv1alpha1.AutoscalingExecutionStateBlocked), "NodePreparationTimedOut")
 	autoscalingSignalSamples.WithLabelValues("", "", string(platformv1alpha1.AutoscalingSignalQueuePressure), "flow_files_queued")
 }
 
@@ -191,6 +200,9 @@ func collectLifecycleSignals(original, updated *platformv1alpha1.NiFiCluster) []
 		signals = append(signals, signal)
 	}
 	if signal, ok := autoscalingSignalFromStatus(original, updated); ok {
+		signals = append(signals, signal)
+	}
+	if signal, ok := autoscalingExecutionSignal(original, updated); ok {
 		signals = append(signals, signal)
 	}
 
@@ -501,6 +513,50 @@ func autoscalingSignalFromStatus(original, updated *platformv1alpha1.NiFiCluster
 	}, true
 }
 
+func autoscalingExecutionSignal(original, updated *platformv1alpha1.NiFiCluster) (lifecycleSignal, bool) {
+	oldExecution := original.Status.Autoscaling.Execution
+	newExecution := updated.Status.Autoscaling.Execution
+	if oldExecution.Phase == newExecution.Phase &&
+		oldExecution.State == newExecution.State &&
+		oldExecution.BlockedReason == newExecution.BlockedReason &&
+		oldExecution.FailureReason == newExecution.FailureReason &&
+		oldExecution.Message == newExecution.Message {
+		return lifecycleSignal{}, false
+	}
+	if newExecution.Phase == "" || newExecution.State == "" {
+		return lifecycleSignal{}, false
+	}
+
+	reason := "AutoscalingExecutionUpdated"
+	level := corev1.EventTypeNormal
+	event := "running"
+	switch newExecution.State {
+	case platformv1alpha1.AutoscalingExecutionStateBlocked:
+		reason = "AutoscalingExecutionBlocked"
+		event = "blocked"
+		if strings.Contains(strings.ToLower(newExecution.BlockedReason), "timedout") {
+			level = corev1.EventTypeWarning
+		}
+	case platformv1alpha1.AutoscalingExecutionStateFailed:
+		reason = "AutoscalingExecutionFailed"
+		event = "failed"
+		level = corev1.EventTypeWarning
+	default:
+		if oldExecution.State == platformv1alpha1.AutoscalingExecutionStateBlocked {
+			reason = "AutoscalingExecutionResumed"
+			event = "resumed"
+		}
+	}
+
+	return lifecycleSignal{
+		category: "autoscaling",
+		event:    event,
+		level:    level,
+		reason:   reason,
+		message:  emptyIfUnset(newExecution.Message, "autoscaling execution updated"),
+	}, true
+}
+
 func observeRolloutMetrics(original, updated *platformv1alpha1.NiFiCluster) {
 	trigger := updated.Status.Rollout.Trigger
 	if trigger != "" && original.Status.Rollout.Trigger != trigger {
@@ -606,17 +662,36 @@ func (r *NiFiClusterReconciler) observeHibernationMetrics(original, updated *pla
 }
 
 func observeAutoscalingMetrics(original, updated *platformv1alpha1.NiFiCluster) {
-	if autoscalingStatusMeaningEqual(original.Status.Autoscaling, updated.Status.Autoscaling) {
+	if !autoscalingStatusMeaningEqual(original.Status.Autoscaling, updated.Status.Autoscaling) {
+		autoscalingRecommendationsTotal.WithLabelValues(
+			updated.Status.Autoscaling.Reason,
+			autoscalingStatusOutcome(updated.Status.Autoscaling),
+		).Inc()
+		autoscalingRecommendedReplicas.WithLabelValues(updated.Namespace, updated.Name).Set(
+			float64(derefOptionalInt32(updated.Status.Autoscaling.RecommendedReplicas)),
+		)
+	}
+
+	oldExecution := original.Status.Autoscaling.Execution
+	newExecution := updated.Status.Autoscaling.Execution
+	if oldExecution.Phase == newExecution.Phase &&
+		oldExecution.State == newExecution.State &&
+		oldExecution.BlockedReason == newExecution.BlockedReason &&
+		oldExecution.FailureReason == newExecution.FailureReason {
+		return
+	}
+	if newExecution.Phase == "" || newExecution.State == "" {
 		return
 	}
 
-	autoscalingRecommendationsTotal.WithLabelValues(
-		updated.Status.Autoscaling.Reason,
-		autoscalingStatusOutcome(updated.Status.Autoscaling),
-	).Inc()
-	autoscalingRecommendedReplicas.WithLabelValues(updated.Namespace, updated.Name).Set(
-		float64(derefOptionalInt32(updated.Status.Autoscaling.RecommendedReplicas)),
-	)
+	reason := newExecution.BlockedReason
+	if reason == "" {
+		reason = newExecution.FailureReason
+	}
+	if reason == "" {
+		reason = "None"
+	}
+	autoscalingExecutionTransitionsTotal.WithLabelValues(string(newExecution.Phase), string(newExecution.State), reason).Inc()
 }
 
 func recordAutoscalingSignalSamples(cluster *platformv1alpha1.NiFiCluster, collection autoscalingSignalCollection) {

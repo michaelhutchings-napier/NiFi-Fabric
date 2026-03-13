@@ -243,7 +243,7 @@ require_main_replicas() {
 
 print_autoscaling_summary() {
   local cluster_name="$1"
-  kubectl -n "${NAMESPACE}" get nificluster "${cluster_name}" -o jsonpath='{.metadata.name}{" recommended="}{.status.autoscaling.recommendedReplicas}{" reason="}{.status.autoscaling.reason}{" decision="}{.status.autoscaling.lastScalingDecision}{" executionPhase="}{.status.autoscaling.execution.phase}{" executionTarget="}{.status.autoscaling.execution.targetReplicas}{" executionStartedAt="}{.status.autoscaling.execution.startedAt}{" lastScaleUpTime="}{.status.autoscaling.lastScaleUpTime}{" desired="}{.status.replicas.desired}{" ready="}{.status.replicas.ready}{"\n"}' 2>/dev/null || true
+  kubectl -n "${NAMESPACE}" get nificluster "${cluster_name}" -o jsonpath='{.metadata.name}{" recommended="}{.status.autoscaling.recommendedReplicas}{" reason="}{.status.autoscaling.reason}{" decision="}{.status.autoscaling.lastScalingDecision}{" executionPhase="}{.status.autoscaling.execution.phase}{" executionState="}{.status.autoscaling.execution.state}{" executionBlockedReason="}{.status.autoscaling.execution.blockedReason}{" executionFailureReason="}{.status.autoscaling.execution.failureReason}{" executionTarget="}{.status.autoscaling.execution.targetReplicas}{" executionStartedAt="}{.status.autoscaling.execution.startedAt}{" lastScaleUpTime="}{.status.autoscaling.lastScaleUpTime}{" desired="}{.status.replicas.desired}{" ready="}{.status.replicas.ready}{"\n"}' 2>/dev/null || true
 }
 
 patch_main_cluster() {

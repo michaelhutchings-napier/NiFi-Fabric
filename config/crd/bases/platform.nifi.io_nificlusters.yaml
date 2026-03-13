@@ -248,6 +248,31 @@ spec:
                   lowPressureSince:
                     format: date-time
                     type: string
+                  lowPressure:
+                    type: object
+                    properties:
+                      since:
+                        format: date-time
+                        type: string
+                      lastObservedAt:
+                        format: date-time
+                        type: string
+                      consecutiveSamples:
+                        format: int32
+                        type: integer
+                      requiredConsecutiveSamples:
+                        format: int32
+                        type: integer
+                      flowFilesQueued:
+                        format: int64
+                        type: integer
+                      bytesQueued:
+                        format: int64
+                        type: integer
+                      bytesQueuedObserved:
+                        type: boolean
+                      message:
+                        type: string
                   lastScalingDecision:
                     type: string
                   lastScaleUpTime:
@@ -265,12 +290,27 @@ spec:
                         - ScaleUpSettle
                         - ScaleDownPrepare
                         - ScaleDownSettle
+                      state:
+                        type: string
+                        enum:
+                        - Running
+                        - Blocked
+                        - Failed
                       startedAt:
+                        format: date-time
+                        type: string
+                      lastTransitionTime:
                         format: date-time
                         type: string
                       targetReplicas:
                         format: int32
                         type: integer
+                      message:
+                        type: string
+                      blockedReason:
+                        type: string
+                      failureReason:
+                        type: string
               nodeOperation:
                 type: object
                 properties:

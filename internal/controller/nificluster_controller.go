@@ -26,6 +26,7 @@ import (
 )
 
 const rolloutPollRequeue = 5 * time.Second
+const controllerTargetStateReadTimeout = 30 * time.Second
 
 // NiFiClusterReconciler keeps the operational API thin.
 // Managed mode only adds health-gated OnDelete rollout sequencing.
@@ -95,19 +96,14 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 		return ctrl.Result{}, nil
 	}
 
-	target := &appsv1.StatefulSet{}
 	targetKey := client.ObjectKey{Namespace: cluster.Namespace, Name: cluster.Spec.TargetRef.Name}
-	if err := r.Get(ctx, targetKey, target); err != nil {
+	target, pods, err := r.liveTargetState(ctx, targetKey)
+	if err != nil {
 		if apierrors.IsNotFound(err) {
 			r.markTargetMissing(cluster, targetKey.Name)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("get target statefulset: %w", err)
-	}
-
-	pods, err := r.listTargetPods(ctx, target)
-	if err != nil {
-		return ctrl.Result{}, err
 	}
 
 	r.syncReplicaStatus(cluster, target, pods)
@@ -1155,6 +1151,28 @@ func (r *NiFiClusterReconciler) markTLSObservationDegraded(cluster *platformv1al
 
 func (r *NiFiClusterReconciler) listTargetPods(ctx context.Context, target *appsv1.StatefulSet) ([]corev1.Pod, error) {
 	return listTargetPodsWithReader(ctx, r.Client, target)
+}
+
+func (r *NiFiClusterReconciler) liveTargetState(ctx context.Context, targetKey client.ObjectKey) (*appsv1.StatefulSet, []corev1.Pod, error) {
+	reader := r.APIReader
+	if reader == nil {
+		reader = r.Client
+	}
+
+	readCtx, cancel := context.WithTimeout(ctx, controllerTargetStateReadTimeout)
+	defer cancel()
+
+	target := &appsv1.StatefulSet{}
+	if err := reader.Get(readCtx, targetKey, target); err != nil {
+		return nil, nil, err
+	}
+
+	pods, err := listTargetPodsWithReader(readCtx, reader, target)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return target, pods, nil
 }
 
 func listTargetPodsWithReader(ctx context.Context, reader client.Reader, target *appsv1.StatefulSet) ([]corev1.Pod, error) {

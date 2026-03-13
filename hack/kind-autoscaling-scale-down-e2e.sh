@@ -16,6 +16,7 @@ SKIP_KIND_BOOTSTRAP="${SKIP_KIND_BOOTSTRAP:-false}"
 FAST_PROFILE="${FAST_PROFILE:-true}"
 FAST_VALUES_FILE="${FAST_VALUES_FILE:-examples/test-fast-values.yaml}"
 AUTH_SECRET="${AUTH_SECRET:-nifi-auth}"
+AUTOSCALING_CHURN_MODE="${AUTOSCALING_CHURN_MODE:-false}"
 START_EPOCH="$(date +%s)"
 
 run_make() {
@@ -249,6 +250,7 @@ configure_advisory_scale_down() {
 {"spec":{"autoscaling":{"mode":"Advisory","scaleUp":{"enabled":false,"cooldown":"5m"},"scaleDown":{"enabled":true,"cooldown":"5m","stabilizationWindow":"30s"},"minReplicas":${min_replicas},"maxReplicas":${max_replicas},"signals":["QueuePressure","CPU"]}}}
 EOF
 )"
+  nudge_main_cluster_reconcile
 }
 
 configure_enforced_scale_up() {
@@ -258,6 +260,7 @@ configure_enforced_scale_up() {
 {"spec":{"autoscaling":{"mode":"Enforced","scaleUp":{"enabled":true,"cooldown":"5m"},"scaleDown":{"enabled":false,"cooldown":"5m","stabilizationWindow":"30s"},"minReplicas":${min_replicas},"maxReplicas":${max_replicas},"signals":["QueuePressure","CPU"]}}}
 EOF
 )"
+  nudge_main_cluster_reconcile
 }
 
 configure_enforced_scale_down() {
@@ -267,15 +270,77 @@ configure_enforced_scale_down() {
 {"spec":{"autoscaling":{"mode":"Enforced","scaleUp":{"enabled":false,"cooldown":"5m"},"scaleDown":{"enabled":true,"cooldown":"5m","stabilizationWindow":"30s"},"minReplicas":${min_replicas},"maxReplicas":${max_replicas},"signals":["QueuePressure","CPU"]}}}
 EOF
 )"
+  nudge_main_cluster_reconcile
 }
 
 configure_disabled_autoscaling() {
   patch_main_cluster '{"spec":{"autoscaling":{"mode":"Disabled","scaleUp":{"enabled":false,"cooldown":"5m"},"scaleDown":{"enabled":false,"cooldown":"5m","stabilizationWindow":"30s"},"minReplicas":0,"maxReplicas":0,"signals":[]}}}'
+  nudge_main_cluster_reconcile
 }
 
 print_autoscaling_summary() {
   local cluster_name="$1"
-  kubectl -n "${NAMESPACE}" get nificluster "${cluster_name}" -o jsonpath='{.metadata.name}{" recommended="}{.status.autoscaling.recommendedReplicas}{" reason="}{.status.autoscaling.reason}{" decision="}{.status.autoscaling.lastScalingDecision}{" executionPhase="}{.status.autoscaling.execution.phase}{" executionTarget="}{.status.autoscaling.execution.targetReplicas}{" executionStartedAt="}{.status.autoscaling.execution.startedAt}{" lowPressureSince="}{.status.autoscaling.lowPressureSince}{" lastScaleUpTime="}{.status.autoscaling.lastScaleUpTime}{" lastScaleDownTime="}{.status.autoscaling.lastScaleDownTime}{" desired="}{.status.replicas.desired}{" ready="}{.status.replicas.ready}{"\n"}' 2>/dev/null || true
+  kubectl -n "${NAMESPACE}" get nificluster "${cluster_name}" -o jsonpath='{.metadata.name}{" recommended="}{.status.autoscaling.recommendedReplicas}{" reason="}{.status.autoscaling.reason}{" decision="}{.status.autoscaling.lastScalingDecision}{" executionPhase="}{.status.autoscaling.execution.phase}{" executionState="}{.status.autoscaling.execution.state}{" executionBlockedReason="}{.status.autoscaling.execution.blockedReason}{" executionFailureReason="}{.status.autoscaling.execution.failureReason}{" executionTarget="}{.status.autoscaling.execution.targetReplicas}{" executionStartedAt="}{.status.autoscaling.execution.startedAt}{" lowPressureSince="}{.status.autoscaling.lowPressureSince}{" lowPressureSamples="}{.status.autoscaling.lowPressure.consecutiveSamples}{"/"}{.status.autoscaling.lowPressure.requiredConsecutiveSamples}{" lastScaleUpTime="}{.status.autoscaling.lastScaleUpTime}{" lastScaleDownTime="}{.status.autoscaling.lastScaleDownTime}{" desired="}{.status.replicas.desired}{" ready="}{.status.replicas.ready}{"\n"}' 2>/dev/null || true
+}
+
+wait_for_pod_presence() {
+  local pod_name="$1"
+  local should_exist="$2"
+  local timeout_seconds="${3:-300}"
+  local deadline=$(( $(date +%s) + timeout_seconds ))
+
+  while true; do
+    if kubectl -n "${NAMESPACE}" get pod "${pod_name}" >/dev/null 2>&1; then
+      if [[ "${should_exist}" == "true" ]]; then
+        return 0
+      fi
+    else
+      if [[ "${should_exist}" == "false" ]]; then
+        return 0
+      fi
+    fi
+    if (( $(date +%s) >= deadline )); then
+      echo "timed out waiting for pod ${pod_name} presence=${should_exist}" >&2
+      return 1
+    fi
+    sleep 5
+  done
+}
+
+pod_uid() {
+  local pod_name="$1"
+  kubectl -n "${NAMESPACE}" get pod "${pod_name}" -o jsonpath='{.metadata.uid}' 2>/dev/null || true
+}
+
+pvc_uid() {
+  local pvc_name="$1"
+  kubectl -n "${NAMESPACE}" get pvc "${pvc_name}" -o jsonpath='{.metadata.uid}' 2>/dev/null || true
+}
+
+assert_pvc_uid_stable() {
+  local pvc_name="$1"
+  local expected_uid="$2"
+  local actual_uid
+  actual_uid="$(pvc_uid "${pvc_name}" | tr -d '\n')"
+  if [[ -z "${actual_uid}" || "${actual_uid}" != "${expected_uid}" ]]; then
+    echo "expected PVC ${pvc_name} uid ${expected_uid}, got ${actual_uid:-<missing>}" >&2
+    return 1
+  fi
+}
+
+assert_pods_exactly() {
+  local expected="$1"
+  local actual
+  actual="$(
+    kubectl -n "${NAMESPACE}" get pod -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null |
+      awk -v prefix="${HELM_RELEASE}-" 'index($0, prefix) == 1 { print }' |
+      sort |
+      xargs
+  )"
+  if [[ "${actual}" != "${expected}" ]]; then
+    echo "expected pods [${expected}], got [${actual:-<empty>}]" >&2
+    return 1
+  fi
 }
 
 install_main_release() {
@@ -361,6 +426,63 @@ configure_enforced_scale_up 3 3
 wait_for_sts_replicas 3 600
 run_make kind-health KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NAMESPACE="${NAMESPACE}" HELM_RELEASE="${HELM_RELEASE}"
 wait_for_condition "${HELM_RELEASE}" Available True 600
+
+if [[ "${AUTOSCALING_CHURN_MODE}" == "true" ]]; then
+  phase "Capturing ordinal-2 pod and PVC identities before churn"
+  wait_for_pod_presence "${HELM_RELEASE}-2" true 300
+  ordinal_two_uid_before_scale_down="$(pod_uid "${HELM_RELEASE}-2" | tr -d '\n')"
+  declare -A ordinal_two_pvc_uids=()
+  for repository in database-repository flowfile-repository content-repository provenance-repository; do
+    pvc_name="${repository}-${HELM_RELEASE}-2"
+    ordinal_two_pvc_uids["${pvc_name}"]="$(pvc_uid "${pvc_name}" | tr -d '\n')"
+    if [[ -z "${ordinal_two_pvc_uids["${pvc_name}"]}" ]]; then
+      echo "expected PVC ${pvc_name} to exist before churn" >&2
+      exit 1
+    fi
+  done
+
+  phase "Proving one-step scale-down removes only the highest ordinal during churn"
+  configure_enforced_scale_down 2 3
+  wait_for_sts_replicas 2 900
+  run_scale_down_health
+  wait_for_condition "${HELM_RELEASE}" Available True 600
+  wait_for_cluster_execution_phase_empty "${HELM_RELEASE}" 600
+  wait_for_pod_presence "${HELM_RELEASE}-2" false 300
+  assert_pods_exactly "${HELM_RELEASE}-0 ${HELM_RELEASE}-1"
+  for pvc_name in "${!ordinal_two_pvc_uids[@]}"; do
+    assert_pvc_uid_stable "${pvc_name}" "${ordinal_two_pvc_uids["${pvc_name}"]}"
+  done
+
+  phase "Proving scale-up reuses the same ordinal and PVC set on the next cycle"
+  configure_enforced_scale_up 3 3
+  wait_for_sts_replicas 3 900
+  run_make kind-health KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NAMESPACE="${NAMESPACE}" HELM_RELEASE="${HELM_RELEASE}"
+  wait_for_condition "${HELM_RELEASE}" Available True 600
+  wait_for_cluster_execution_phase_empty "${HELM_RELEASE}" 600
+  wait_for_pod_presence "${HELM_RELEASE}-2" true 300
+  assert_pods_exactly "${HELM_RELEASE}-0 ${HELM_RELEASE}-1 ${HELM_RELEASE}-2"
+  ordinal_two_uid_after_scale_up="$(pod_uid "${HELM_RELEASE}-2" | tr -d '\n')"
+  if [[ -z "${ordinal_two_uid_after_scale_up}" || "${ordinal_two_uid_after_scale_up}" == "${ordinal_two_uid_before_scale_down}" ]]; then
+    echo "expected ordinal 2 pod to be recreated after churn, got uid ${ordinal_two_uid_after_scale_up:-<missing>}" >&2
+    exit 1
+  fi
+  for pvc_name in "${!ordinal_two_pvc_uids[@]}"; do
+    assert_pvc_uid_stable "${pvc_name}" "${ordinal_two_pvc_uids["${pvc_name}"]}"
+  done
+
+  phase "Restoring disabled autoscaling baseline"
+  configure_disabled_autoscaling
+  nudge_main_cluster_reconcile
+  wait_for_cluster_spec_mode "${HELM_RELEASE}" "Disabled" 60
+  wait_for_cluster_reason "${HELM_RELEASE}" "${autoscalingReasonDisabled:-Disabled}" 30 || true
+
+  print_success_footer "autoscaling churn runtime proof completed" \
+    "make kind-autoscaling-churn-fast-e2e-reuse" \
+    "kubectl -n ${NAMESPACE} get nificluster ${HELM_RELEASE} -o yaml" \
+    "kubectl -n ${NAMESPACE} get pvc" \
+    "kubectl -n ${CONTROLLER_NAMESPACE} logs deployment/${CONTROLLER_DEPLOYMENT} --tail=300"
+  exit 0
+fi
 
 phase "Proving advisory mode remains status-only for low-pressure scale-down recommendations"
 configure_advisory_scale_down 1 3

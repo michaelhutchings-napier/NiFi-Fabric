@@ -60,6 +60,10 @@ func (in *AutoscalingExecutionStatus) DeepCopyInto(out *AutoscalingExecutionStat
 		in, out := &in.StartedAt, &out.StartedAt
 		*out = (*in).DeepCopy()
 	}
+	if in.LastTransitionTime != nil {
+		in, out := &in.LastTransitionTime, &out.LastTransitionTime
+		*out = (*in).DeepCopy()
+	}
 	if in.TargetReplicas != nil {
 		in, out := &in.TargetReplicas, &out.TargetReplicas
 		*out = new(int32)
@@ -96,6 +100,7 @@ func (in *AutoscalingStatus) DeepCopyInto(out *AutoscalingStatus) {
 		in, out := &in.LowPressureSince, &out.LowPressureSince
 		*out = (*in).DeepCopy()
 	}
+	in.LowPressure.DeepCopyInto(&out.LowPressure)
 	if in.LastScaleUpTime != nil {
 		in, out := &in.LastScaleUpTime, &out.LastScaleUpTime
 		*out = (*in).DeepCopy()
@@ -131,6 +136,27 @@ func (in *AutoscalingScaleDownPolicy) DeepCopy() *AutoscalingScaleDownPolicy {
 
 func (in *AutoscalingScaleUpPolicy) DeepCopyInto(out *AutoscalingScaleUpPolicy) {
 	*out = *in
+}
+
+func (in *AutoscalingLowPressureStatus) DeepCopyInto(out *AutoscalingLowPressureStatus) {
+	*out = *in
+	if in.Since != nil {
+		in, out := &in.Since, &out.Since
+		*out = (*in).DeepCopy()
+	}
+	if in.LastObservedAt != nil {
+		in, out := &in.LastObservedAt, &out.LastObservedAt
+		*out = (*in).DeepCopy()
+	}
+}
+
+func (in *AutoscalingLowPressureStatus) DeepCopy() *AutoscalingLowPressureStatus {
+	if in == nil {
+		return nil
+	}
+	out := new(AutoscalingLowPressureStatus)
+	in.DeepCopyInto(out)
+	return out
 }
 
 func (in *AutoscalingScaleUpPolicy) DeepCopy() *AutoscalingScaleUpPolicy {

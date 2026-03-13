@@ -103,7 +103,8 @@ Mitigation:
 - use CPU only as a secondary signal
 - prove signal quality in advisory mode before allowing automatic replica changes
 - keep low-pressure scale-down conservative until sustained queue-age evidence is available reliably enough from NiFi runtime APIs
-- persist autoscaling execution state so restart recovery does not repeat destructive steps while signal quality is still intentionally narrow
+- require repeated zero-backlog observations before the existing stabilization window can start
+- persist autoscaling execution state, blocked reasons, and failure reasons so restart recovery does not repeat destructive steps while signal quality is still intentionally narrow
 
 ### Hibernation And Autoscaling Conflict
 
@@ -116,6 +117,20 @@ Mitigation:
 - define one precedence model before implementation
 - suspend enforced autoscaling during hibernation and restore
 - persist autoscaling intent separately from the last running restore baseline
+- document GitOps ownership explicitly: external autoscalers do not mutate the `StatefulSet` directly in this slice
+
+### Stuck Offload And Silent Retry Risk
+
+Risk:
+
+- a timed-out or repeatedly failing NiFi offload path silently retries and obscures whether autoscaling is safely blocked or still making progress
+
+Mitigation:
+
+- keep `status.nodeOperation` persisted while autoscaling scale-down is blocked in prepare
+- surface blocked and failed autoscaling execution state explicitly in `status.autoscaling.execution`
+- emit events and metrics when autoscaling execution blocks, resumes, or fails
+- keep scale-down one-step-at-a-time so recovery scope stays local to the highest ordinal node
 
 ## Upgrade Risks
 
