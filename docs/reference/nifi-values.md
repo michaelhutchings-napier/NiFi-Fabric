@@ -115,6 +115,7 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | `observability.metrics.exporter.serviceMonitor.*` | object | Experimental exporter ServiceMonitor settings. | No | see values file |
 | `observability.metrics.exporter.machineAuth.*` | object | Machine-auth Secret contract for exporter upstream scraping. | No | see values file |
 | `observability.metrics.exporter.source.*` | object | Upstream NiFi metrics source settings for the exporter. | No | see values file |
+| `observability.metrics.exporter.supplemental.flowStatus.*` | object | Optional controller-status gauges derived from `/nifi-api/flow/status`. | No | see values file |
 | `observability.metrics.exporter.resources.*` | object | Exporter pod resources. | No | `{}` |
 | `observability.metrics.siteToSite.*` | object | Prepared-only site-to-site metrics contract. | No | see values file |
 
@@ -171,5 +172,5 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
 | `observability.metrics.mode=nativeApi` | support status | Primary supported metrics mode. | No |  |
-| `observability.metrics.mode=exporter` | support status | Experimental metrics mode. | No |  |
+| `observability.metrics.mode=exporter` | support status | Experimental mode with live proof for flow Prometheus passthrough and selected `/flow/status` gauges. | No |  |
 | `observability.metrics.mode=siteToSite` | support status | Prepared-only contract, not runtime-enabled. | No |  |

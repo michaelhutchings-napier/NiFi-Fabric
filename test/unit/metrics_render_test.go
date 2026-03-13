@@ -98,6 +98,10 @@ func TestPlatformManagedExporterMetricsExampleRendersExporterResources(t *testin
 		"path: /metrics",
 		"EXPORTER_SOURCE_PATH",
 		"/nifi-api/flow/metrics/prometheus",
+		"EXPORTER_FLOW_STATUS_ENABLED",
+		"value: \"true\"",
+		"EXPORTER_FLOW_STATUS_PATH",
+		"/nifi-api/flow/status",
 		"secretName: nifi-metrics-auth",
 		"secretName: nifi-metrics-ca",
 	} {
@@ -120,6 +124,25 @@ func TestExporterMetricsValidationFailsWithoutMachineAuthSecretRef(t *testing.T)
 	}
 	if !strings.Contains(output, "observability.metrics.exporter.machineAuth.secretRef.name is required") {
 		t.Fatalf("expected validation error for missing exporter machine-auth Secret reference\n%s", output)
+	}
+}
+
+func TestExporterFlowStatusValidationFailsWithoutPath(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.metrics.mode=exporter",
+		"--set", "observability.metrics.exporter.machineAuth.secretRef.name=nifi-metrics-auth",
+		"--set", "observability.metrics.exporter.machineAuth.authorization.type=Bearer",
+		"--set", "observability.metrics.exporter.machineAuth.authorization.credentialsKey=token",
+		"--set", "observability.metrics.exporter.supplemental.flowStatus.enabled=true",
+		"--set", "observability.metrics.exporter.supplemental.flowStatus.path=",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail without a flow-status path\n%s", output)
+	}
+	if !strings.Contains(output, "observability.metrics.exporter.supplemental.flowStatus.path is required") {
+		t.Fatalf("expected validation error for missing flow-status path\n%s", output)
 	}
 }
 

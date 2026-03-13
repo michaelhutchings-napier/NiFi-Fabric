@@ -73,11 +73,14 @@ Primary metrics path:
 Experimental or prepared paths:
 
 - `exporter` is experimental and has focused live runtime proof for the current companion-exporter contract
+- the exporter republishes the secured flow Prometheus endpoint and can append selected controller-status gauges from `/nifi-api/flow/status`
 - `siteToSite` is prepared-only
 
 Current conservative boundary:
 
-- flow metrics are the only metrics family runtime-proven live today
+- `nativeApi` runtime proof is still centered on the secured flow Prometheus endpoint
+- exporter runtime proof adds one second secured endpoint, `/nifi-api/flow/status`, through the chart-owned exporter path
+- JVM or system-diagnostics metrics are not yet runtime-proven
 - machine-auth Secret bootstrap is partially automated, but machine principal provisioning and IdP write-back remain out of scope
 
 ## Install Architecture

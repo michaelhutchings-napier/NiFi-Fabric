@@ -32,16 +32,19 @@ It provides:
 - a small companion exporter deployment
 - a clean `/metrics` endpoint for Prometheus
 - reuse of the same provider-agnostic machine-auth contract
+- optional supplemental controller-status gauges derived from `/nifi-api/flow/status`
 
 Current scope:
 
-- flow metrics family only
+- flow Prometheus metrics from `/nifi-api/flow/metrics/prometheus`
+- selected controller-status gauges from `/nifi-api/flow/status`
+- one chart-owned exporter `Deployment`, `Service`, and `ServiceMonitor`
 
 ## Site-to-Site Mode
 
 `siteToSite` is prepared-only.
 
-The chart exposes a configuration contract for a future site-to-site reporting-task path, but it does not currently manage reporting tasks or the receiver pipeline.
+The chart exposes a configuration contract for a future site-to-site reporting-task path, but it does not currently manage reporting tasks or the receiver pipeline. It stays prepared-only because a real implementation would require NiFi reporting-task lifecycle ownership plus explicit destination and input-port assumptions that this repo does not manage today.
 
 ## Machine-Auth Bootstrap
 
@@ -58,6 +61,9 @@ What remains operator-provided:
 - the machine principal itself
 - IdP-side provisioning
 - credential issuance and rotation policy
+- Secret rotation and renewal workflow
+
+Focused kind proof can mint a fresh NiFi access token into the referenced Secret. Production deployments still need operator-owned credential rotation or a non-expiring machine credential source.
 
 ## Support Level
 
@@ -76,5 +82,6 @@ Focused live proof is available through:
 Current live scope:
 
 - secured flow metrics are runtime-proven for `nativeApi`
-- the same flow metrics family republished on exporter `/metrics` is runtime-proven for `exporter`
-- no second distinct metrics family is claimed live yet
+- exporter `/metrics` is runtime-proven with the secured flow Prometheus endpoint as its primary source
+- exporter `/metrics` is also runtime-proven with selected controller-status gauges derived from `/nifi-api/flow/status`
+- JVM or system-diagnostics metrics are not yet runtime-proven

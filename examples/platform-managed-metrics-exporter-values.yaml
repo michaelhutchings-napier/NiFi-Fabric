@@ -20,3 +20,6 @@ nifi:
               secretRef:
                 name: nifi-metrics-ca
                 key: ca.crt
+        supplemental:
+          flowStatus:
+            enabled: true

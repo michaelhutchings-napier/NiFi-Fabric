@@ -127,14 +127,18 @@ That matrix proves:
 
 Current conservative boundary:
 
-- flow metrics are the only metrics family runtime-proven live today
-- two named native scrape profiles are proven, but they scrape the same flow endpoint at different cadence
+- `nativeApi` is runtime-proven for the secured `/nifi-api/flow/metrics/prometheus` endpoint
+- `exporter` is runtime-proven for `/nifi-api/flow/metrics/prometheus` plus selected controller-status gauges derived from `/nifi-api/flow/status`
+- two named native scrape profiles are proven, but they still scrape the same flow Prometheus endpoint at different cadence
+- JVM or system-diagnostics metrics are not yet runtime-proven
 - `siteToSite` remains outside the live proof matrix because it is still prepared-only
 
 Operators still provide, out of band:
 
 - a machine credential already accepted by NiFi, or a pre-minted token
 - the machine principal lifecycle itself, including IdP-side provisioning and rotation policy
+
+The focused kind proof can mint a short-lived NiFi access token for the metrics Secret. Production deployments still need an operator-managed credential or rotation path that stays valid for steady-state scraping.
 
 ## Install Surface Note
 

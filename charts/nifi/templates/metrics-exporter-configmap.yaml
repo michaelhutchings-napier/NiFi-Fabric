@@ -8,9 +8,11 @@ metadata:
 data:
   exporter.py: |
     import http.server
+    import json
     import os
     import socketserver
     import ssl
+    import time
     import urllib.error
     import urllib.request
 
@@ -21,11 +23,30 @@ data:
     SOURCE_PORT = os.environ["EXPORTER_SOURCE_PORT"]
     SOURCE_PATH = os.environ["EXPORTER_SOURCE_PATH"]
     SOURCE_TIMEOUT_SECONDS = float(os.environ.get("EXPORTER_SOURCE_TIMEOUT_SECONDS", "10"))
+    FLOW_STATUS_ENABLED = os.environ.get("EXPORTER_FLOW_STATUS_ENABLED", "false").lower() == "true"
+    FLOW_STATUS_PATH = os.environ.get("EXPORTER_FLOW_STATUS_PATH", "/nifi-api/flow/status")
     AUTH_TYPE = os.environ["EXPORTER_AUTH_TYPE"]
     AUTH_HEADER_TYPE = os.environ.get("EXPORTER_AUTH_HEADER_TYPE", "Bearer")
     AUTH_CREDENTIALS_FILE = os.environ["EXPORTER_AUTH_CREDENTIALS_FILE"]
     TLS_CA_FILE = os.environ.get("EXPORTER_TLS_CA_FILE", "")
     TLS_INSECURE_SKIP_VERIFY = os.environ.get("EXPORTER_TLS_INSECURE_SKIP_VERIFY", "false").lower() == "true"
+    FLOW_STATUS_METRICS = {
+      "activeThreadCount": "nifi_fabric_flow_status_controller_active_thread_count",
+      "terminatedThreadCount": "nifi_fabric_flow_status_controller_terminated_thread_count",
+      "flowFilesQueued": "nifi_fabric_flow_status_controller_flow_files_queued",
+      "bytesQueued": "nifi_fabric_flow_status_controller_bytes_queued",
+      "runningCount": "nifi_fabric_flow_status_controller_running_component_count",
+      "stoppedCount": "nifi_fabric_flow_status_controller_stopped_component_count",
+      "invalidCount": "nifi_fabric_flow_status_controller_invalid_component_count",
+      "disabledCount": "nifi_fabric_flow_status_controller_disabled_component_count",
+      "activeRemotePortCount": "nifi_fabric_flow_status_controller_active_remote_port_count",
+      "inactiveRemotePortCount": "nifi_fabric_flow_status_controller_inactive_remote_port_count",
+      "upToDateCount": "nifi_fabric_flow_status_controller_up_to_date_component_count",
+      "locallyModifiedCount": "nifi_fabric_flow_status_controller_locally_modified_component_count",
+      "staleCount": "nifi_fabric_flow_status_controller_stale_component_count",
+      "locallyModifiedAndStaleCount": "nifi_fabric_flow_status_controller_locally_modified_and_stale_component_count",
+      "syncFailureCount": "nifi_fabric_flow_status_controller_sync_failure_count",
+    }
 
 
     def read_credentials():
@@ -55,12 +76,90 @@ data:
       return ssl.create_default_context()
 
 
-    def scrape_metrics():
-      url = f"{SOURCE_SCHEME}://{SOURCE_HOST}:{SOURCE_PORT}{SOURCE_PATH}"
-      request = urllib.request.Request(url, headers=build_headers())
+    def fetch_source(path, extra_headers=None):
+      url = f"{SOURCE_SCHEME}://{SOURCE_HOST}:{SOURCE_PORT}{path}"
+      headers = build_headers()
+      if extra_headers:
+        headers.update(extra_headers)
+      request = urllib.request.Request(url, headers=headers)
       context = build_ssl_context()
       with urllib.request.urlopen(request, timeout=SOURCE_TIMEOUT_SECONDS, context=context) as response:
         return response.read()
+
+
+    def scrape_primary_metrics():
+      return fetch_source(SOURCE_PATH).decode("utf-8")
+
+
+    def scrape_flow_status_metrics():
+      payload = json.loads(fetch_source(FLOW_STATUS_PATH, {"Accept": "application/json"}).decode("utf-8"))
+      controller_status = payload.get("controllerStatus", {})
+      lines = [
+        "# HELP nifi_fabric_flow_status_controller_active_thread_count Current active NiFi controller thread count.",
+        "# TYPE nifi_fabric_flow_status_controller_active_thread_count gauge",
+        "# HELP nifi_fabric_flow_status_controller_terminated_thread_count Current terminated NiFi controller thread count.",
+        "# TYPE nifi_fabric_flow_status_controller_terminated_thread_count gauge",
+        "# HELP nifi_fabric_flow_status_controller_flow_files_queued Current queued flow file count reported by /flow/status.",
+        "# TYPE nifi_fabric_flow_status_controller_flow_files_queued gauge",
+        "# HELP nifi_fabric_flow_status_controller_bytes_queued Current queued bytes reported by /flow/status.",
+        "# TYPE nifi_fabric_flow_status_controller_bytes_queued gauge",
+        "# HELP nifi_fabric_flow_status_controller_running_component_count Current running NiFi component count.",
+        "# TYPE nifi_fabric_flow_status_controller_running_component_count gauge",
+        "# HELP nifi_fabric_flow_status_controller_stopped_component_count Current stopped NiFi component count.",
+        "# TYPE nifi_fabric_flow_status_controller_stopped_component_count gauge",
+        "# HELP nifi_fabric_flow_status_controller_invalid_component_count Current invalid NiFi component count.",
+        "# TYPE nifi_fabric_flow_status_controller_invalid_component_count gauge",
+        "# HELP nifi_fabric_flow_status_controller_disabled_component_count Current disabled NiFi component count.",
+        "# TYPE nifi_fabric_flow_status_controller_disabled_component_count gauge",
+        "# HELP nifi_fabric_flow_status_controller_active_remote_port_count Current active remote port count.",
+        "# TYPE nifi_fabric_flow_status_controller_active_remote_port_count gauge",
+        "# HELP nifi_fabric_flow_status_controller_inactive_remote_port_count Current inactive remote port count.",
+        "# TYPE nifi_fabric_flow_status_controller_inactive_remote_port_count gauge",
+        "# HELP nifi_fabric_flow_status_controller_up_to_date_component_count Current up-to-date component count.",
+        "# TYPE nifi_fabric_flow_status_controller_up_to_date_component_count gauge",
+        "# HELP nifi_fabric_flow_status_controller_locally_modified_component_count Current locally modified component count.",
+        "# TYPE nifi_fabric_flow_status_controller_locally_modified_component_count gauge",
+        "# HELP nifi_fabric_flow_status_controller_stale_component_count Current stale component count.",
+        "# TYPE nifi_fabric_flow_status_controller_stale_component_count gauge",
+        "# HELP nifi_fabric_flow_status_controller_locally_modified_and_stale_component_count Current locally modified and stale component count.",
+        "# TYPE nifi_fabric_flow_status_controller_locally_modified_and_stale_component_count gauge",
+        "# HELP nifi_fabric_flow_status_controller_sync_failure_count Current sync failure count.",
+        "# TYPE nifi_fabric_flow_status_controller_sync_failure_count gauge",
+      ]
+      for key, metric_name in FLOW_STATUS_METRICS.items():
+        value = controller_status.get(key)
+        if value is None:
+          continue
+        lines.append(f"{metric_name} {value}")
+      return "\n".join(lines) + "\n"
+
+
+    def timed_scrape(source_name, scrape_fn):
+      started = time.monotonic()
+      try:
+        payload = scrape_fn()
+        duration_seconds = time.monotonic() - started
+        return payload, {"source": source_name, "up": 1, "duration_seconds": duration_seconds}, None
+      except Exception as exc:
+        duration_seconds = time.monotonic() - started
+        return None, {"source": source_name, "up": 0, "duration_seconds": duration_seconds}, exc
+
+
+    def render_self_metrics(source_states):
+      lines = [
+        "# HELP nifi_fabric_exporter_source_up Whether the exporter successfully refreshed the named source during the current scrape.",
+        "# TYPE nifi_fabric_exporter_source_up gauge",
+        "# HELP nifi_fabric_exporter_source_scrape_duration_seconds Exporter source scrape duration in seconds for the current scrape.",
+        "# TYPE nifi_fabric_exporter_source_scrape_duration_seconds gauge",
+      ]
+      for state in source_states:
+        source = state["source"]
+        lines.append('nifi_fabric_exporter_source_up{source="%s"} %s' % (source, state["up"]))
+        lines.append(
+          'nifi_fabric_exporter_source_scrape_duration_seconds{source="%s"} %.6f'
+          % (source, state["duration_seconds"])
+        )
+      return "\n".join(lines) + "\n"
 
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -84,7 +183,25 @@ data:
           return
 
         try:
-          payload = scrape_metrics()
+          primary_payload, primary_state, primary_error = timed_scrape("flow_prometheus", scrape_primary_metrics)
+          if primary_error is not None:
+            raise RuntimeError(f"flow_prometheus: {primary_error}") from primary_error
+
+          rendered_sections = [primary_payload]
+          source_states = [primary_state]
+
+          if FLOW_STATUS_ENABLED:
+            flow_status_payload, flow_status_state, flow_status_error = timed_scrape(
+              "flow_status", scrape_flow_status_metrics
+            )
+            source_states.append(flow_status_state)
+            if flow_status_error is not None:  # pragma: no cover - runtime diagnostics
+              print(f"optional exporter source flow_status failed: {flow_status_error}", flush=True)
+            else:
+              rendered_sections.append(flow_status_payload)
+
+          rendered_sections.append(render_self_metrics(source_states))
+          payload = "".join(rendered_sections).encode("utf-8")
         except Exception as exc:  # pragma: no cover - runtime diagnostics
           payload = f"metrics scrape failed: {exc}\n".encode("utf-8")
           self.send_response(502)

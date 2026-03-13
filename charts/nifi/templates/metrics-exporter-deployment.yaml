@@ -1,6 +1,8 @@
 {{- if eq (include "nifi.metricsMode" .) "exporter" }}
 {{- $exporter := .Values.observability.metrics.exporter -}}
 {{- $source := $exporter.source -}}
+{{- $supplemental := default (dict) $exporter.supplemental -}}
+{{- $flowStatus := default (dict) $supplemental.flowStatus -}}
 {{- $machineAuth := $exporter.machineAuth -}}
 apiVersion: apps/v1
 kind: Deployment
@@ -74,6 +76,10 @@ spec:
           value: {{ $source.path | quote }}
         - name: EXPORTER_SOURCE_TIMEOUT_SECONDS
           value: {{ $source.timeoutSeconds | quote }}
+        - name: EXPORTER_FLOW_STATUS_ENABLED
+          value: {{ $flowStatus.enabled | quote }}
+        - name: EXPORTER_FLOW_STATUS_PATH
+          value: {{ $flowStatus.path | quote }}
         - name: EXPORTER_AUTH_TYPE
           value: {{ $machineAuth.type | quote }}
         - name: EXPORTER_AUTH_CREDENTIALS_FILE

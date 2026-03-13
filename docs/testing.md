@@ -72,11 +72,16 @@ What it proves for `exporter`:
 - the exporter `Deployment`, metrics `Service`, and `ServiceMonitor` exist
 - the same machine-auth Secret and CA Secret contract is mounted and consumed correctly
 - Prometheus can scrape the exporter `/metrics` endpoint live end to end
+- the exporter republishes the secured `/nifi-api/flow/metrics/prometheus` endpoint
+- the exporter also appends selected controller-status gauges derived from `/nifi-api/flow/status`
+- exporter self-diagnostics report successful refresh for both upstream sources during the scrape
+- the focused proof uses a freshly minted token written into the referenced Secret; long-lived rotation remains operator-owned
 
 Current honest limit:
 
-- flow metrics are the only runtime-proven metrics family today
-- the second native scrape profile is a cadence variant of the same flow endpoint, not a second proven metrics family
+- `nativeApi` runtime proof still covers the flow Prometheus endpoint only
+- exporter runtime proof adds a second secured endpoint, `/nifi-api/flow/status`, but not a JVM or system-diagnostics family
+- the second native scrape profile is still a cadence variant of the same flow endpoint
 - `siteToSite` remains prepared-only and is intentionally excluded from the live matrix
 
 ## Current Conservative Boundaries

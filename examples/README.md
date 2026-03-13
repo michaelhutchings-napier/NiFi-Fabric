@@ -76,7 +76,8 @@ Metrics note:
 - it uses the same provider-agnostic machine-auth Secret and CA Secret contract
 - the focused live runtime proof command is `make kind-metrics-exporter-fast-e2e`
 - the broader focused matrix command is `make kind-metrics-fast-e2e`
-- the current live proof covers one secured upstream flow-metrics endpoint republished on the exporter `/metrics` endpoint
+- the current live proof covers the secured `/nifi-api/flow/metrics/prometheus` endpoint republished on exporter `/metrics`
+- it also enables selected controller-status gauges derived from `/nifi-api/flow/status`
 - [platform-managed-metrics-site-to-site-values.yaml](platform-managed-metrics-site-to-site-values.yaml) is an optional prepared-only overlay for a future site-to-site metrics path
 - it enables `nifi.observability.metrics.mode=siteToSite`
 - it documents the intended destination, source, transport, and format contract for a future `SiteToSiteMetricsReportingTask` integration

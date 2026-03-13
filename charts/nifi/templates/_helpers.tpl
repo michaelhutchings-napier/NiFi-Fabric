@@ -205,6 +205,8 @@ app.kubernetes.io/component: metrics
 {{- $exporter := default (dict) $metrics.exporter -}}
 {{- $machineAuth := default (dict) $exporter.machineAuth -}}
 {{- $source := default (dict) $exporter.source -}}
+{{- $supplemental := default (dict) $exporter.supplemental -}}
+{{- $flowStatus := default (dict) $supplemental.flowStatus -}}
 {{- $service := default (dict) $exporter.service -}}
 {{- $serviceMonitor := default (dict) $exporter.serviceMonitor -}}
 {{- if and (ne $machineAuth.type "bearerToken") (ne $machineAuth.type "authorizationHeader") -}}
@@ -234,6 +236,9 @@ app.kubernetes.io/component: metrics
 {{- end -}}
 {{- if and (not $service.enabled) (default true $serviceMonitor.enabled) -}}
 {{- fail "observability.metrics.exporter.service.enabled=false cannot be combined with an enabled exporter ServiceMonitor" -}}
+{{- end -}}
+{{- if and $flowStatus.enabled (not $flowStatus.path) -}}
+{{- fail "observability.metrics.exporter.supplemental.flowStatus.path is required when flowStatus metrics are enabled" -}}
 {{- end -}}
 {{- $sourceTLSConfig := default (dict) $source.tlsConfig -}}
 {{- $sourceTLSCA := default (dict) $sourceTLSConfig.ca -}}

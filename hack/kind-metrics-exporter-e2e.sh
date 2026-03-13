@@ -144,6 +144,8 @@ verify_exporter_resources() {
   local auth_header_type
   local source_host
   local source_path
+  local flow_status_enabled
+  local flow_status_path
   local service_monitor_path
   local service_monitor_scheme
 
@@ -157,6 +159,8 @@ verify_exporter_resources() {
   auth_header_type="$(kubectl -n "${NAMESPACE}" get deployment "${EXPORTER_DEPLOYMENT_NAME}" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="EXPORTER_AUTH_HEADER_TYPE")].value}')"
   source_host="$(kubectl -n "${NAMESPACE}" get deployment "${EXPORTER_DEPLOYMENT_NAME}" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="EXPORTER_SOURCE_HOST")].value}')"
   source_path="$(kubectl -n "${NAMESPACE}" get deployment "${EXPORTER_DEPLOYMENT_NAME}" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="EXPORTER_SOURCE_PATH")].value}')"
+  flow_status_enabled="$(kubectl -n "${NAMESPACE}" get deployment "${EXPORTER_DEPLOYMENT_NAME}" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="EXPORTER_FLOW_STATUS_ENABLED")].value}')"
+  flow_status_path="$(kubectl -n "${NAMESPACE}" get deployment "${EXPORTER_DEPLOYMENT_NAME}" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="EXPORTER_FLOW_STATUS_PATH")].value}')"
   service_monitor_path="$(kubectl -n "${NAMESPACE}" get servicemonitor "${HELM_RELEASE}-exporter" -o jsonpath='{.spec.endpoints[0].path}')"
   service_monitor_scheme="$(kubectl -n "${NAMESPACE}" get servicemonitor "${HELM_RELEASE}-exporter" -o jsonpath='{.spec.endpoints[0].scheme}')"
 
@@ -166,6 +170,8 @@ verify_exporter_resources() {
   assert_equals "${auth_header_type}" "Bearer" "exporter header type mismatch"
   assert_equals "${source_host}" "${HELM_RELEASE}.${NAMESPACE}.svc.cluster.local" "exporter source host mismatch"
   assert_equals "${source_path}" "/nifi-api/flow/metrics/prometheus" "exporter source path mismatch"
+  assert_equals "${flow_status_enabled}" "true" "exporter flow-status supplement flag mismatch"
+  assert_equals "${flow_status_path}" "/nifi-api/flow/status" "exporter flow-status path mismatch"
   assert_equals "${service_monitor_path}" "/metrics" "exporter ServiceMonitor path mismatch"
   assert_equals "${service_monitor_scheme}" "http" "exporter ServiceMonitor scheme mismatch"
 }
@@ -202,6 +208,10 @@ scrape_exporter_metrics() {
     if [[ "${http_code}" == "200" ]] && kubectl -n "${NAMESPACE}" exec "${PROBE_POD_NAME}" -- /bin/sh -ec "
       grep -q '^# HELP ' /tmp/exporter-metrics.prom
       grep -q '^# TYPE ' /tmp/exporter-metrics.prom
+      grep -q '^nifi_fabric_exporter_source_up{source=\"flow_prometheus\"} 1$' /tmp/exporter-metrics.prom
+      grep -q '^nifi_fabric_exporter_source_up{source=\"flow_status\"} 1$' /tmp/exporter-metrics.prom
+      grep -q '^nifi_fabric_flow_status_controller_active_thread_count ' /tmp/exporter-metrics.prom
+      grep -q '^nifi_fabric_flow_status_controller_bytes_queued ' /tmp/exporter-metrics.prom
     " >/dev/null; then
       return 0
     fi
@@ -329,12 +339,6 @@ FAILURE_CATEGORY="auth-material"
 FAILURE_ENDPOINT="NiFi access token bootstrap"
 phase "Minting a bearer token for the operator-provided metrics Secret"
 mint_metrics_token
-
-CURRENT_PHASE="restart-exporter"
-FAILURE_CATEGORY="auth-material"
-FAILURE_ENDPOINT="Deployment/${EXPORTER_DEPLOYMENT_NAME}"
-phase "Restarting the exporter to pick up the fresh machine-auth token"
-restart_exporter_deployment
 
 CURRENT_PHASE="verify-exporter-contract"
 FAILURE_CATEGORY="rendering"

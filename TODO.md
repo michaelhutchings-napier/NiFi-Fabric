@@ -56,10 +56,10 @@ Completed in the scaffold:
    - keep KEDA limited to optional external scale-up intent on `NiFiCluster`
    - do not broaden KEDA into controller-bypassing scale-down behavior
 18. Extend the first-class metrics subsystem beyond the initial native API slice only after the contract stays understandable:
-   - broader exporter metrics-family coverage beyond the initial experimental flow-only slice
+   - broader exporter metrics-family coverage beyond the now-proven flow Prometheus plus controller-status slice
    - site-to-site runtime wiring only after reporting-task lifecycle and destination receiver assumptions are modeled deliberately
    - optional provider-side machine-principal provisioning only if it stays clearly isolated from the provider-agnostic Secret bootstrap helper
-   - richer runtime proof for secured metrics scraping beyond render-focused validation
+   - JVM or system-diagnostics runtime proof only after a provider-agnostic authz story exists for those endpoints
 
 ## Current Managed Rollout Behavior
 
