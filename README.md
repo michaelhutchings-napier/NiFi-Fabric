@@ -69,6 +69,9 @@ What is implemented now:
 - real CPU sampling from NiFi system diagnostics as a secondary advisory signal
 - optional enforced one-step scale-up through the controller only, after the existing steady-state health gate passes
 - optional experimental one-step scale-down through the controller only, after sustained low pressure and the existing safe disconnect or offload sequence complete for the highest ordinal node
+- a first-class chart-owned metrics subsystem for secured NiFi scraping, with `observability.metrics.mode=nativeApi` fully implemented
+- dedicated metrics `Service` plus multiple named `ServiceMonitor` scrape targets for NiFi native API metrics, without requiring a human login flow
+- provider-agnostic machine-auth secret references for Prometheus scraping, with bootstrap documented but not automated
 - focused fast runtime proof on NiFi `2.8.0` for advisory status-only behavior, one-step enforced scale-up, one-step experimental enforced scale-down, cooldown enforcement, restart-safe prepare or settle recovery, repeated `2 -> 3 -> 2 -> 3` churn, and blocked autoscaling during progressing, hibernated or restoring, degraded, unresolved, and unmanaged states
 
 What is not implemented yet:
@@ -79,6 +82,8 @@ What is not implemented yet:
 - richer NiFi-native stuck-backlog analysis beyond root backlog and timer-driven thread saturation
 - runtime proof for the unavailable-target blocking path beyond unit and reconcile coverage
 - bulk scale-down, policy engines, or any second autoscaling control plane
+- exporter and site-to-site metrics modes beyond explicit future-work stubs
+- automatic machine-principal bootstrap or provider write-back for secured metrics scraping
 
 Current enforced-scope limit:
 
@@ -818,6 +823,34 @@ The MVP includes:
 - hibernation and restore to the prior running replica count
 - explicit status conditions and events
 
+## Metrics Subsystem
+
+Metrics is now a first-class chart-owned subsystem instead of an afterthought layered on top of reverse proxies and human login flows.
+
+Implemented now:
+
+- `observability.metrics.mode=disabled|nativeApi|exporter|siteToSite`
+- `nativeApi` is the only implemented mode in this slice
+- multiple named native API scrape targets rendered as multiple `ServiceMonitor` resources
+- chart-owned auth and TLS Secret references for secured Prometheus scraping
+- optional dedicated metrics `Service` for clean scrape selection
+
+Not implemented yet:
+
+- `exporter` mode
+- `siteToSite` mode
+- automatic machine-principal bootstrap or IdP write-back
+
+The machine-auth contract is provider-agnostic and Secret-based. You supply the Secret out of band, and the chart wires it into Prometheus Operator resources without assuming Keycloak, human OIDC login flows, or reverse-proxy hacks.
+
+Example platform overlay:
+
+```bash
+helm template nifi charts/nifi-platform \
+  -f examples/platform-managed-values.yaml \
+  -f examples/platform-managed-metrics-native-values.yaml
+```
+
 ## Non-Goals
 
 This project does not aim to provide:
@@ -828,7 +861,7 @@ This project does not aim to provide:
 - user and access policy management CRDs
 - NiFi Registry management CRDs
 - backup and restore orchestration
-- autoscaling logic
+- direct autoscaler ownership of the NiFi `StatefulSet`
 - multi-CRD modeling for every platform concern
 - hidden automation that changes workloads without clear status or events
 

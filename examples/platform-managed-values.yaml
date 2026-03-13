@@ -33,8 +33,9 @@ nifi:
     autoReload:
       enabled: true
 
-  serviceMonitor:
-    enabled: false
+  observability:
+    metrics:
+      mode: disabled
 
   nifi:
     jvmHeapInit: 512m

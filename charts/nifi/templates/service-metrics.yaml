@@ -1,0 +1,28 @@
+{{- if eq (include "nifi.metricsMode" .) "nativeApi" }}
+{{- $service := .Values.observability.metrics.nativeApi.service -}}
+{{- if $service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nifi.metricsServiceName" . }}
+  labels:
+    {{- include "nifi.metricsServiceLabels" . | nindent 4 }}
+    {{- with $service.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  sessionAffinity: None
+  selector:
+    {{- include "nifi.selectorLabels" . | nindent 4 }}
+  ports:
+  - name: https
+    port: {{ .Values.ports.https }}
+    protocol: TCP
+    targetPort: https
+{{- end }}
+{{- end }}

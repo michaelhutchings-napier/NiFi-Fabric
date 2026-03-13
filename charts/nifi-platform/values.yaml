@@ -66,4 +66,7 @@ keda:
   maxReplicaCount: 3
   triggers: []
 
-nifi: {}
+nifi:
+  observability:
+    metrics:
+      mode: disabled

@@ -1,0 +1,26 @@
+# Optional managed-platform overlay for secured native NiFi metrics scraping.
+# Bootstrap the machine principal Secret out of band; this slice only defines the contract.
+nifi:
+  observability:
+    metrics:
+      mode: nativeApi
+      nativeApi:
+        machineAuth:
+          type: basicAuth
+          secretRef:
+            name: nifi-metrics-auth
+        tlsConfig:
+          ca:
+            secretRef:
+              name: nifi-metrics-ca
+              key: ca.crt
+        endpoints:
+        - name: flow
+          enabled: true
+          path: /nifi-api/flow/metrics/prometheus
+          interval: 30s
+        - name: flow-fast
+          enabled: true
+          path: /nifi-api/flow/metrics/prometheus
+          interval: 15s
+          scrapeTimeout: 10s

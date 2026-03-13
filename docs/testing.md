@@ -76,6 +76,9 @@ Helm template tests should cover:
 - one-release platform-chart rendering for `standalone`, `managed`, and `managed-cert-manager`
 - managed-mode rendering with `StatefulSet.updateStrategy=OnDelete`
 - Services, PVCs, PDB, and `ServiceMonitor`
+- first-class `observability.metrics` rendering for `disabled` vs `nativeApi`
+- multiple named native API metrics endpoints rendered as multiple `ServiceMonitor` resources
+- machine-auth Secret reference validation for native API metrics scraping
 - RBAC needed for NiFi Kubernetes coordination and shared state
 - cert-manager integration assumptions and Secret references
 - scheduling fields such as affinity, tolerations, and topology spread
@@ -83,6 +86,12 @@ Helm template tests should cover:
 - optional KEDA template rendering should target `NiFiCluster`, not the NiFi `StatefulSet`
 - invalid KEDA combinations should fail clearly at Helm render time
 - KEDA template and API validation should stay backed by unit, reconcile, and render coverage even when the focused runtime gate is green
+
+Focused metrics render checks should include at least:
+
+- `helm template nifi charts/nifi`
+- `helm template nifi charts/nifi-platform -f examples/platform-managed-values.yaml -f examples/platform-managed-metrics-native-values.yaml`
+- one invalid native API auth configuration that fails clearly at render time
 
 ## kind Integration Tests
 

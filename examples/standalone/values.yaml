@@ -21,8 +21,9 @@ tls:
   mode: externalSecret
   existingSecret: nifi-tls
 
-serviceMonitor:
-  enabled: false
+observability:
+  metrics:
+    mode: disabled
 
 nifi:
   jvmHeapInit: 512m

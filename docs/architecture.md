@@ -25,6 +25,7 @@ flowchart LR
     AppChart --> PVC[PVCs]
     AppChart --> CM[ConfigMaps]
     AppChart --> SEC[Secret References]
+    AppChart --> MSVC[Metrics Service]
     AppChart --> MON[ServiceMonitor]
     AppChart --> PDB[PodDisruptionBudget]
 
@@ -74,6 +75,7 @@ Helm owns both install layers, with a deliberate split:
 - PVC templates and volume mounts
 - `ConfigMap` templates for NiFi configuration
 - templated NiFi authentication and authorization files
+- chart-owned observability resources for NiFi metrics scraping
 - prepared Flow Registry Client catalog rendering for external Git-based providers
 - references to TLS and authentication Secrets
 - `PodDisruptionBudget`
@@ -103,6 +105,36 @@ Authentication and authorization stay chart-first:
 - Helm renders the authorizer composition, application group seed, and file-managed policy seed.
 - Helm renders proxy-host and external exposure settings needed for OIDC or LDAP browser access.
 - The controller does not provision users, write back identity state, or participate in authentication flows.
+
+Observability stays chart-first as well:
+
+- Helm owns the metrics `Service`, `ServiceMonitor` resources, scrape endpoint shapes, and machine-auth Secret references.
+- The first-class chart API is `observability.metrics`.
+- `nativeApi` is the only fully implemented metrics mode in this slice.
+- `exporter` and `siteToSite` remain explicit future work and must not be treated as complete runtime paths.
+- The controller is not part of machine-auth bootstrap for NiFi metrics in this slice.
+
+### Metrics Subsystem Shape
+
+The metrics contract is intentionally boring:
+
+- `observability.metrics.mode` selects the subsystem mode
+- `observability.metrics.nativeApi.endpoints[]` defines named scrape profiles
+- `observability.metrics.nativeApi.machineAuth` defines provider-agnostic Secret references for scraper credentials
+- `observability.metrics.nativeApi.tlsConfig` defines optional TLS material for Prometheus Operator
+
+This keeps the first runtime slice chart-owned and explainable:
+
+- no reverse proxy as the primary product story
+- no dependence on human browser login flows
+- no controller-managed provider write-back
+- no new product CRD just for metrics
+
+Bootstrap expectation in this slice:
+
+- the chart does not create the NiFi machine principal or its Secret
+- operators provide that Secret out of band using whatever identity provider or credential workflow they already trust
+- Prometheus Operator then scrapes the secured NiFi API using chart-rendered `ServiceMonitor` resources
 
 Flow Registry Client preparation also stays chart-first:
 

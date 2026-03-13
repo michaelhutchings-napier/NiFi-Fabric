@@ -165,6 +165,64 @@ serviceMonitor:
   enabled: false
   interval: 30s
   scrapeTimeout: 10s
+  # Deprecated compatibility shim. Prefer observability.metrics.
+
+observability:
+  metrics:
+    mode: disabled
+    # Supported modes:
+    # - disabled
+    # - nativeApi
+    # Future-only stubs in this slice:
+    # - exporter
+    # - siteToSite
+    nativeApi:
+      service:
+        enabled: true
+        annotations: {}
+        labels: {}
+      serviceMonitor:
+        defaults:
+          interval: 30s
+          scrapeTimeout: 10s
+          scheme: https
+          honorLabels: false
+          labels: {}
+          annotations: {}
+      machineAuth:
+        type: none
+        secretRef:
+          name: ""
+        # Machine-auth bootstrap is provider-agnostic by contract only in this slice.
+        # Supply the Secret out of band; the chart does not provision the principal.
+        basicAuth:
+          usernameKey: username
+          passwordKey: password
+        bearerToken:
+          tokenKey: token
+        authorization:
+          type: Bearer
+          credentialsKey: token
+      tlsConfig:
+        serverName: ""
+        insecureSkipVerify: false
+        ca:
+          secretRef:
+            name: ""
+            key: ""
+      endpoints:
+      - name: flow
+        enabled: true
+        path: /nifi-api/flow/metrics/prometheus
+        params: {}
+        interval: ""
+        scrapeTimeout: ""
+        scheme: ""
+        honorLabels: false
+        labels: {}
+        annotations: {}
+    exporter: {}
+    siteToSite: {}
 
 pdb:
   enabled: true

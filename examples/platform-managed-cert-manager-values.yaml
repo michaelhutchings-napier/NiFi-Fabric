@@ -47,8 +47,9 @@ nifi:
         name: nifi-tls-params
         key: sensitivePropsKey
 
-  serviceMonitor:
-    enabled: false
+  observability:
+    metrics:
+      mode: disabled
 
   nifi:
     jvmHeapInit: 512m

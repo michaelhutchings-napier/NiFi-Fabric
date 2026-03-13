@@ -60,6 +60,13 @@ There is also one optional focused fast overlay:
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml) or [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml).
   - The primary focused runtime commands are `make kind-platform-managed-fast-e2e` and `make kind-platform-managed-cert-manager-fast-e2e`.
 
+Metrics note:
+
+- [platform-managed-metrics-native-values.yaml](platform-managed-metrics-native-values.yaml) is an optional overlay for the first-class native API metrics subsystem
+- it enables `nifi.observability.metrics.mode=nativeApi`
+- it renders a dedicated metrics `Service` plus multiple named `ServiceMonitor` resources
+- it expects machine-auth and CA Secrets to exist already; this slice defines the contract but does not provision those Secrets
+
 KEDA note:
 
 - [platform-managed-keda-values.yaml](platform-managed-keda-values.yaml) is an optional experimental overlay for KEDA-triggered external scale-up intent in managed mode

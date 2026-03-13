@@ -1,4 +1,5 @@
-{{- if .Values.serviceMonitor.enabled }}
+{{- $mode := include "nifi.metricsMode" . -}}
+{{- if eq $mode "nativeApiLegacy" }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -13,5 +14,92 @@ spec:
   - port: https
     interval: {{ .Values.serviceMonitor.interval }}
     scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
+    scheme: https
+---
+{{- else if eq $mode "nativeApi" }}
+{{- $native := .Values.observability.metrics.nativeApi -}}
+{{- $defaults := $native.serviceMonitor.defaults -}}
+{{- $machineAuth := $native.machineAuth -}}
+{{- $tlsConfig := $native.tlsConfig -}}
+{{- range $endpoint := $native.endpoints }}
+{{- if $endpoint.enabled }}
+{{- $defaultAnnotations := default (dict) $defaults.annotations }}
+{{- $endpointAnnotations := default (dict) $endpoint.annotations }}
+{{- $annotations := merge (dict) $defaultAnnotations $endpointAnnotations }}
+{{- $honorLabels := false }}
+{{- if hasKey $defaults "honorLabels" }}
+{{- $honorLabels = $defaults.honorLabels }}
 {{- end }}
-
+{{- if hasKey $endpoint "honorLabels" }}
+{{- $honorLabels = $endpoint.honorLabels }}
+{{- end }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ printf "%s-%s" (include "nifi.fullname" $) (include "nifi.metricsEndpointName" $endpoint.name) | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "nifi.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: metrics
+    {{- with $defaults.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with $endpoint.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- if $annotations }}
+  annotations:
+    {{- toYaml $annotations | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "nifi.metricsServiceSelectorLabels" $ | nindent 6 }}
+  endpoints:
+  - port: https
+    path: {{ $endpoint.path }}
+    interval: {{ default $defaults.interval $endpoint.interval }}
+    scrapeTimeout: {{ default $defaults.scrapeTimeout $endpoint.scrapeTimeout }}
+    scheme: {{ default $defaults.scheme $endpoint.scheme }}
+    honorLabels: {{ $honorLabels }}
+    {{- with $endpoint.params }}
+    params:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- if eq $machineAuth.type "basicAuth" }}
+    basicAuth:
+      username:
+        name: {{ $machineAuth.secretRef.name }}
+        key: {{ $machineAuth.basicAuth.usernameKey }}
+      password:
+        name: {{ $machineAuth.secretRef.name }}
+        key: {{ $machineAuth.basicAuth.passwordKey }}
+    {{- end }}
+    {{- if eq $machineAuth.type "bearerToken" }}
+    bearerTokenSecret:
+      name: {{ $machineAuth.secretRef.name }}
+      key: {{ $machineAuth.bearerToken.tokenKey }}
+    {{- end }}
+    {{- if eq $machineAuth.type "authorizationHeader" }}
+    authorization:
+      type: {{ $machineAuth.authorization.type }}
+      credentials:
+        name: {{ $machineAuth.secretRef.name }}
+        key: {{ $machineAuth.authorization.credentialsKey }}
+    {{- end }}
+    {{- if or $tlsConfig.serverName $tlsConfig.insecureSkipVerify $tlsConfig.ca.secretRef.name }}
+    tlsConfig:
+      insecureSkipVerify: {{ $tlsConfig.insecureSkipVerify }}
+      {{- with $tlsConfig.serverName }}
+      serverName: {{ . }}
+      {{- end }}
+      {{- with $tlsConfig.ca.secretRef.name }}
+      ca:
+        secret:
+          name: {{ . }}
+          key: {{ $tlsConfig.ca.secretRef.key }}
+      {{- end }}
+    {{- end }}
+---
+{{- end }}
+{{- end }}
+{{- end }}

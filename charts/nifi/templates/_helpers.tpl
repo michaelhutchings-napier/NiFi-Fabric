@@ -108,3 +108,117 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "%s.%s.svc.cluster.local" (include "nifi.fullname" .) .Release.Namespace -}}
 {{- end -}}
 {{- end -}}
+
+{{- define "nifi.metricsMode" -}}
+{{- $observability := default (dict) .Values.observability -}}
+{{- $metrics := default (dict) $observability.metrics -}}
+{{- $mode := default "disabled" $metrics.mode -}}
+{{- if and (eq $mode "disabled") .Values.serviceMonitor.enabled -}}
+nativeApiLegacy
+{{- else -}}
+{{- $mode -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "nifi.metricsServiceName" -}}
+{{- printf "%s-metrics" (include "nifi.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "nifi.metricsServiceLabels" -}}
+{{- include "nifi.labels" . }}
+app.kubernetes.io/component: metrics
+{{- end -}}
+
+{{- define "nifi.metricsServiceSelectorLabels" -}}
+{{- $observability := default (dict) .Values.observability -}}
+{{- $metrics := default (dict) $observability.metrics -}}
+{{- $native := default (dict) $metrics.nativeApi -}}
+{{- $service := default (dict) $native.service -}}
+{{- if $service.enabled -}}
+{{- include "nifi.selectorLabels" . }}
+app.kubernetes.io/component: metrics
+{{- else -}}
+{{- include "nifi.selectorLabels" . }}
+{{- end -}}
+{{- end -}}
+
+{{- define "nifi.metricsEndpointName" -}}
+{{- $raw := . -}}
+{{- $clean := regexReplaceAll "[^a-z0-9-]+" (lower $raw) "-" -}}
+{{- $clean = regexReplaceAll "-+" $clean "-" -}}
+{{- trimAll "-" $clean -}}
+{{- end -}}
+
+{{- define "nifi.validate" -}}
+{{- $mode := include "nifi.metricsMode" . -}}
+{{- $observability := default (dict) .Values.observability -}}
+{{- $metrics := default (dict) $observability.metrics -}}
+{{- $configuredMode := default "disabled" $metrics.mode -}}
+{{- if and (ne $mode "disabled") (ne $mode "nativeApi") (ne $mode "nativeApiLegacy") (ne $mode "exporter") (ne $mode "siteToSite") -}}
+{{- fail "observability.metrics.mode must be one of: disabled, nativeApi, exporter, siteToSite" -}}
+{{- end -}}
+{{- if and .Values.serviceMonitor.enabled (ne $configuredMode "disabled") -}}
+{{- fail "serviceMonitor.enabled is deprecated and cannot be combined with observability.metrics.mode; use observability.metrics only" -}}
+{{- end -}}
+{{- if eq $mode "exporter" -}}
+{{- fail "observability.metrics.mode=exporter is not implemented in this slice; use disabled or nativeApi" -}}
+{{- end -}}
+{{- if eq $mode "siteToSite" -}}
+{{- fail "observability.metrics.mode=siteToSite is not implemented in this slice; use disabled or nativeApi" -}}
+{{- end -}}
+{{- if eq $mode "nativeApi" -}}
+{{- $native := default (dict) $metrics.nativeApi -}}
+{{- if not $native.endpoints -}}
+{{- fail "observability.metrics.nativeApi.endpoints must contain at least one endpoint when observability.metrics.mode=nativeApi" -}}
+{{- end -}}
+{{- $enabledCount := 0 -}}
+{{- range $endpoint := $native.endpoints -}}
+{{- if $endpoint.enabled -}}
+{{- $enabledCount = add $enabledCount 1 -}}
+{{- if not $endpoint.name -}}
+{{- fail "observability.metrics.nativeApi.endpoints[].name is required for enabled endpoints" -}}
+{{- end -}}
+{{- if not $endpoint.path -}}
+{{- fail (printf "observability.metrics.nativeApi.endpoints[%s].path is required" $endpoint.name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if lt $enabledCount 1 -}}
+{{- fail "observability.metrics.nativeApi requires at least one enabled endpoint" -}}
+{{- end -}}
+{{- $machineAuth := default (dict) $native.machineAuth -}}
+{{- if and (ne $machineAuth.type "") (ne $machineAuth.type "none") (ne $machineAuth.type "basicAuth") (ne $machineAuth.type "bearerToken") (ne $machineAuth.type "authorizationHeader") -}}
+{{- fail "observability.metrics.nativeApi.machineAuth.type must be one of: none, basicAuth, bearerToken, authorizationHeader" -}}
+{{- end -}}
+{{- if and (ne $machineAuth.type "") (ne $machineAuth.type "none") (not $machineAuth.secretRef.name) -}}
+{{- fail "observability.metrics.nativeApi.machineAuth.secretRef.name is required when machine auth is enabled" -}}
+{{- end -}}
+{{- if eq $machineAuth.type "basicAuth" -}}
+{{- if not $machineAuth.basicAuth.usernameKey -}}
+{{- fail "observability.metrics.nativeApi.machineAuth.basicAuth.usernameKey is required for basicAuth" -}}
+{{- end -}}
+{{- if not $machineAuth.basicAuth.passwordKey -}}
+{{- fail "observability.metrics.nativeApi.machineAuth.basicAuth.passwordKey is required for basicAuth" -}}
+{{- end -}}
+{{- end -}}
+{{- if eq $machineAuth.type "bearerToken" -}}
+{{- if not $machineAuth.bearerToken.tokenKey -}}
+{{- fail "observability.metrics.nativeApi.machineAuth.bearerToken.tokenKey is required for bearerToken" -}}
+{{- end -}}
+{{- end -}}
+{{- if eq $machineAuth.type "authorizationHeader" -}}
+{{- if not $machineAuth.authorization.type -}}
+{{- fail "observability.metrics.nativeApi.machineAuth.authorization.type is required for authorizationHeader" -}}
+{{- end -}}
+{{- if not $machineAuth.authorization.credentialsKey -}}
+{{- fail "observability.metrics.nativeApi.machineAuth.authorization.credentialsKey is required for authorizationHeader" -}}
+{{- end -}}
+{{- end -}}
+{{- $tlsConfig := default (dict) $native.tlsConfig -}}
+{{- $tlsCA := default (dict) $tlsConfig.ca -}}
+{{- $tlsCASecretRef := default (dict) $tlsCA.secretRef -}}
+{{- if and $tlsCASecretRef.name (not $tlsCASecretRef.key) -}}
+{{- fail "observability.metrics.nativeApi.tlsConfig.ca.secretRef.key is required when a CA Secret reference is configured" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
