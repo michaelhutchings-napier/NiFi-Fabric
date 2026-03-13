@@ -210,7 +210,7 @@ func (r *NiFiClusterReconciler) reconcileAutoscalingScaleDown(ctx context.Contex
 	if r.Recorder != nil {
 		r.Recorder.Event(cluster, corev1.EventTypeNormal, "AutoscalingScaleDownCompleted", fmt.Sprintf("Managed autoscaling settled safely at %d replicas", currentReplicas))
 	}
-	return ctrl.Result{}, nil
+	return steadyStateReconcileResult(cluster), nil
 }
 
 func (r *NiFiClusterReconciler) executeAutoscalingScaleDownStep(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, pod corev1.Pod, currentReplicas int32) (bool, ctrl.Result, error) {

@@ -80,6 +80,41 @@ capture_cmd() {
   } >"${ARTIFACT_DIR}/${name}.log" 2>&1 || true
 }
 
+controller_metrics_snapshot() {
+  local log_file="${1:-/tmp/nifi-alpha-metrics.log}"
+  local pf_pid=""
+  local metrics=""
+
+  cleanup() {
+    if [[ -n "${pf_pid}" ]]; then
+      kill "${pf_pid}" >/dev/null 2>&1 || true
+      wait "${pf_pid}" >/dev/null 2>&1 || true
+    fi
+  }
+
+  kubectl -n "${SYSTEM_NAMESPACE}" port-forward --address 127.0.0.1 deployment/nifi-fabric-controller-manager 18080:8080 >"${log_file}" 2>&1 &
+  pf_pid=$!
+
+  if ! wait_for "controller metrics port-forward" 30 bash -ec '
+    curl --silent --show-error --fail --max-time 2 http://127.0.0.1:18080/metrics >/dev/null
+  '; then
+    cleanup
+    echo "controller metrics port-forward did not become ready" >&2
+    [[ -f "${log_file}" ]] && cat "${log_file}" >&2
+    return 1
+  fi
+
+  if ! metrics="$(curl --silent --show-error --fail --max-time 10 http://127.0.0.1:18080/metrics)"; then
+    cleanup
+    echo "controller metrics endpoint did not return a response" >&2
+    [[ -f "${log_file}" ]] && cat "${log_file}" >&2
+    return 1
+  fi
+
+  cleanup
+  printf '%s' "${metrics}"
+}
+
 dump_diagnostics() {
   set +e
   echo
@@ -112,7 +147,12 @@ dump_diagnostics() {
   capture_cmd nifi-events bash -lc "kubectl -n '${NAMESPACE}' get events --sort-by=.lastTimestamp | tail -n 200"
   capture_cmd system-events bash -lc "kubectl -n '${SYSTEM_NAMESPACE}' get events --sort-by=.lastTimestamp | tail -n 200"
   capture_cmd controller-logs kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi-fabric-controller-manager --tail=500
-  capture_cmd controller-metrics bash -lc "kubectl -n '${SYSTEM_NAMESPACE}' port-forward deployment/nifi-fabric-controller-manager 18080:8080 >/tmp/nifi-alpha-metrics.log 2>&1 & pf=\$!; sleep 5; curl --silent --show-error --fail http://127.0.0.1:18080/metrics || true; kill \$pf >/dev/null 2>&1 || true; wait \$pf >/dev/null 2>&1 || true"
+  if [[ -n "${ARTIFACT_DIR}" ]]; then
+    {
+      echo "### controller-metrics"
+      controller_metrics_snapshot "${ARTIFACT_DIR}/controller-metrics-port-forward.log"
+    } >"${ARTIFACT_DIR}/controller-metrics.log" 2>&1 || true
+  fi
 }
 
 dump_tls_restart_diagnostics() {
@@ -146,12 +186,18 @@ wait_for() {
   shift 2
 
   local deadline=$(( $(date +%s) + timeout ))
+  local attempts=0
   while true; do
+    attempts=$((attempts + 1))
     if "$@"; then
       return 0
     fi
     if (( $(date +%s) >= deadline )); then
+      echo "timed out waiting for ${description} after ${timeout}s" >&2
       return 1
+    fi
+    if (( attempts == 1 || attempts % 12 == 0 )); then
+      echo "waiting for ${description} (+$(( timeout - (deadline - $(date +%s)) ))s elapsed)" >&2
     fi
     sleep 5
   done
@@ -165,6 +211,27 @@ cluster_jsonpath() {
 sts_jsonpath() {
   local path="$1"
   kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" -o "jsonpath=${path}"
+}
+
+cluster_condition_status() {
+  local condition_type="$1"
+  kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o "jsonpath={.status.conditions[?(@.type==\"${condition_type}\")].status}"
+}
+
+cluster_last_operation_phase() {
+  cluster_jsonpath '{.status.lastOperation.phase}'
+}
+
+print_hibernate_restore_state() {
+  echo "hibernation state snapshot:" >&2
+  echo "  desiredState=$(cluster_jsonpath '{.spec.desiredState}')" >&2
+  echo "  statefulset.spec.replicas=$(sts_jsonpath '{.spec.replicas}')" >&2
+  echo "  statefulset.status.readyReplicas=$(sts_jsonpath '{.status.readyReplicas}')" >&2
+  echo "  Available=$(cluster_condition_status 'Available')" >&2
+  echo "  Progressing=$(cluster_condition_status 'Progressing')" >&2
+  echo "  Hibernated=$(cluster_condition_status 'Hibernated')" >&2
+  echo "  lastOperation.phase=$(cluster_last_operation_phase)" >&2
+  echo "  lastOperation.message=$(cluster_jsonpath '{.status.lastOperation.message}')" >&2
 }
 
 pod_uid_snapshot() {
@@ -257,32 +324,28 @@ wait_for_hibernated() {
   '
 }
 
-wait_for_restore_target() {
+wait_for_restore_complete() {
   local expected="$1"
-  wait_for "restore to target replicas" 1200 bash -ec '
+  wait_for "restore to settle at ${expected} replicas" 1200 bash -ec '
     replicas="$(kubectl -n "'"${NAMESPACE}"'" get statefulset "'"${HELM_RELEASE}"'" -o jsonpath="{.spec.replicas}")"
-    [[ "${replicas}" == "'"${expected}"'" ]]
+    available="$(kubectl -n "'"${NAMESPACE}"'" get nificluster "'"${HELM_RELEASE}"'" -o jsonpath="{.status.conditions[?(@.type==\"Available\")].status}")"
+    progressing="$(kubectl -n "'"${NAMESPACE}"'" get nificluster "'"${HELM_RELEASE}"'" -o jsonpath="{.status.conditions[?(@.type==\"Progressing\")].status}")"
+    hibernated="$(kubectl -n "'"${NAMESPACE}"'" get nificluster "'"${HELM_RELEASE}"'" -o jsonpath="{.status.conditions[?(@.type==\"Hibernated\")].status}")"
+    phase="$(kubectl -n "'"${NAMESPACE}"'" get nificluster "'"${HELM_RELEASE}"'" -o jsonpath="{.status.lastOperation.phase}")"
+    [[ "${replicas}" == "'"${expected}"'" && "${available}" == "True" && "${progressing}" == "False" && "${hibernated}" == "False" && "${phase}" == "Succeeded" ]]
   '
 }
 
 verify_metrics() {
-  local pf_pid=""
-  kubectl -n "${SYSTEM_NAMESPACE}" port-forward deployment/nifi-fabric-controller-manager 18080:8080 >/tmp/nifi-alpha-metrics.log 2>&1 &
-  pf_pid=$!
-  sleep 5
   local metrics
-  metrics="$(curl --silent --show-error --fail http://127.0.0.1:18080/metrics)"
+  metrics="$(controller_metrics_snapshot)"
   if ! grep -q 'nifi_platform_lifecycle_transitions_total' <<<"${metrics}" || \
      ! grep -q 'nifi_platform_rollouts_total' <<<"${metrics}" || \
      ! grep -q 'nifi_platform_tls_actions_total' <<<"${metrics}" || \
      ! grep -q 'nifi_platform_hibernation_operations_total' <<<"${metrics}" || \
      ! grep -q 'nifi_platform_node_preparation_outcomes_total' <<<"${metrics}"; then
-    kill "${pf_pid}" >/dev/null 2>&1 || true
-    wait "${pf_pid}" >/dev/null 2>&1 || true
     fail "controller metrics endpoint did not expose the expected lifecycle metric set"
   fi
-  kill "${pf_pid}" >/dev/null 2>&1 || true
-  wait "${pf_pid}" >/dev/null 2>&1 || true
 }
 
 verify_events() {
@@ -383,7 +446,10 @@ run_phase_hibernate() {
   if [[ -z "${restore_target}" || "${restore_target}" == "0" ]]; then
     restore_target="1"
   fi
-  wait_for_restore_target "${restore_target}" || fail "restore target replicas were not applied"
+  if ! wait_for_restore_complete "${restore_target}"; then
+    print_hibernate_restore_state
+    fail "restore did not settle cleanly at ${restore_target} replicas"
+  fi
   run_make kind-health
 }
 

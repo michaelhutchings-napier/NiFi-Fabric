@@ -1582,9 +1582,10 @@ func TestReconcileRecordsBaselineReplicasWhileRunning(t *testing.T) {
 		readyPod("nifi-2", "nifi", "nifi-rev"),
 	}
 
-	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+	healthChecker := &fakeHealthChecker{
 		healthResponses: []healthResponse{{result: healthyResult(3)}},
-	}, cluster, statefulSet, &pods[0], &pods[1], &pods[2])
+	}
+	reconciler, k8sClient := newTestReconciler(t, healthChecker, cluster, statefulSet, &pods[0], &pods[1], &pods[2])
 
 	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
 	if err != nil {
@@ -1601,6 +1602,9 @@ func TestReconcileRecordsBaselineReplicasWhileRunning(t *testing.T) {
 	if updatedCluster.Status.Hibernation.BaselineReplicas != replicas {
 		t.Fatalf("expected baselineReplicas=%d, got %d", replicas, updatedCluster.Status.Hibernation.BaselineReplicas)
 	}
+	if healthChecker.healthCalls != 1 || healthChecker.checkCalls != 0 {
+		t.Fatalf("expected disabled steady state to use WaitForClusterHealthy only, got wait=%d check=%d", healthChecker.healthCalls, healthChecker.checkCalls)
+	}
 }
 
 func TestReconcileDoesNotShrinkBaselineReplicasDuringPartialRestore(t *testing.T) {
@@ -1615,9 +1619,10 @@ func TestReconcileDoesNotShrinkBaselineReplicasDuringPartialRestore(t *testing.T
 		readyPod("nifi-1", "nifi", "nifi-rev"),
 	}
 
-	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+	healthChecker := &fakeHealthChecker{
 		healthResponses: []healthResponse{{result: healthyResult(2)}},
-	}, cluster, statefulSet, &pods[0], &pods[1])
+	}
+	reconciler, k8sClient := newTestReconciler(t, healthChecker, cluster, statefulSet, &pods[0], &pods[1])
 
 	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
 	if err != nil {
@@ -1633,6 +1638,189 @@ func TestReconcileDoesNotShrinkBaselineReplicasDuringPartialRestore(t *testing.T
 	}
 	if updatedCluster.Status.Hibernation.BaselineReplicas != 3 {
 		t.Fatalf("expected baselineReplicas to remain 3, got %d", updatedCluster.Status.Hibernation.BaselineReplicas)
+	}
+	if healthChecker.healthCalls != 1 || healthChecker.checkCalls != 0 {
+		t.Fatalf("expected disabled steady state to use WaitForClusterHealthy only, got wait=%d check=%d", healthChecker.healthCalls, healthChecker.checkCalls)
+	}
+}
+
+func TestReconcileKeepsPollingSteadyStateWhenAutoscalingEnabled(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode:        platformv1alpha1.AutoscalingModeAdvisory,
+		MinReplicas: 3,
+		MaxReplicas: 3,
+		Signals: []platformv1alpha1.AutoscalingSignal{
+			platformv1alpha1.AutoscalingSignalQueuePressure,
+		},
+	}
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+		readyPod("nifi-2", "nifi", "nifi-rev"),
+	}
+
+	healthChecker := &fakeHealthChecker{
+		checkResponses: []healthResponse{{result: healthyResultWithPods("nifi", 3)}},
+	}
+	reconciler, _ := newTestReconciler(t, healthChecker, cluster, statefulSet, &pods[0], &pods[1], &pods[2])
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected steady state autoscaling poll requeue, got %s", result.RequeueAfter)
+	}
+	if healthChecker.checkCalls != 1 || healthChecker.healthCalls != 0 {
+		t.Fatalf("expected autoscaling steady state to use one-shot health sampling only, got wait=%d check=%d", healthChecker.healthCalls, healthChecker.checkCalls)
+	}
+}
+
+func TestReconcileSettledAutoscalingScaleDownStillAppliesLaterScaleUpIntent(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode:        platformv1alpha1.AutoscalingModeEnforced,
+		MinReplicas: 3,
+		MaxReplicas: 3,
+		ScaleUp: platformv1alpha1.AutoscalingScaleUpPolicy{
+			Enabled: true,
+		},
+		ScaleDown: platformv1alpha1.AutoscalingScaleDownPolicy{
+			Enabled: false,
+		},
+		Signals: []platformv1alpha1.AutoscalingSignal{
+			platformv1alpha1.AutoscalingSignalQueuePressure,
+		},
+	}
+	cluster.Status.LastOperation = succeededOperation("AutoscalingScaleDown", "Managed autoscaling safely settled at 2 replicas")
+	cluster.Status.Autoscaling.LastScaleDownTime = &metav1.Time{Time: time.Date(2026, 3, 13, 10, 0, 0, 0, time.UTC)}
+
+	replicas := int32(2)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+	}
+
+	healthChecker := &fakeHealthChecker{
+		checkResponses: []healthResponse{{
+			result: ClusterHealthResult{
+				ExpectedReplicas: 2,
+				ReadyPods:        2,
+				ReachablePods:    2,
+				ConvergedPods:    0,
+				Pods: []PodHealth{
+					{PodName: "nifi-0", Ready: true, APIReachable: true, Clustered: true, ConnectedToCluster: true, ConnectedNodeCount: 2, TotalNodeCount: 3},
+					{PodName: "nifi-1", Ready: true, APIReachable: true, Clustered: true, ConnectedToCluster: true, ConnectedNodeCount: 2, TotalNodeCount: 3},
+				},
+			},
+			err: errors.New("strict health gate still sees a disconnected former node"),
+		}},
+	}
+	reconciler, k8sClient := newTestReconciler(t, healthChecker, cluster, statefulSet, &pods[0], &pods[1])
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected scale-up after settled scale-down to requeue, got %s", result.RequeueAfter)
+	}
+
+	updatedStatefulSet := &appsv1.StatefulSet{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), updatedStatefulSet); err != nil {
+		t.Fatalf("get updated StatefulSet: %v", err)
+	}
+	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != 3 {
+		t.Fatalf("expected StatefulSet to scale back to 3 replicas, got %d", got)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.Autoscaling.Execution.Phase != platformv1alpha1.AutoscalingExecutionPhaseScaleUpSettle {
+		t.Fatalf("expected autoscaling execution phase %q, got %q", platformv1alpha1.AutoscalingExecutionPhaseScaleUpSettle, updatedCluster.Status.Autoscaling.Execution.Phase)
+	}
+	if updatedCluster.Status.Autoscaling.Execution.State != platformv1alpha1.AutoscalingExecutionStateRunning {
+		t.Fatalf("expected autoscaling execution state %q, got %q", platformv1alpha1.AutoscalingExecutionStateRunning, updatedCluster.Status.Autoscaling.Execution.State)
+	}
+	if !strings.HasPrefix(updatedCluster.Status.Autoscaling.LastScalingDecision, "ScaleUp: increased target StatefulSet replicas from 2 to 3") {
+		t.Fatalf("expected scale-up decision to be recorded, got %q", updatedCluster.Status.Autoscaling.LastScalingDecision)
+	}
+	if healthChecker.checkCalls == 0 || healthChecker.healthCalls != 0 {
+		t.Fatalf("expected settled autoscaling handoff to use one-shot health sampling only, got wait=%d check=%d", healthChecker.healthCalls, healthChecker.checkCalls)
+	}
+}
+
+func TestReconcileAutoscalingSteadyStateKeepsAvailableWhenFormerNodesRemain(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode:        platformv1alpha1.AutoscalingModeAdvisory,
+		MinReplicas: 2,
+		MaxReplicas: 2,
+		Signals: []platformv1alpha1.AutoscalingSignal{
+			platformv1alpha1.AutoscalingSignalQueuePressure,
+		},
+	}
+	cluster.Status.Replicas.Desired = 2
+
+	replicas := int32(2)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+	}
+
+	healthChecker := &fakeHealthChecker{
+		checkResponses: []healthResponse{{
+			result: ClusterHealthResult{
+				ExpectedReplicas: 2,
+				ReadyPods:        2,
+				ReachablePods:    2,
+				ConvergedPods:    0,
+				Pods: []PodHealth{
+					{PodName: "nifi-0", Ready: true, APIReachable: true, Clustered: true, ConnectedToCluster: true, ConnectedNodeCount: 2, TotalNodeCount: 3},
+					{PodName: "nifi-1", Ready: true, APIReachable: true, Clustered: true, ConnectedToCluster: true, ConnectedNodeCount: 2, TotalNodeCount: 3},
+				},
+			},
+			err: errors.New("strict health gate still sees disconnected former nodes"),
+		}},
+	}
+	reconciler, k8sClient := newTestReconciler(t, healthChecker, cluster, statefulSet, &pods[0], &pods[1])
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected steady state autoscaling poll requeue, got %s", result.RequeueAfter)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	available := updatedCluster.GetCondition(platformv1alpha1.ConditionAvailable)
+	if available == nil || available.Status != metav1.ConditionTrue {
+		t.Fatalf("expected cluster to remain available while former nodes drain out, got %#v", available)
+	}
+	progressing := updatedCluster.GetCondition(platformv1alpha1.ConditionProgressing)
+	if progressing == nil || progressing.Status != metav1.ConditionFalse {
+		t.Fatalf("expected cluster to remain non-progressing while former nodes drain out, got %#v", progressing)
+	}
+	if updatedCluster.Status.Autoscaling.Reason == autoscalingReasonProgressing {
+		t.Fatalf("expected autoscaling to stay out of progressing status when only former nodes remain, got %#v", updatedCluster.Status.Autoscaling)
+	}
+	if healthChecker.checkCalls != 1 || healthChecker.healthCalls != 0 {
+		t.Fatalf("expected autoscaling steady state to use one-shot health sampling only, got wait=%d check=%d", healthChecker.healthCalls, healthChecker.checkCalls)
 	}
 }
 
@@ -2670,6 +2858,30 @@ func TestLiveTargetStateUsesBoundedReadContext(t *testing.T) {
 	}
 	if observedTimeout <= 0 || observedTimeout > controllerTargetStateReadTimeout+time.Second {
 		t.Fatalf("expected bounded live target state timeout near %s, got %s", controllerTargetStateReadTimeout, observedTimeout)
+	}
+}
+
+func TestLiveClusterUsesBoundedReadContext(t *testing.T) {
+	var observedTimeout time.Duration
+	reconciler := &NiFiClusterReconciler{
+		APIReader: &fakeReader{
+			getFn: func(ctx context.Context, _ client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
+				deadline, ok := ctx.Deadline()
+				if !ok {
+					t.Fatalf("expected live cluster reads to be bounded")
+				}
+				observedTimeout = time.Until(deadline)
+				return context.DeadlineExceeded
+			},
+		},
+	}
+
+	_, err := reconciler.liveCluster(context.Background(), client.ObjectKey{Namespace: "nifi", Name: "nifi"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected bounded live cluster read to return deadline exceeded, got %v", err)
+	}
+	if observedTimeout <= 0 || observedTimeout > controllerClusterStateReadTimeout+time.Second {
+		t.Fatalf("expected bounded live cluster timeout near %s, got %s", controllerClusterStateReadTimeout, observedTimeout)
 	}
 }
 

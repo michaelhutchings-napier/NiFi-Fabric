@@ -26,6 +26,7 @@ import (
 )
 
 const rolloutPollRequeue = 5 * time.Second
+const controllerClusterStateReadTimeout = 30 * time.Second
 const controllerTargetStateReadTimeout = 30 * time.Second
 
 // NiFiClusterReconciler keeps the operational API thin.
@@ -44,8 +45,8 @@ type NiFiClusterReconciler struct {
 func (r *NiFiClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	cluster := &platformv1alpha1.NiFiCluster{}
-	if err := r.Get(ctx, req.NamespacedName, cluster); err != nil {
+	cluster, err := r.liveCluster(ctx, req.NamespacedName)
+	if err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -314,7 +315,7 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 }
 
 func (r *NiFiClusterReconciler) finishSteadyState(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, pods []corev1.Pod, drift WatchedResourceDrift) (ctrl.Result, error) {
-	healthResult, err := r.HealthChecker.WaitForClusterHealthy(ctx, cluster, target, clusterHealthTimeout(cluster))
+	healthResult, err := r.steadyStateClusterHealth(ctx, cluster, target)
 	r.applyClusterHealth(cluster, healthResult)
 	if err != nil {
 		cluster.SetCondition(metav1.Condition{
@@ -380,7 +381,29 @@ func (r *NiFiClusterReconciler) finishSteadyState(ctx context.Context, cluster *
 	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
 	clearTLSObservation(cluster)
 
-	return ctrl.Result{}, nil
+	return steadyStateReconcileResult(cluster), nil
+}
+
+func (r *NiFiClusterReconciler) steadyStateClusterHealth(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet) (ClusterHealthResult, error) {
+	if autoscalingMode(cluster.Spec.Autoscaling) == platformv1alpha1.AutoscalingModeDisabled {
+		return r.HealthChecker.WaitForClusterHealthy(ctx, cluster, target, clusterHealthTimeout(cluster))
+	}
+	result, err := r.HealthChecker.CheckClusterHealth(ctx, cluster, target)
+	result = normalizeHibernationClusterHealth(result)
+	if hibernationClusterHealthy(result) {
+		return result, nil
+	}
+	if err == nil && result.ExpectedReplicas > 0 {
+		err = fmt.Errorf("cluster health gate not yet satisfied: %s", result.Summary())
+	}
+	return result, err
+}
+
+func steadyStateReconcileResult(cluster *platformv1alpha1.NiFiCluster) ctrl.Result {
+	if autoscalingMode(cluster.Spec.Autoscaling) == platformv1alpha1.AutoscalingModeDisabled {
+		return ctrl.Result{}
+	}
+	return ctrl.Result{RequeueAfter: rolloutPollRequeue}
 }
 
 func (r *NiFiClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -1153,6 +1176,22 @@ func (r *NiFiClusterReconciler) listTargetPods(ctx context.Context, target *apps
 	return listTargetPodsWithReader(ctx, r.Client, target)
 }
 
+func (r *NiFiClusterReconciler) liveCluster(ctx context.Context, key client.ObjectKey) (*platformv1alpha1.NiFiCluster, error) {
+	reader := r.APIReader
+	if reader == nil {
+		reader = r.Client
+	}
+
+	readCtx, cancel := context.WithTimeout(ctx, controllerClusterStateReadTimeout)
+	defer cancel()
+
+	cluster := &platformv1alpha1.NiFiCluster{}
+	if err := reader.Get(readCtx, key, cluster); err != nil {
+		return nil, err
+	}
+	return cluster, nil
+}
+
 func (r *NiFiClusterReconciler) liveTargetState(ctx context.Context, targetKey client.ObjectKey) (*appsv1.StatefulSet, []corev1.Pod, error) {
 	reader := r.APIReader
 	if reader == nil {
@@ -1204,11 +1243,15 @@ func (r *NiFiClusterReconciler) patchStatus(ctx context.Context, original, updat
 	}
 	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		latest := &platformv1alpha1.NiFiCluster{}
-		if err := statusReader.Get(ctx, key, latest); err != nil {
+		readCtx, cancel := context.WithTimeout(ctx, controllerClusterStateReadTimeout)
+		defer cancel()
+		if err := statusReader.Get(readCtx, key, latest); err != nil {
 			return err
 		}
+		updateCtx, updateCancel := context.WithTimeout(ctx, controllerClusterStateReadTimeout)
+		defer updateCancel()
 		latest.Status = *statusToPersist
-		return r.Status().Update(ctx, latest)
+		return r.Status().Update(updateCtx, latest)
 	}); err != nil {
 		return ctrl.Result{}, fmt.Errorf("update NiFiCluster status: %w", err)
 	}

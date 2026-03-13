@@ -74,8 +74,8 @@ func (r *NiFiClusterReconciler) latestAutoscalingStatus(ctx context.Context, clu
 		return status
 	}
 
-	latest := &platformv1alpha1.NiFiCluster{}
-	if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(cluster), latest); err != nil {
+	latest, err := r.liveCluster(ctx, client.ObjectKeyFromObject(cluster))
+	if err != nil {
 		return status
 	}
 	return mergedAutoscalingStatus(status, latest.Status.Autoscaling)
@@ -172,8 +172,8 @@ func autoscalingNoScaleDecision(cluster *platformv1alpha1.NiFiCluster, status pl
 }
 
 func (r *NiFiClusterReconciler) buildAutoscalingStatus(ctx context.Context, cluster *platformv1alpha1.NiFiCluster) (platformv1alpha1.AutoscalingStatus, autoscalingSignalCollection) {
-	target := &appsv1.StatefulSet{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: cluster.Spec.TargetRef.Name}, target); err != nil {
+	target, _, err := r.liveTargetState(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: cluster.Spec.TargetRef.Name})
+	if err != nil {
 		return platformv1alpha1.AutoscalingStatus{Reason: autoscalingReasonTargetNotResolved}, autoscalingSignalCollection{}
 	}
 
@@ -323,8 +323,8 @@ func (r *NiFiClusterReconciler) autoscalingExecutionState(ctx context.Context, c
 		return state
 	}
 
-	latestCluster := &platformv1alpha1.NiFiCluster{}
-	if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(cluster), latestCluster); err != nil {
+	latestCluster, err := r.liveCluster(ctx, client.ObjectKeyFromObject(cluster))
+	if err != nil {
 		return state
 	}
 	if latestCluster.Status.Replicas.Desired > state.currentReplicas {

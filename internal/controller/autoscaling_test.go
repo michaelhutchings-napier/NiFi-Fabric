@@ -1639,8 +1639,8 @@ func TestReconcileAutoscalingScaleDownSettledPublishesCooldownDecision(t *testin
 	if err != nil {
 		t.Fatalf("reconcileAutoscalingScaleDown returned error: %v", err)
 	}
-	if result != (ctrl.Result{}) {
-		t.Fatalf("expected settled scale-down to complete without requeue, got %#v", result)
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected settled scale-down to resume steady-state polling, got %#v", result)
 	}
 	if cluster.Status.LastOperation.Phase != platformv1alpha1.OperationPhaseSucceeded {
 		t.Fatalf("expected settled scale-down to mark success, got %#v", cluster.Status.LastOperation)
@@ -1739,8 +1739,8 @@ func TestReconcileAutoscalingScaleDownResumesFromPersistedSettleExecution(t *tes
 	if err != nil {
 		t.Fatalf("reconcile returned error: %v", err)
 	}
-	if result != (ctrl.Result{}) {
-		t.Fatalf("expected persisted settle execution to complete without requeue, got %#v", result)
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected persisted settle execution to resume steady-state polling, got %#v", result)
 	}
 
 	updatedCluster := &platformv1alpha1.NiFiCluster{}
