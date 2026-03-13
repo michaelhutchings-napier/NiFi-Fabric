@@ -149,8 +149,46 @@ func TestBuildAutoscalingStatusUsesExternalScaleUpIntent(t *testing.T) {
 	if !status.External.Observed || !status.External.Actionable {
 		t.Fatalf("expected external intent to be observed and actionable, got %#v", status.External)
 	}
-	if got := derefOptionalInt32(status.External.RequestedReplicas); got != 4 {
-		t.Fatalf("expected bounded external requested replicas 4, got %d", got)
+	if got := derefOptionalInt32(status.External.RequestedReplicas); got != 6 {
+		t.Fatalf("expected status to retain the raw external requested replicas 6, got %d", got)
+	}
+	if !strings.Contains(status.External.Message, "bounded the scale-up intent to 4") {
+		t.Fatalf("expected bounded external scale-up message, got %q", status.External.Message)
+	}
+}
+
+func TestBuildAutoscalingStatusUsesExternalScaleDownIntentWhenEnabled(t *testing.T) {
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		External: platformv1alpha1.AutoscalingExternalPolicy{
+			Enabled:           true,
+			Source:            platformv1alpha1.AutoscalingExternalIntentSourceKEDA,
+			ScaleDownEnabled:  true,
+			RequestedReplicas: 1,
+		},
+		MinReplicas: 2,
+		MaxReplicas: 5,
+	}
+	cluster.Status.Replicas.Desired = 4
+	setAutoscalingSteadyStateConditions(cluster)
+
+	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Spec.Autoscaling, autoscalingSignalCollection{})
+
+	if got := derefOptionalInt32(status.RecommendedReplicas); got != 2 {
+		t.Fatalf("expected external scale-down intent to be bounded to min replicas 2, got %d", got)
+	}
+	if status.Reason != autoscalingReasonExternalScaleDown {
+		t.Fatalf("expected external scale-down reason, got %q", status.Reason)
+	}
+	if !status.External.Observed || !status.External.Actionable || status.External.ScaleDownIgnored {
+		t.Fatalf("expected external scale-down intent to be observed and actionable, got %#v", status.External)
+	}
+	if got := derefOptionalInt32(status.External.RequestedReplicas); got != 1 {
+		t.Fatalf("expected status to retain the raw external requested replicas 1, got %d", got)
+	}
+	if !strings.Contains(status.External.Message, "bounded the best-effort scale-down intent to 2") {
+		t.Fatalf("expected bounded external scale-down message, got %q", status.External.Message)
 	}
 }
 
@@ -161,6 +199,7 @@ func TestBuildAutoscalingStatusIgnoresExternalScaleDownIntent(t *testing.T) {
 		External: platformv1alpha1.AutoscalingExternalPolicy{
 			Enabled:           true,
 			Source:            platformv1alpha1.AutoscalingExternalIntentSourceKEDA,
+			ScaleDownEnabled:  false,
 			RequestedReplicas: 2,
 		},
 		MinReplicas: 1,
@@ -181,8 +220,51 @@ func TestBuildAutoscalingStatusIgnoresExternalScaleDownIntent(t *testing.T) {
 		t.Fatalf("expected external scale-down intent to be marked ignored, got %#v", status.External)
 	}
 	decision := autoscalingNoScaleDecision(cluster, status)
-	if !strings.Contains(decision, "external KEDA request for 2 replicas is ignored") {
+	if !strings.Contains(decision, "external scale-down intent is disabled") {
 		t.Fatalf("expected explicit ignored external scale-down decision, got %q", decision)
+	}
+}
+
+func TestBuildAutoscalingStatusDoesNotScaleDownBelowMatchingExternalIntent(t *testing.T) {
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		External: platformv1alpha1.AutoscalingExternalPolicy{
+			Enabled:           true,
+			Source:            platformv1alpha1.AutoscalingExternalIntentSourceKEDA,
+			ScaleDownEnabled:  true,
+			RequestedReplicas: 3,
+		},
+		MinReplicas: 2,
+		MaxReplicas: 4,
+	}
+	cluster.Status.Replicas.Desired = 3
+	setAutoscalingSteadyStateConditions(cluster)
+
+	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Spec.Autoscaling, autoscalingSignalCollection{
+		SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
+			Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
+			Available: true,
+			Message:   "queuedFlowFiles=0 queuedBytes=0 activeTimerDrivenThreads=1/10 backlog is low",
+		}},
+		QueuePressure: autoscalingQueuePressureSample{
+			Observed:                 true,
+			BytesQueuedObserved:      true,
+			ThreadCountsObserved:     true,
+			ActiveTimerDrivenThreads: 1,
+			MaxTimerDrivenThreads:    10,
+			LowPressure:              true,
+		},
+	})
+
+	if got := derefOptionalInt32(status.RecommendedReplicas); got != 3 {
+		t.Fatalf("expected matching external intent to hold at 3 replicas, got %d", got)
+	}
+	if status.Reason != autoscalingReasonNoActionableInput {
+		t.Fatalf("expected no-actionable reason while external intent matches current replicas, got %q", status.Reason)
+	}
+	if status.External.Reason != "ExternalRecommendationSatisfied" {
+		t.Fatalf("expected external recommendation satisfied reason, got %q", status.External.Reason)
 	}
 }
 
@@ -1232,6 +1314,213 @@ func TestReconcileEnforcedAutoscalingScalesDownOneStepAfterSustainedLowPressure(
 	}
 }
 
+func TestReconcileEnforcedAutoscalingScalesDownOneStepForExternalIntent(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	lowPressureSince := metav1.NewTime(time.Now().UTC().Add(-10 * time.Minute))
+	cluster.Status.Autoscaling.LowPressureSince = &lowPressureSince
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		ScaleDown: platformv1alpha1.AutoscalingScaleDownPolicy{
+			Enabled:             true,
+			Cooldown:            metav1.Duration{Duration: 10 * time.Minute},
+			StabilizationWindow: metav1.Duration{Duration: 2 * time.Minute},
+		},
+		External: platformv1alpha1.AutoscalingExternalPolicy{
+			Enabled:           true,
+			Source:            platformv1alpha1.AutoscalingExternalIntentSourceKEDA,
+			ScaleDownEnabled:  true,
+			RequestedReplicas: 1,
+		},
+		MinReplicas: 2,
+		MaxReplicas: 4,
+	}
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+		readyPod("nifi-2", "nifi", "nifi-rev"),
+	}
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		healthResponses: []healthResponse{{result: healthyResult(3)}},
+	}, cluster, statefulSet, &pods[0], &pods[1], &pods[2])
+	reconciler.AutoscalingCollector = &fakeAutoscalingCollector{
+		collection: autoscalingSignalCollection{
+			SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
+				Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
+				Available: true,
+				Message:   "queuedFlowFiles=0 queuedBytes=0 activeTimerDrivenThreads=1/10 backlog is low",
+			}},
+			QueuePressure: autoscalingQueuePressureSample{
+				Observed:                 true,
+				BytesQueuedObserved:      true,
+				ThreadCountsObserved:     true,
+				ActiveTimerDrivenThreads: 1,
+				MaxTimerDrivenThreads:    10,
+				LowPressure:              true,
+			},
+		},
+	}
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected autoscaling scale-down to requeue, got %s", result.RequeueAfter)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if !strings.Contains(updatedCluster.Status.Autoscaling.LastScalingDecision, "ScaleDown:") {
+		t.Fatalf("expected external scale-down decision to be recorded, got %q", updatedCluster.Status.Autoscaling.LastScalingDecision)
+	}
+	if got := derefOptionalInt32(updatedCluster.Status.Autoscaling.External.RequestedReplicas); got != 1 {
+		t.Fatalf("expected external requested replicas to stay visible during scale-down, got %d", got)
+	}
+
+	updatedStatefulSet := &appsv1.StatefulSet{}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: statefulSet.Name}, updatedStatefulSet); err != nil {
+		t.Fatalf("get updated StatefulSet: %v", err)
+	}
+	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != 2 {
+		t.Fatalf("expected external downscale intent to reduce replicas to 2, got %d", got)
+	}
+}
+
+func TestReconcileEnforcedAutoscalingBlocksExternalScaleDownWithoutLowPressure(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		ScaleDown: platformv1alpha1.AutoscalingScaleDownPolicy{
+			Enabled:             true,
+			Cooldown:            metav1.Duration{Duration: 10 * time.Minute},
+			StabilizationWindow: metav1.Duration{Duration: 2 * time.Minute},
+		},
+		External: platformv1alpha1.AutoscalingExternalPolicy{
+			Enabled:           true,
+			Source:            platformv1alpha1.AutoscalingExternalIntentSourceKEDA,
+			ScaleDownEnabled:  true,
+			RequestedReplicas: 2,
+		},
+		MinReplicas: 1,
+		MaxReplicas: 4,
+	}
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		healthResponses: []healthResponse{{result: healthyResult(3)}},
+	}, cluster, statefulSet)
+	reconciler.AutoscalingCollector = &fakeAutoscalingCollector{
+		collection: autoscalingSignalCollection{
+			SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
+				Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
+				Available: true,
+				Message:   "queuedFlowFiles=0 queuedBytes=0 activeTimerDrivenThreads=2/10 backlog is idle",
+			}},
+			QueuePressure: autoscalingQueuePressureSample{
+				Observed:            true,
+				BytesQueuedObserved: true,
+			},
+		},
+	}
+
+	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)}); err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.Autoscaling.Reason != autoscalingReasonExternalScaleDown {
+		t.Fatalf("expected external scale-down reason, got %q", updatedCluster.Status.Autoscaling.Reason)
+	}
+	if updatedCluster.Status.Autoscaling.LastScalingDecision != "NoScaleDown: low pressure is not currently observed" {
+		t.Fatalf("expected low-pressure block for external scale-down, got %q", updatedCluster.Status.Autoscaling.LastScalingDecision)
+	}
+
+	updatedStatefulSet := &appsv1.StatefulSet{}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: statefulSet.Name}, updatedStatefulSet); err != nil {
+		t.Fatalf("get updated StatefulSet: %v", err)
+	}
+	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != replicas {
+		t.Fatalf("expected blocked external scale-down to keep replicas at %d, got %d", replicas, got)
+	}
+}
+
+func TestReconcileEnforcedAutoscalingDoesNotScaleDownBelowMatchingExternalIntent(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	lowPressureSince := metav1.NewTime(time.Now().UTC().Add(-10 * time.Minute))
+	cluster.Status.Autoscaling.LowPressureSince = &lowPressureSince
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		ScaleDown: platformv1alpha1.AutoscalingScaleDownPolicy{
+			Enabled:             true,
+			Cooldown:            metav1.Duration{Duration: 10 * time.Minute},
+			StabilizationWindow: metav1.Duration{Duration: 2 * time.Minute},
+		},
+		External: platformv1alpha1.AutoscalingExternalPolicy{
+			Enabled:           true,
+			Source:            platformv1alpha1.AutoscalingExternalIntentSourceKEDA,
+			ScaleDownEnabled:  true,
+			RequestedReplicas: 3,
+		},
+		MinReplicas: 2,
+		MaxReplicas: 4,
+	}
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		healthResponses: []healthResponse{{result: healthyResult(3)}},
+	}, cluster, statefulSet)
+	reconciler.AutoscalingCollector = &fakeAutoscalingCollector{
+		collection: autoscalingSignalCollection{
+			SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
+				Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
+				Available: true,
+				Message:   "queuedFlowFiles=0 queuedBytes=0 activeTimerDrivenThreads=1/10 backlog is low",
+			}},
+			QueuePressure: autoscalingQueuePressureSample{
+				Observed:                 true,
+				BytesQueuedObserved:      true,
+				ThreadCountsObserved:     true,
+				ActiveTimerDrivenThreads: 1,
+				MaxTimerDrivenThreads:    10,
+				LowPressure:              true,
+			},
+		},
+	}
+
+	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)}); err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.Autoscaling.LastScalingDecision != "NoScale: recommended replicas are already satisfied" {
+		t.Fatalf("expected matching external intent to block scale-down, got %q", updatedCluster.Status.Autoscaling.LastScalingDecision)
+	}
+
+	updatedStatefulSet := &appsv1.StatefulSet{}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: statefulSet.Name}, updatedStatefulSet); err != nil {
+		t.Fatalf("get updated StatefulSet: %v", err)
+	}
+	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != replicas {
+		t.Fatalf("expected matching external intent to keep replicas at %d, got %d", replicas, got)
+	}
+}
+
 func TestReconcileEnforcedAutoscalingScaleDownRespectsStabilizationWindow(t *testing.T) {
 	ctx := context.Background()
 	cluster := managedCluster()
@@ -1894,6 +2183,110 @@ func TestReconcileAutoscalingScaleDownResumesFromPersistedSettleExecution(t *tes
 	}
 	if updatedCluster.Status.Autoscaling.Execution.Phase != "" {
 		t.Fatalf("expected persisted settle execution to clear, got %#v", updatedCluster.Status.Autoscaling.Execution)
+	}
+}
+
+func TestReconcileAutoscalingScaleDownResumesFromPersistedExternalSettleExecution(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Safety.RequireClusterHealthy = true
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		ScaleDown: platformv1alpha1.AutoscalingScaleDownPolicy{
+			Enabled:             true,
+			Cooldown:            metav1.Duration{Duration: 10 * time.Minute},
+			StabilizationWindow: metav1.Duration{Duration: 30 * time.Second},
+		},
+		External: platformv1alpha1.AutoscalingExternalPolicy{
+			Enabled:           true,
+			Source:            platformv1alpha1.AutoscalingExternalIntentSourceKEDA,
+			ScaleDownEnabled:  true,
+			RequestedReplicas: 1,
+		},
+		MinReplicas: 1,
+		MaxReplicas: 3,
+		Signals: []platformv1alpha1.AutoscalingSignal{
+			platformv1alpha1.AutoscalingSignalQueuePressure,
+		},
+	}
+	cluster.Status.Replicas.Desired = 2
+	cluster.Status.Replicas.Ready = 2
+	cluster.Status.Autoscaling.LastScaleDownTime = &metav1.Time{Time: time.Now().UTC().Add(-20 * time.Second)}
+	cluster.Status.Autoscaling.LowPressureSince = &metav1.Time{Time: time.Now().UTC().Add(-5 * time.Minute)}
+	cluster.Status.Autoscaling.Execution = platformv1alpha1.AutoscalingExecutionStatus{
+		Phase:          platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle,
+		StartedAt:      &metav1.Time{Time: time.Now().UTC().Add(-15 * time.Second)},
+		TargetReplicas: ptrTo(int32(2)),
+	}
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionTargetResolved,
+		Status:             metav1.ConditionTrue,
+		Reason:             "TargetFound",
+		Message:            "Target StatefulSet was resolved successfully",
+		LastTransitionTime: metav1.Now(),
+	})
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionAvailable,
+		Status:             metav1.ConditionTrue,
+		Reason:             "RolloutHealthy",
+		Message:            "Cluster is healthy",
+		LastTransitionTime: metav1.Now(),
+	})
+	cluster.Status.LastOperation = runningOperation("AutoscalingScaleDown", "Waiting for autoscaling scale-down to settle")
+
+	target := managedStatefulSet("nifi", 2, "nifi-rev", "nifi-rev")
+	target.Status.Replicas = 2
+	target.Status.ReadyReplicas = 2
+	target.Status.CurrentReplicas = 2
+	target.Status.UpdatedReplicas = 2
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+	}
+	health := healthResponse{
+		result: ClusterHealthResult{
+			ExpectedReplicas: 2,
+			ReadyPods:        2,
+			ReachablePods:    2,
+			ConvergedPods:    0,
+			Pods: []PodHealth{
+				{PodName: "nifi-0", Ready: true, APIReachable: true, Clustered: true, ConnectedToCluster: true, ConnectedNodeCount: 2, TotalNodeCount: 3},
+				{PodName: "nifi-1", Ready: true, APIReachable: true, Clustered: true, ConnectedToCluster: true, ConnectedNodeCount: 2, TotalNodeCount: 3},
+			},
+		},
+	}
+	reconciler, _ := newTestReconciler(t, &fakeHealthChecker{
+		checkResponses: []healthResponse{health},
+	}, cluster, target, &pods[0], &pods[1])
+	reconciler.AutoscalingCollector = &fakeAutoscalingCollector{
+		collection: autoscalingSignalCollection{
+			SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
+				Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
+				Available: true,
+				Message:   "queuedFlowFiles=0 queuedBytes=0 backlog is low",
+			}},
+			QueuePressure: autoscalingQueuePressureSample{
+				Observed:            true,
+				BytesQueuedObserved: true,
+				LowPressure:         true,
+			},
+		},
+	}
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected persisted external settle execution to resume steady-state polling, got %#v", result)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := reconciler.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.Autoscaling.Execution.Phase != "" {
+		t.Fatalf("expected persisted external settle execution to clear, got %#v", updatedCluster.Status.Autoscaling.Execution)
 	}
 }
 

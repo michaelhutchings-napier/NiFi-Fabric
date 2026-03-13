@@ -109,6 +109,7 @@ type AutoscalingPolicy struct {
 type AutoscalingExternalPolicy struct {
 	Enabled           bool                            `json:"enabled,omitempty"`
 	Source            AutoscalingExternalIntentSource `json:"source,omitempty"`
+	ScaleDownEnabled  bool                            `json:"scaleDownEnabled,omitempty"`
 	RequestedReplicas int32                           `json:"requestedReplicas,omitempty"`
 }
 

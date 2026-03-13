@@ -18,8 +18,13 @@ spec:
   advanced:
     horizontalPodAutoscalerConfig:
       behavior:
+        {{- if not .Values.cluster.autoscaling.external.scaleDownEnabled }}
         scaleDown:
           selectPolicy: Disabled
+        {{- else }}
+        scaleDown:
+          stabilizationWindowSeconds: 0
+        {{- end }}
   triggers:
     {{- toYaml .Values.keda.triggers | nindent 4 }}
 {{- end }}

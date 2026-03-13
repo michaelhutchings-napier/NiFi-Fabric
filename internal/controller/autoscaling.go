@@ -26,6 +26,7 @@ const (
 	autoscalingReasonBelowMinReplicas   = "BelowMinReplicas"
 	autoscalingReasonAboveMaxReplicas   = "AboveMaxReplicas"
 	autoscalingReasonExternalScaleUp    = "ExternalScaleUpRequested"
+	autoscalingReasonExternalScaleDown  = "ExternalScaleDownRequested"
 	autoscalingReasonQueuePressure      = "QueuePressureDetected"
 	autoscalingReasonCPUSaturation      = "CPUSaturationDetected"
 	autoscalingReasonLowPressure        = "LowPressureDetected"
@@ -37,6 +38,12 @@ const (
 	defaultAutoscalingScaleDownStabilization = 5 * time.Minute
 	defaultAutoscalingLowPressureSamples     = 3
 )
+
+type autoscalingExternalEvaluation struct {
+	status                  platformv1alpha1.AutoscalingExternalStatus
+	effectiveReplicas       *int32
+	boundedRequestedReplicas *int32
+}
 
 func (r *NiFiClusterReconciler) syncAutoscalingStatus(ctx context.Context, cluster *platformv1alpha1.NiFiCluster) {
 	persisted := r.latestAutoscalingStatus(ctx, cluster)
@@ -132,11 +139,10 @@ func autoscalingNoScaleDecision(cluster *platformv1alpha1.NiFiCluster, status pl
 	currentReplicas := cluster.Status.Replicas.Desired
 	recommendedReplicas := derefOptionalInt32(status.RecommendedReplicas)
 	if status.External.Observed && status.External.ScaleDownIgnored && status.External.RequestedReplicas != nil {
-		return fmt.Sprintf(
-			"NoScaleDown: external %s request for %d replicas is ignored; controller-owned low-pressure scale-down remains the only supported path",
-			emptyIfUnset(string(status.External.Source), "external"),
-			*status.External.RequestedReplicas,
-		)
+		if status.External.Message != "" {
+			return fmt.Sprintf("NoScaleDown: %s", status.External.Message)
+		}
+		return fmt.Sprintf("NoScaleDown: external %s request for %d replicas is ignored", emptyIfUnset(string(status.External.Source), "external"), *status.External.RequestedReplicas)
 	}
 	switch {
 	case recommendedReplicas > currentReplicas:
@@ -188,7 +194,7 @@ func (r *NiFiClusterReconciler) buildAutoscalingStatus(ctx context.Context, clus
 		maxReplicas := autoscalingMaxReplicas(policy, minReplicas, currentReplicas)
 		return platformv1alpha1.AutoscalingStatus{
 			Reason:   autoscalingReasonTargetNotResolved,
-			External: buildAutoscalingExternalStatus(policy, currentReplicas, minReplicas, maxReplicas),
+			External: buildAutoscalingExternalEvaluation(policy, currentReplicas, minReplicas, maxReplicas).status,
 		}, autoscalingSignalCollection{}
 	}
 
@@ -200,7 +206,7 @@ func (r *NiFiClusterReconciler) buildAutoscalingStatusForTarget(ctx context.Cont
 	currentReplicas := cluster.Status.Replicas.Desired
 	minReplicas := autoscalingMinReplicas(policy, currentReplicas)
 	maxReplicas := autoscalingMaxReplicas(policy, minReplicas, currentReplicas)
-	external := buildAutoscalingExternalStatus(policy, currentReplicas, minReplicas, maxReplicas)
+	external := buildAutoscalingExternalEvaluation(policy, currentReplicas, minReplicas, maxReplicas).status
 	blocked, blockedReason := blockedAutoscalingStatus(cluster)
 	if blocked {
 		return platformv1alpha1.AutoscalingStatus{Reason: blockedReason, External: external}, autoscalingSignalCollection{}
@@ -400,7 +406,8 @@ func buildAutoscalingSteadyStateStatus(cluster *platformv1alpha1.NiFiCluster, po
 	currentReplicas := cluster.Status.Replicas.Desired
 	minReplicas := autoscalingMinReplicas(policy, currentReplicas)
 	maxReplicas := autoscalingMaxReplicas(policy, minReplicas, currentReplicas)
-	external := buildAutoscalingExternalStatus(policy, currentReplicas, minReplicas, maxReplicas)
+	externalEvaluation := buildAutoscalingExternalEvaluation(policy, currentReplicas, minReplicas, maxReplicas)
+	external := externalEvaluation.status
 
 	recommended := currentReplicas
 	reason := autoscalingReasonNoActionableInput
@@ -412,16 +419,20 @@ func buildAutoscalingSteadyStateStatus(cluster *platformv1alpha1.NiFiCluster, po
 	case currentReplicas > maxReplicas:
 		recommended = maxReplicas
 		reason = autoscalingReasonAboveMaxReplicas
-	case external.Actionable && external.RequestedReplicas != nil:
-		recommended = *external.RequestedReplicas
-		reason = autoscalingReasonExternalScaleUp
+	case external.Actionable && externalEvaluation.effectiveReplicas != nil:
+		recommended = *externalEvaluation.effectiveReplicas
+		if recommended < currentReplicas {
+			reason = autoscalingReasonExternalScaleDown
+		} else {
+			reason = autoscalingReasonExternalScaleUp
+		}
 	case collection.QueuePressure.Actionable:
 		recommended = currentReplicas + 1
 		reason = autoscalingReasonQueuePressure
 	case collection.CPU.Actionable:
 		recommended = currentReplicas + 1
 		reason = autoscalingReasonCPUSaturation
-	case collection.QueuePressure.LowPressure && currentReplicas > minReplicas:
+	case collection.QueuePressure.LowPressure && currentReplicas > minReplicas && !externalPreventsScaleDown(externalEvaluation, currentReplicas):
 		recommended = currentReplicas - 1
 		reason = autoscalingReasonLowPressure
 	}
@@ -444,9 +455,9 @@ func buildAutoscalingSteadyStateStatus(cluster *platformv1alpha1.NiFiCluster, po
 	}
 }
 
-func buildAutoscalingExternalStatus(policy platformv1alpha1.AutoscalingPolicy, currentReplicas, minReplicas, maxReplicas int32) platformv1alpha1.AutoscalingExternalStatus {
+func buildAutoscalingExternalEvaluation(policy platformv1alpha1.AutoscalingPolicy, currentReplicas, minReplicas, maxReplicas int32) autoscalingExternalEvaluation {
 	if !policy.External.Enabled || policy.External.Source == "" {
-		return platformv1alpha1.AutoscalingExternalStatus{}
+		return autoscalingExternalEvaluation{}
 	}
 
 	requested := policy.External.RequestedReplicas
@@ -467,28 +478,74 @@ func buildAutoscalingExternalStatus(policy platformv1alpha1.AutoscalingPolicy, c
 		}
 		if bounded > currentReplicas {
 			status.Actionable = true
-			status.RequestedReplicas = ptrTo(bounded)
 			status.Reason = autoscalingReasonExternalScaleUp
 			if bounded != requested {
 				status.Message = fmt.Sprintf("external %s requested %d replicas; controller bounded the scale-up intent to %d within autoscaling policy", policy.External.Source, requested, bounded)
 			} else {
 				status.Message = fmt.Sprintf("external %s requested scale-up intent to %d replicas through NiFiCluster /scale", policy.External.Source, bounded)
 			}
-			return status
+			return autoscalingExternalEvaluation{
+				status:                   status,
+				effectiveReplicas:        ptrTo(bounded),
+				boundedRequestedReplicas: ptrTo(bounded),
+			}
 		}
 		status.Reason = autoscalingReasonMaxReplicasReached
 		status.Message = fmt.Sprintf("external %s requested %d replicas, but the configured autoscaling maximum keeps the recommendation at %d", policy.External.Source, requested, currentReplicas)
-		return status
+		return autoscalingExternalEvaluation{
+			status:                   status,
+			boundedRequestedReplicas: ptrTo(currentReplicas),
+		}
 	case requested < currentReplicas:
+		if !policy.External.ScaleDownEnabled {
+			status.ScaleDownIgnored = true
+			status.Reason = "ExternalScaleDownDisabled"
+			status.Message = fmt.Sprintf("external %s requested scale-down intent to %d replicas, but external scale-down intent is disabled; controller-owned low-pressure scale-down remains the only supported path", policy.External.Source, requested)
+			return autoscalingExternalEvaluation{
+				status:                   status,
+				boundedRequestedReplicas: ptrTo(requested),
+			}
+		}
+		bounded := requested
+		if bounded < minReplicas {
+			bounded = minReplicas
+		}
+		if bounded < currentReplicas {
+			status.Actionable = true
+			status.Reason = autoscalingReasonExternalScaleDown
+			if bounded != requested {
+				status.Message = fmt.Sprintf("external %s requested %d replicas; controller bounded the best-effort scale-down intent to %d within autoscaling policy and will only act after safe scale-down checks pass", policy.External.Source, requested, bounded)
+			} else {
+				status.Message = fmt.Sprintf("external %s requested best-effort scale-down intent to %d replicas through NiFiCluster /scale; the controller will only act after the existing safe scale-down checks pass", policy.External.Source, bounded)
+			}
+			return autoscalingExternalEvaluation{
+				status:                   status,
+				effectiveReplicas:        ptrTo(bounded),
+				boundedRequestedReplicas: ptrTo(bounded),
+			}
+		}
 		status.ScaleDownIgnored = true
-		status.Reason = "ExternalScaleDownIgnored"
-		status.Message = fmt.Sprintf("external %s requested scale-down intent to %d replicas, but external scale-down is ignored; controller-owned low-pressure scale-down remains the only supported path", policy.External.Source, requested)
-		return status
+		status.Reason = "ExternalScaleDownMinimumSatisfied"
+		status.Message = fmt.Sprintf("external %s requested scale-down intent to %d replicas, but minReplicas %d already keeps the cluster at its lowest allowed size", policy.External.Source, requested, minReplicas)
+		return autoscalingExternalEvaluation{
+			status:                   status,
+			boundedRequestedReplicas: ptrTo(minReplicas),
+		}
 	default:
 		status.Reason = "ExternalRecommendationSatisfied"
 		status.Message = fmt.Sprintf("external %s currently matches the running replica count at %d", policy.External.Source, currentReplicas)
-		return status
+		return autoscalingExternalEvaluation{
+			status:                   status,
+			boundedRequestedReplicas: ptrTo(currentReplicas),
+		}
 	}
+}
+
+func externalPreventsScaleDown(external autoscalingExternalEvaluation, currentReplicas int32) bool {
+	if external.boundedRequestedReplicas == nil {
+		return false
+	}
+	return *external.boundedRequestedReplicas >= currentReplicas
 }
 
 func autoscalingMode(policy platformv1alpha1.AutoscalingPolicy) platformv1alpha1.AutoscalingMode {
@@ -698,6 +755,8 @@ func autoscalingStatusMessage(status platformv1alpha1.AutoscalingStatus) string 
 		return fmt.Sprintf("Autoscaling recommends %d replicas because the current desired replica count is above the configured maximum", derefOptionalInt32(status.RecommendedReplicas))
 	case autoscalingReasonExternalScaleUp:
 		return fmt.Sprintf("Autoscaling recommends %d replicas because %s", derefOptionalInt32(status.RecommendedReplicas), emptyIfUnset(status.External.Message, "external scale-up intent is active"))
+	case autoscalingReasonExternalScaleDown:
+		return fmt.Sprintf("Autoscaling recommends %d replicas because %s", derefOptionalInt32(status.RecommendedReplicas), emptyIfUnset(status.External.Message, "external scale-down intent is active"))
 	case autoscalingReasonQueuePressure:
 		return fmt.Sprintf("Autoscaling recommends %d replicas because root process-group backlog is present while NiFi timer-driven threads are saturated. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summarizeAutoscalingSignals(status.Signals))
 	case autoscalingReasonCPUSaturation:
@@ -737,7 +796,7 @@ func autoscalingStatusOutcome(status platformv1alpha1.AutoscalingStatus) string 
 		return "disabled"
 	case autoscalingReasonBelowMinReplicas:
 		return "increase"
-	case autoscalingReasonAboveMaxReplicas, autoscalingReasonLowPressure:
+	case autoscalingReasonAboveMaxReplicas, autoscalingReasonLowPressure, autoscalingReasonExternalScaleDown:
 		return "decrease"
 	case autoscalingReasonExternalScaleUp, autoscalingReasonQueuePressure, autoscalingReasonCPUSaturation:
 		return "increase"

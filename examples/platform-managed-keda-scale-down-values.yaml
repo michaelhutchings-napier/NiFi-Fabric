@@ -1,0 +1,9 @@
+# Optional overlay that lets KEDA write best-effort external downscale intent
+# through NiFiCluster /scale. The controller still owns all real scale execution
+# and may block or defer the downscale until the existing safe pipeline allows it.
+cluster:
+  autoscaling:
+    scaleDown:
+      enabled: true
+    external:
+      scaleDownEnabled: true

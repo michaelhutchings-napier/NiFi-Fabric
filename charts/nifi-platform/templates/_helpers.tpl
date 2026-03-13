@@ -112,14 +112,17 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if ne .Values.cluster.autoscaling.mode "Enforced" -}}
 {{- fail "keda.enabled=true currently requires cluster.autoscaling.mode=Enforced" -}}
 {{- end -}}
-{{- if not .Values.cluster.autoscaling.scaleUp.enabled -}}
-{{- fail "keda.enabled=true currently requires cluster.autoscaling.scaleUp.enabled=true" -}}
-{{- end -}}
 {{- if not .Values.cluster.autoscaling.external.enabled -}}
 {{- fail "keda.enabled=true requires cluster.autoscaling.external.enabled=true" -}}
 {{- end -}}
 {{- if ne .Values.cluster.autoscaling.external.source "KEDA" -}}
 {{- fail "keda.enabled=true requires cluster.autoscaling.external.source=KEDA" -}}
+{{- end -}}
+{{- if and .Values.cluster.autoscaling.external.scaleDownEnabled (not .Values.cluster.autoscaling.scaleDown.enabled) -}}
+{{- fail "cluster.autoscaling.external.scaleDownEnabled=true requires cluster.autoscaling.scaleDown.enabled=true so the controller can reuse the safe scale-down pipeline" -}}
+{{- end -}}
+{{- if and (not .Values.cluster.autoscaling.scaleUp.enabled) (not (and .Values.cluster.autoscaling.external.scaleDownEnabled .Values.cluster.autoscaling.scaleDown.enabled)) -}}
+{{- fail "keda.enabled=true requires at least one supported controller-mediated direction: cluster.autoscaling.scaleUp.enabled=true or cluster.autoscaling.external.scaleDownEnabled=true with cluster.autoscaling.scaleDown.enabled=true" -}}
 {{- end -}}
 {{- if not .Values.keda.triggers -}}
 {{- fail "keda.enabled=true requires at least one trigger in keda.triggers" -}}

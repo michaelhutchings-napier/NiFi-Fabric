@@ -134,6 +134,8 @@ spec:
                         type: string
                         enum:
                         - KEDA
+                      scaleDownEnabled:
+                        type: boolean
                       requestedReplicas:
                         format: int32
                         type: integer

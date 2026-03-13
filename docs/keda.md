@@ -128,9 +128,16 @@ The smallest clean KEDA model is:
 2. make KEDA optional and disabled by default
 3. let KEDA write only external replica intent into the `NiFiCluster` `/scale` surface
 4. let the controller translate that into a normal autoscaling recommendation and, in enforced mode, a normal controller-owned scale-up step
-5. keep scale-down fully controller-native and independent of KEDA
+5. allow external downscale intent only as optional best-effort controller input, never as direct execution
 
 This is intentionally narrower than generic "KEDA support". It treats KEDA as a trigger ecosystem and intent writer, not as the lifecycle executor.
+
+External downscale intent follows the same rule:
+
+- it stays optional and experimental
+- it must be explicitly enabled on the controller-owned external intent contract
+- even when enabled, it is only best-effort controller input
+- the existing safe scale-down path still decides whether one highest-ordinal node may be removed
 
 ## Implemented Scope
 
@@ -139,10 +146,11 @@ Implemented in this slice:
 - an optional `NiFiCluster` `/scale` surface backed by `spec.autoscaling.external.requestedReplicas`
 - controller status that reports external KEDA intent separately from the controller’s own recommendation and execution state
 - optional `charts/nifi-platform` rendering for a KEDA `ScaledObject` that targets `NiFiCluster`, not the NiFi `StatefulSet`
-- a generated HPA shape that disables scale-down behavior so the KEDA path stays aligned with controller-owned scale-down rules
+- a generated HPA shape that disables scale-down by default and only allows lower external `/scale` intent when `spec.autoscaling.external.scaleDownEnabled=true`
 - current Helm validation keeps the runtime path narrow by requiring managed mode plus enforced controller scale-up
 - fail-fast Helm validation for invalid combinations such as disabled autoscaling, missing triggers, or KEDA enablement outside managed mode
-- a focused live kind gate, `make kind-keda-scale-up-fast-e2e`, that installs real KEDA and proves the runtime contract end to end
+- a focused live kind gate, `make kind-keda-scale-up-fast-e2e`, that installs real KEDA and proves the scale-up runtime contract end to end
+- a focused live kind gate, `make kind-keda-scale-down-fast-e2e`, that proves opt-in external downscale intent still flows only through the existing safe one-step controller pipeline
 
 Not implemented in this slice:
 
@@ -158,6 +166,7 @@ In the implemented experimental path, KEDA:
 
 - observe external triggers
 - compute optional scale-up intent
+- compute optional best-effort downscale intent only when explicitly enabled
 - publish that intent into a controller-owned surface
 
 KEDA does not:
@@ -166,6 +175,7 @@ KEDA does not:
 - bypass rollout, hibernation, restore, TLS restart, degraded-state, or autoscaling precedence rules
 - decide whether a scale-down is safe
 - own disconnect, offload, ordinal selection, or PVC safety
+- bypass a matching or higher external requested replica floor with an internal low-pressure downscale
 
 ## Runtime Proof
 
@@ -177,13 +187,15 @@ The focused live kind gate now proves all of the following in one managed-platfo
 - KEDA writes scale-up intent through the `NiFiCluster` `/scale` surface
 - the controller observes that external intent and performs the real bounded `StatefulSet` scale-up itself
 - the NiFi cluster settles healthy at the larger size afterward
-- unsupported external scale-down intent is still ignored and does not reduce the `StatefulSet`
+- when external downscale is enabled, KEDA lowers `NiFiCluster` `/scale` back to `minReplicaCount`
+- the controller then performs one safe highest-ordinal `3 -> 2` downscale step itself and settles cleanly when the existing safe checks are satisfied
+- unsupported or out-of-policy external scale-down intent is still ignored and does not reduce the `StatefulSet`
 
-That last point is intentionally narrow:
+The external downscale proof remains intentionally narrow:
 
-- the runtime gate exercises ignored unsupported external scale-down intent through the controller-owned external intent field
-- it does not claim that KEDA or the generated HPA can or should execute scale-down
-- KEDA-enabled scale-down remains unsupported in this project
+- it proves only one-step controller-mediated scale-down through the existing safe path
+- it does not claim that KEDA or the generated HPA can or should execute scale-down directly
+- external downscale remains optional, best-effort, and experimental in this project
 
 ## GitOps Note
 

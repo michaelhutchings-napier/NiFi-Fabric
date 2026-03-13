@@ -133,7 +133,9 @@ spec:
                         source:
                           type: string
                           enum:
-                            - KEDA
+                          - KEDA
+                        scaleDownEnabled:
+                          type: boolean
                         requestedReplicas:
                           format: int32
                           type: integer

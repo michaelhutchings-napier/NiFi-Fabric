@@ -273,13 +273,16 @@ The current experimental KEDA slice implements that direction in the narrowest r
 - KEDA targets `NiFiCluster` through `/scale`
 - `/scale` writes `spec.autoscaling.external.requestedReplicas`
 - the controller interprets that field as external scale-up intent and still executes the real `StatefulSet.spec.replicas` change itself
-- unsupported external scale-down intent is surfaced in status and ignored
-- the focused `make kind-keda-scale-up-fast-e2e` gate now proves that contract live on kind without adding a second lifecycle executor
+- external scale-down intent remains opt-in and experimental
+- when that opt-in is disabled, unsupported external scale-down intent is surfaced in status and ignored
+- when that opt-in is enabled, lower external requests are still only best-effort controller input and must pass the existing one-step safe scale-down pipeline before any replica is removed
+- matching or higher external requests also act as a floor so the controller does not undercut active KEDA intent with an internal low-pressure downscale
+- the focused `make kind-keda-scale-up-fast-e2e` and `make kind-keda-scale-down-fast-e2e` gates now prove that contract live on kind without adding a second lifecycle executor
 
 Current KEDA support level:
 
 - optional and experimental
-- implemented only as an external scale-up intent source
+- implemented as external scale-up intent plus opt-in experimental external downscale intent
 - shipped platform-chart KEDA resources target `NiFiCluster`, not the NiFi `StatefulSet`
 - the controller remains the sole executor of any real replica change
 - see [keda.md](keda.md) for the focused option comparison and the implemented contract

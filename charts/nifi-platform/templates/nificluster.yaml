@@ -50,6 +50,7 @@ spec:
       {{- if .Values.cluster.autoscaling.external.source }}
       source: {{ .Values.cluster.autoscaling.external.source }}
       {{- end }}
+      scaleDownEnabled: {{ ternary "true" "false" .Values.cluster.autoscaling.external.scaleDownEnabled }}
       requestedReplicas: {{ .Values.cluster.autoscaling.external.requestedReplicas }}
     minReplicas: {{ .Values.cluster.autoscaling.minReplicas }}
     maxReplicas: {{ .Values.cluster.autoscaling.maxReplicas }}

@@ -109,18 +109,19 @@ Why direct HPA or KEDA-to-StatefulSet scaling is not the first step:
 KEDA position:
 
 - optional and experimental
-- implemented only as an external scale-up intent source that targets `NiFiCluster`, not the NiFi `StatefulSet`
+- implemented as an external intent source that targets `NiFiCluster`, not the NiFi `StatefulSet`
 - implemented only in the managed/platform layer; `charts/nifi` remains KEDA-free
+- external scale-up is supported experimentally and external scale-down is opt-in, best-effort, and experimental
 - the controller still owns all actual scale execution, lifecycle precedence, and safe scale-down choreography
-- scale-down remains controller-native even when KEDA is enabled
-- the focused `make kind-keda-scale-up-fast-e2e` gate now proves the live KEDA-to-`/scale` scale-up path on kind
+- scale-down remains controller-native even when KEDA downscale intent is enabled
+- the focused `make kind-keda-scale-up-fast-e2e` and `make kind-keda-scale-down-fast-e2e` gates prove the live KEDA-to-`/scale` paths on kind
 - see [docs/keda.md](docs/keda.md) for the option comparison and the implemented contract
 
 Recommended order:
 
 1. advisory-only recommendations
 2. optional experimental scale-up only
-3. optional experimental scale-down only after safe coordination is designed and proven
+3. optional experimental controller-mediated scale-down intent only through the same safe one-step pipeline
 4. anything broader only after interruption, stuck-offload, and hibernation or restore interactions are runtime-proven together
 
 ## Private Alpha Quickstart
@@ -200,6 +201,8 @@ Focused KEDA intent-source runtime proof path:
 ```bash
 make kind-keda-scale-up-fast-e2e
 make kind-keda-scale-up-fast-e2e-reuse
+make kind-keda-scale-down-fast-e2e
+make kind-keda-scale-down-fast-e2e-reuse
 ```
 
 Fast profile note:

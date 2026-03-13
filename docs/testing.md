@@ -106,6 +106,7 @@ kind-based integration should cover:
 - a focused `make kind-autoscaling-scale-down-fast-e2e` path for experimental autoscaling scale-down runtime proof on NiFi `2.8.0` with the additive fast profile
 - a focused `make kind-autoscaling-churn-fast-e2e` path that proves repeated `2 -> 3 -> 2 -> 3` controller-owned autoscaling churn, settle behavior, highest-ordinal removal, ordinal reuse, and PVC retention on NiFi `2.8.0` with the additive fast profile
 - a focused `make kind-keda-scale-up-fast-e2e` path that installs real KEDA, renders the platform-chart `ScaledObject`, proves that KEDA targets `NiFiCluster` through `/scale`, proves that the controller still executes the actual safe `StatefulSet` scale-up, and proves that unsupported external scale-down intent is ignored while the `StatefulSet` remains unchanged
+- a focused `make kind-keda-scale-down-fast-e2e` path that installs real KEDA, proves that KEDA lowers `NiFiCluster` `/scale` intent back to `minReplicaCount`, proves one-step controller-owned `3 -> 2` execution with restart-safe settle, and proves below-min external downscale intent is still ignored
 - the scale-down proof now also checks the controller-owned post-removal settle loop instead of depending on one long blocking health wait inside a single reconcile
 - preloading the NiFi runtime image into the fresh kind node so alpha validation is not gated by an in-cluster registry pull
 - phase-level fresh-kind reruns:
@@ -169,7 +170,8 @@ Current alpha note:
 - the repo now also has a green focused `make kind-autoscaling-scale-down-fast-e2e` workflow for experimental autoscaling scale-down runtime proof on NiFi `2.8.0` with the fast profile
 - the repo now also has a green focused `make kind-autoscaling-churn-fast-e2e` workflow for repeated autoscaling churn proof on NiFi `2.8.0` with the fast profile
 - the repo now also has a green focused `make kind-keda-scale-up-fast-e2e` workflow for experimental KEDA intent-source runtime proof on NiFi `2.8.0` with the fast profile
-- the KEDA gate proves controller-owned scale-up live and exercises ignored unsupported external scale-down intent through the controller-owned external intent field; it does not turn KEDA into a supported scale-down executor
+- the repo now also has a focused `make kind-keda-scale-down-fast-e2e` workflow for experimental controller-mediated KEDA downscale intent proof on NiFi `2.8.0` with the fast profile
+- the KEDA gates prove that KEDA only writes `NiFiCluster` intent and that the controller still owns every real scale-up and scale-down action
 - the unavailable autoscaling blocking path still relies on focused unit and reconcile coverage rather than a separate dedicated kind fault-injection flow
 - CI should treat `make kind-alpha-e2e` as the gate and use the phase-level targets for faster diagnosis
 - evaluator-facing examples and quickstarts should stay aligned with that same gate
