@@ -123,6 +123,69 @@ func TestBuildAutoscalingStatusScalesUpForActionableQueuePressure(t *testing.T) 
 	}
 }
 
+func TestBuildAutoscalingStatusUsesExternalScaleUpIntent(t *testing.T) {
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeAdvisory,
+		External: platformv1alpha1.AutoscalingExternalPolicy{
+			Enabled:           true,
+			Source:            platformv1alpha1.AutoscalingExternalIntentSourceKEDA,
+			RequestedReplicas: 6,
+		},
+		MinReplicas: 2,
+		MaxReplicas: 4,
+	}
+	cluster.Status.Replicas.Desired = 2
+	setAutoscalingSteadyStateConditions(cluster)
+
+	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Spec.Autoscaling, autoscalingSignalCollection{})
+
+	if got := derefOptionalInt32(status.RecommendedReplicas); got != 4 {
+		t.Fatalf("expected external scale-up intent to be bounded to 4 replicas, got %d", got)
+	}
+	if status.Reason != autoscalingReasonExternalScaleUp {
+		t.Fatalf("expected external scale-up reason, got %q", status.Reason)
+	}
+	if !status.External.Observed || !status.External.Actionable {
+		t.Fatalf("expected external intent to be observed and actionable, got %#v", status.External)
+	}
+	if got := derefOptionalInt32(status.External.RequestedReplicas); got != 4 {
+		t.Fatalf("expected bounded external requested replicas 4, got %d", got)
+	}
+}
+
+func TestBuildAutoscalingStatusIgnoresExternalScaleDownIntent(t *testing.T) {
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		External: platformv1alpha1.AutoscalingExternalPolicy{
+			Enabled:           true,
+			Source:            platformv1alpha1.AutoscalingExternalIntentSourceKEDA,
+			RequestedReplicas: 2,
+		},
+		MinReplicas: 1,
+		MaxReplicas: 5,
+	}
+	cluster.Status.Replicas.Desired = 3
+	setAutoscalingSteadyStateConditions(cluster)
+
+	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Spec.Autoscaling, autoscalingSignalCollection{})
+
+	if got := derefOptionalInt32(status.RecommendedReplicas); got != 3 {
+		t.Fatalf("expected ignored external scale-down to hold at 3 replicas, got %d", got)
+	}
+	if status.Reason != autoscalingReasonNoActionableInput {
+		t.Fatalf("expected no-actionable reason, got %q", status.Reason)
+	}
+	if !status.External.Observed || !status.External.ScaleDownIgnored {
+		t.Fatalf("expected external scale-down intent to be marked ignored, got %#v", status.External)
+	}
+	decision := autoscalingNoScaleDecision(cluster, status)
+	if !strings.Contains(decision, "external KEDA request for 2 replicas is ignored") {
+		t.Fatalf("expected explicit ignored external scale-down decision, got %q", decision)
+	}
+}
+
 func TestBuildAutoscalingStatusBlocksWhileProgressing(t *testing.T) {
 	cluster := managedCluster()
 	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
@@ -146,6 +209,38 @@ func TestBuildAutoscalingStatusBlocksWhileProgressing(t *testing.T) {
 	}
 	if reason != autoscalingReasonProgressing {
 		t.Fatalf("expected progressing block reason, got %q", reason)
+	}
+}
+
+func TestBuildAutoscalingStatusPreservesExternalIntentWhileBlocked(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		External: platformv1alpha1.AutoscalingExternalPolicy{
+			Enabled:           true,
+			Source:            platformv1alpha1.AutoscalingExternalIntentSourceKEDA,
+			RequestedReplicas: 4,
+		},
+		MaxReplicas: 4,
+	}
+	cluster.Status.Replicas.Desired = 3
+	setAutoscalingSteadyStateConditions(cluster)
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionProgressing,
+		Status:             metav1.ConditionTrue,
+		Reason:             "Restoring",
+		Message:            "restore is in progress",
+		LastTransitionTime: metav1.Now(),
+	})
+
+	reconciler := &NiFiClusterReconciler{}
+	status, _ := reconciler.buildAutoscalingStatusForTarget(ctx, cluster, managedStatefulSet("nifi", 3, "nifi-rev", "nifi-rev"))
+	if status.Reason != autoscalingReasonProgressing {
+		t.Fatalf("expected progressing reason, got %q", status.Reason)
+	}
+	if !status.External.Observed || status.External.Source != platformv1alpha1.AutoscalingExternalIntentSourceKEDA {
+		t.Fatalf("expected blocked status to retain external KEDA intent, got %#v", status.External)
 	}
 }
 
@@ -448,6 +543,56 @@ func TestReconcileEnforcedAutoscalingScalesUpOneStep(t *testing.T) {
 	}
 	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != 4 {
 		t.Fatalf("expected enforced autoscaling to scale to 4 replicas, got %d", got)
+	}
+}
+
+func TestReconcileEnforcedAutoscalingScalesUpOneStepForExternalIntent(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		ScaleUp: platformv1alpha1.AutoscalingScaleUpPolicy{
+			Enabled: true,
+		},
+		External: platformv1alpha1.AutoscalingExternalPolicy{
+			Enabled:           true,
+			Source:            platformv1alpha1.AutoscalingExternalIntentSourceKEDA,
+			RequestedReplicas: 5,
+		},
+		MaxReplicas: 5,
+	}
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		healthResponses: []healthResponse{{result: healthyResult(3)}},
+	}, cluster, statefulSet)
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected autoscaling scale-up to requeue, got %s", result.RequeueAfter)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if !updatedCluster.Status.Autoscaling.External.Observed || !updatedCluster.Status.Autoscaling.External.Actionable {
+		t.Fatalf("expected explicit external autoscaling status, got %#v", updatedCluster.Status.Autoscaling.External)
+	}
+	if !strings.HasPrefix(updatedCluster.Status.Autoscaling.LastScalingDecision, "ScaleUp:") {
+		t.Fatalf("expected controller scale-up decision, got %q", updatedCluster.Status.Autoscaling.LastScalingDecision)
+	}
+
+	updatedStatefulSet := &appsv1.StatefulSet{}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: statefulSet.Name}, updatedStatefulSet); err != nil {
+		t.Fatalf("get updated StatefulSet: %v", err)
+	}
+	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != 4 {
+		t.Fatalf("expected controller to scale up one step from external intent, got %d", got)
 	}
 }
 

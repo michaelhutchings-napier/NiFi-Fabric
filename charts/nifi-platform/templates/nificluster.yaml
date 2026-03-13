@@ -45,6 +45,12 @@ spec:
       enabled: {{ ternary "true" "false" .Values.cluster.autoscaling.scaleDown.enabled }}
       cooldown: {{ .Values.cluster.autoscaling.scaleDown.cooldown | quote }}
       stabilizationWindow: {{ .Values.cluster.autoscaling.scaleDown.stabilizationWindow | quote }}
+    external:
+      enabled: {{ ternary "true" "false" .Values.cluster.autoscaling.external.enabled }}
+      {{- if .Values.cluster.autoscaling.external.source }}
+      source: {{ .Values.cluster.autoscaling.external.source }}
+      {{- end }}
+      requestedReplicas: {{ .Values.cluster.autoscaling.external.requestedReplicas }}
     minReplicas: {{ .Values.cluster.autoscaling.minReplicas }}
     maxReplicas: {{ .Values.cluster.autoscaling.maxReplicas }}
     {{- if .Values.cluster.autoscaling.signals }}

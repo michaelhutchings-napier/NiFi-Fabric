@@ -102,4 +102,33 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if and (eq $mode "managed-cert-manager") (not (dig "tls" "certManager" "enabled" false .Values.nifi)) -}}
 {{- fail "mode=managed-cert-manager requires nifi.tls.certManager.enabled=true" -}}
 {{- end -}}
+{{- if .Values.keda.enabled -}}
+{{- if not $managed -}}
+{{- fail "keda.enabled=true requires a managed platform mode because KEDA targets NiFiCluster, not the standalone StatefulSet" -}}
+{{- end -}}
+{{- if not .Values.cluster.create -}}
+{{- fail "keda.enabled=true requires cluster.create=true so the chart renders the NiFiCluster target" -}}
+{{- end -}}
+{{- if ne .Values.cluster.autoscaling.mode "Enforced" -}}
+{{- fail "keda.enabled=true currently requires cluster.autoscaling.mode=Enforced" -}}
+{{- end -}}
+{{- if not .Values.cluster.autoscaling.scaleUp.enabled -}}
+{{- fail "keda.enabled=true currently requires cluster.autoscaling.scaleUp.enabled=true" -}}
+{{- end -}}
+{{- if not .Values.cluster.autoscaling.external.enabled -}}
+{{- fail "keda.enabled=true requires cluster.autoscaling.external.enabled=true" -}}
+{{- end -}}
+{{- if ne .Values.cluster.autoscaling.external.source "KEDA" -}}
+{{- fail "keda.enabled=true requires cluster.autoscaling.external.source=KEDA" -}}
+{{- end -}}
+{{- if not .Values.keda.triggers -}}
+{{- fail "keda.enabled=true requires at least one trigger in keda.triggers" -}}
+{{- end -}}
+{{- if lt (len .Values.keda.triggers) 1 -}}
+{{- fail "keda.enabled=true requires at least one trigger in keda.triggers" -}}
+{{- end -}}
+{{- if lt (int .Values.keda.maxReplicaCount) (int .Values.keda.minReplicaCount) -}}
+{{- fail "keda.maxReplicaCount must be greater than or equal to keda.minReplicaCount" -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}

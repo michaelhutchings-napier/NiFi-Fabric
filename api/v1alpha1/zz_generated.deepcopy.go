@@ -25,6 +25,7 @@ func (in *AutoscalingPolicy) DeepCopyInto(out *AutoscalingPolicy) {
 	*out = *in
 	out.ScaleUp = in.ScaleUp
 	out.ScaleDown = in.ScaleDown
+	out.External = in.External
 	if in.Signals != nil {
 		in, out := &in.Signals, &out.Signals
 		*out = make([]AutoscalingSignal, len(*in))
@@ -80,6 +81,24 @@ func (in *AutoscalingExecutionStatus) DeepCopy() *AutoscalingExecutionStatus {
 	return out
 }
 
+func (in *AutoscalingExternalStatus) DeepCopyInto(out *AutoscalingExternalStatus) {
+	*out = *in
+	if in.RequestedReplicas != nil {
+		in, out := &in.RequestedReplicas, &out.RequestedReplicas
+		*out = new(int32)
+		**out = **in
+	}
+}
+
+func (in *AutoscalingExternalStatus) DeepCopy() *AutoscalingExternalStatus {
+	if in == nil {
+		return nil
+	}
+	out := new(AutoscalingExternalStatus)
+	in.DeepCopyInto(out)
+	return out
+}
+
 func (in *AutoscalingStatus) DeepCopyInto(out *AutoscalingStatus) {
 	*out = *in
 	if in.RecommendedReplicas != nil {
@@ -110,6 +129,7 @@ func (in *AutoscalingStatus) DeepCopyInto(out *AutoscalingStatus) {
 		*out = (*in).DeepCopy()
 	}
 	in.Execution.DeepCopyInto(&out.Execution)
+	in.External.DeepCopyInto(&out.External)
 }
 
 func (in *AutoscalingStatus) DeepCopy() *AutoscalingStatus {

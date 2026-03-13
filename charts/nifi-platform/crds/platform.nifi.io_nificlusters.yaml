@@ -17,6 +17,10 @@ spec:
       served: true
       storage: true
       subresources:
+        scale:
+          specReplicasPath: .spec.autoscaling.external.requestedReplicas
+          statusReplicasPath: .status.replicas.desired
+          labelSelectorPath: .status.scaleSelector
         status: {}
       additionalPrinterColumns:
         - jsonPath: .spec.desiredState
@@ -121,6 +125,18 @@ spec:
                           type: string
                         stabilizationWindow:
                           type: string
+                    external:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                        source:
+                          type: string
+                          enum:
+                            - KEDA
+                        requestedReplicas:
+                          format: int32
+                          type: integer
                     minReplicas:
                       format: int32
                       type: integer
@@ -199,6 +215,8 @@ spec:
                     updated:
                       format: int32
                       type: integer
+                scaleSelector:
+                  type: string
                 clusterNodes:
                   type: object
                   properties:
@@ -310,6 +328,26 @@ spec:
                         blockedReason:
                           type: string
                         failureReason:
+                          type: string
+                    external:
+                      type: object
+                      properties:
+                        observed:
+                          type: boolean
+                        source:
+                          type: string
+                          enum:
+                            - KEDA
+                        requestedReplicas:
+                          format: int32
+                          type: integer
+                        actionable:
+                          type: boolean
+                        scaleDownIgnored:
+                          type: boolean
+                        reason:
+                          type: string
+                        message:
                           type: string
                 nodeOperation:
                   type: object

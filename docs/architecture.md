@@ -266,7 +266,79 @@ For this platform, the intended long-term direction is:
 
 This keeps the controller thin while preserving one place that owns destructive coordination.
 
+The current experimental KEDA slice implements that direction in the narrowest runtime form:
+
+- only the managed/platform layer participates
+- `charts/nifi` stays standalone-capable and KEDA-free
+- KEDA targets `NiFiCluster` through `/scale`
+- `/scale` writes `spec.autoscaling.external.requestedReplicas`
+- the controller interprets that field as external scale-up intent and still executes the real `StatefulSet.spec.replicas` change itself
+- unsupported external scale-down intent is surfaced in status and ignored
+- the focused `make kind-keda-scale-up-fast-e2e` gate now proves that contract live on kind without adding a second lifecycle executor
+
+Current KEDA support level:
+
+- optional and experimental
+- implemented only as an external scale-up intent source
+- shipped platform-chart KEDA resources target `NiFiCluster`, not the NiFi `StatefulSet`
+- the controller remains the sole executor of any real replica change
+- see [keda.md](keda.md) for the focused option comparison and the implemented contract
+
 ### Candidate Approaches
+
+#### KEDA as Design-Only or Future Integration
+
+Pros:
+
+- preserves the current one-control-plane runtime shape
+- does not force a new CRD field or scale subresource before the intent model is clear
+- keeps current autoscaling proof and support claims honest
+
+Cons:
+
+- no KEDA runtime path yet
+
+Recommendation:
+
+- still a valid fallback if the controller-owned scale surface ever proves too awkward
+- not the chosen path now that a bounded `NiFiCluster` intent surface exists
+
+#### KEDA as an External Recommendation or Intent Source
+
+Pros:
+
+- preserves controller-owned execution
+- treats KEDA as an optional trigger ecosystem rather than a lifecycle executor
+- aligns with the existing advisory-then-enforced autoscaling model
+
+Cons:
+
+- needs a controller-owned intent contract and GitOps ownership rules
+- KEDA still writes through the Kubernetes scaling path, so the controller must make scale-down rejection and execution ownership explicit
+- the generated HPA remains present even though it is not allowed to own the NiFi workload directly
+
+Recommendation:
+
+- chosen implementation model
+- first acceptable scope remains scale-up recommendation and scale-up intent only
+
+#### KEDA Targeting a Controller-Owned Intermediate Path
+
+Pros:
+
+- can preserve controller ownership of actual scale execution
+- gives KEDA a Kubernetes-native target other than the `StatefulSet`
+
+Cons:
+
+- still adds another policy writer through KEDA and the generated HPA
+- requires a controller-owned API surface and careful GitOps drift handling
+- risks making `NiFiCluster` look like a generic scale target if the contract grows beyond narrow external intent
+
+Recommendation:
+
+- acceptable only in a narrow form
+- implemented here through the `NiFiCluster` `/scale` subresource backed by `spec.autoscaling.external.requestedReplicas`
 
 #### Direct HPA on the StatefulSet
 
@@ -307,9 +379,9 @@ Cons for NiFi:
 
 Recommendation:
 
-- optional trigger source later
-- discouraged as the first implementation path
-- if adopted later, use it to recommend capacity intent, not to own the `StatefulSet` replica field directly
+- optional trigger source only
+- never the primary executor
+- the repo now supports only the controller-mediated `NiFiCluster` path, not direct `StatefulSet` mutation
 
 #### Custom Controller-Driven Autoscaling
 

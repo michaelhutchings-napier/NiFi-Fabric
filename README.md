@@ -108,9 +108,13 @@ Why direct HPA or KEDA-to-StatefulSet scaling is not the first step:
 
 KEDA position:
 
-- useful later as an optional trigger source
-- not recommended as the first implementation path
-- if used later, it should feed capacity intent into the controller plane instead of directly owning the `StatefulSet`
+- optional and experimental
+- implemented only as an external scale-up intent source that targets `NiFiCluster`, not the NiFi `StatefulSet`
+- implemented only in the managed/platform layer; `charts/nifi` remains KEDA-free
+- the controller still owns all actual scale execution, lifecycle precedence, and safe scale-down choreography
+- scale-down remains controller-native even when KEDA is enabled
+- the focused `make kind-keda-scale-up-fast-e2e` gate now proves the live KEDA-to-`/scale` scale-up path on kind
+- see [docs/keda.md](docs/keda.md) for the option comparison and the implemented contract
 
 Recommended order:
 
@@ -191,6 +195,13 @@ make kind-autoscaling-churn-fast-e2e
 make kind-autoscaling-churn-fast-e2e-reuse
 ```
 
+Focused KEDA intent-source runtime proof path:
+
+```bash
+make kind-keda-scale-up-fast-e2e
+make kind-keda-scale-up-fast-e2e-reuse
+```
+
 Fast profile note:
 
 - use the fast-profile targets for focused proof and rapid iteration only
@@ -230,6 +241,7 @@ What is proven:
 - focused LDAP evaluator path on kind
 - focused GitLab Flow Registry Client runtime proof on NiFi `2.8.0`
 - focused GitHub Flow Registry Client runtime proof on NiFi `2.8.0` with the fast profile
+- focused experimental KEDA intent-source runtime proof on NiFi `2.8.0` with the fast profile
 
 What is not proven:
 

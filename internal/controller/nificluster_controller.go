@@ -766,6 +766,7 @@ func (r *NiFiClusterReconciler) syncReplicaStatus(cluster *platformv1alpha1.NiFi
 		Ready:   target.Status.ReadyReplicas,
 		Updated: target.Status.UpdatedReplicas,
 	}
+	cluster.Status.ScaleSelector = metav1.FormatLabelSelector(target.Spec.Selector)
 	if cluster.Spec.DesiredState == platformv1alpha1.DesiredStateRunning && desiredReplicas > cluster.Status.Hibernation.BaselineReplicas {
 		cluster.Status.Hibernation.BaselineReplicas = desiredReplicas
 	}

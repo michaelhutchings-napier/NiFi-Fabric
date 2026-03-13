@@ -1,0 +1,33 @@
+# Experimental platform-chart overlay for controller-mediated KEDA integration.
+#
+# Requires a managed install of charts/nifi-platform plus a separate KEDA installation
+# in the cluster. The generated ScaledObject targets NiFiCluster, not the NiFi StatefulSet.
+mode: managed
+
+cluster:
+  autoscaling:
+    mode: Enforced
+    scaleUp:
+      enabled: true
+    scaleDown:
+      enabled: true
+    external:
+      enabled: true
+      source: KEDA
+      requestedReplicas: 2
+    minReplicas: 2
+    maxReplicas: 5
+    signals:
+      - QueuePressure
+
+keda:
+  enabled: true
+  pollingInterval: 30
+  cooldownPeriod: 300
+  minReplicaCount: 2
+  maxReplicaCount: 5
+  triggers:
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "70"

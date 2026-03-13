@@ -91,6 +91,20 @@ Mitigation:
 - prefer advisory autoscaling first
 - require any enforced scaling to flow through the existing `NiFiCluster` controller plane
 
+### KEDA Split-Control-Plane Risk
+
+Risk:
+
+- KEDA or its generated HPA becomes a second scaling control plane, either by mutating the `StatefulSet` directly or by introducing a controller-unclear desired replica contract
+
+Mitigation:
+
+- keep KEDA optional and narrow even now that a controller-owned external intent contract exists
+- reject direct `ScaledObject` targeting of the NiFi `StatefulSet`
+- limit the current slice to optional scale-up intent only and keep scale-down controller-native
+- keep GitOps ownership explicit for the external intent surface
+- require GitOps tooling to ignore or accept drift on `spec.autoscaling.external.requestedReplicas` when KEDA is enabled
+
 ### Signal Quality Mismatch
 
 Risk:

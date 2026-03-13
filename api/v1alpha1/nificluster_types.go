@@ -74,6 +74,12 @@ const (
 	AutoscalingSignalCPU           AutoscalingSignal = "CPU"
 )
 
+type AutoscalingExternalIntentSource string
+
+const (
+	AutoscalingExternalIntentSourceKEDA AutoscalingExternalIntentSource = "KEDA"
+)
+
 type AutoscalingExecutionPhase string
 
 const (
@@ -94,9 +100,16 @@ type AutoscalingPolicy struct {
 	Mode        AutoscalingMode            `json:"mode,omitempty"`
 	ScaleUp     AutoscalingScaleUpPolicy   `json:"scaleUp,omitempty"`
 	ScaleDown   AutoscalingScaleDownPolicy `json:"scaleDown,omitempty"`
+	External    AutoscalingExternalPolicy  `json:"external,omitempty"`
 	MinReplicas int32                      `json:"minReplicas,omitempty"`
 	MaxReplicas int32                      `json:"maxReplicas,omitempty"`
 	Signals     []AutoscalingSignal        `json:"signals,omitempty"`
+}
+
+type AutoscalingExternalPolicy struct {
+	Enabled           bool                            `json:"enabled,omitempty"`
+	Source            AutoscalingExternalIntentSource `json:"source,omitempty"`
+	RequestedReplicas int32                           `json:"requestedReplicas,omitempty"`
 }
 
 type AutoscalingScaleUpPolicy struct {
@@ -223,6 +236,16 @@ type AutoscalingExecutionStatus struct {
 	FailureReason      string                    `json:"failureReason,omitempty"`
 }
 
+type AutoscalingExternalStatus struct {
+	Observed          bool                            `json:"observed,omitempty"`
+	Source            AutoscalingExternalIntentSource `json:"source,omitempty"`
+	RequestedReplicas *int32                          `json:"requestedReplicas,omitempty"`
+	Actionable        bool                            `json:"actionable,omitempty"`
+	ScaleDownIgnored  bool                            `json:"scaleDownIgnored,omitempty"`
+	Reason            string                          `json:"reason,omitempty"`
+	Message           string                          `json:"message,omitempty"`
+}
+
 type AutoscalingStatus struct {
 	RecommendedReplicas *int32                       `json:"recommendedReplicas,omitempty"`
 	Reason              string                       `json:"reason,omitempty"`
@@ -234,6 +257,7 @@ type AutoscalingStatus struct {
 	LastScaleUpTime     *metav1.Time                 `json:"lastScaleUpTime,omitempty"`
 	LastScaleDownTime   *metav1.Time                 `json:"lastScaleDownTime,omitempty"`
 	Execution           AutoscalingExecutionStatus   `json:"execution,omitempty"`
+	External            AutoscalingExternalStatus    `json:"external,omitempty"`
 }
 
 type NiFiClusterStatus struct {
@@ -245,6 +269,7 @@ type NiFiClusterStatus struct {
 	TLS                          TLSStatus           `json:"tls"`
 	Rollout                      RolloutStatus       `json:"rollout"`
 	Replicas                     ReplicaStatus       `json:"replicas,omitempty"`
+	ScaleSelector                string              `json:"scaleSelector,omitempty"`
 	ClusterNodes                 ClusterNodesStatus  `json:"clusterNodes,omitempty"`
 	Hibernation                  HibernationStatus   `json:"hibernation,omitempty"`
 	Autoscaling                  AutoscalingStatus   `json:"autoscaling,omitempty"`
@@ -255,6 +280,7 @@ type NiFiClusterStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:subresource:scale:specpath=.spec.autoscaling.external.requestedReplicas,statuspath=.status.replicas.desired,selectorpath=.status.scaleSelector
 // +kubebuilder:resource:path=nificlusters,scope=Namespaced,categories=nifi
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=".spec.desiredState"
 // +kubebuilder:printcolumn:name="Ready",type="integer",JSONPath=".status.replicas.ready"

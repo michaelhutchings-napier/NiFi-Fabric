@@ -1,0 +1,25 @@
+{{- if and (eq (include "nifi-platform.managedMode" .) "true") .Values.cluster.create .Values.keda.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ printf "%s-keda" (include "nifi-platform.clusterName" .) | trunc 63 | trimSuffix "-" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nifi-platform.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: platform.nifi.io/v1alpha1
+    kind: NiFiCluster
+    name: {{ include "nifi-platform.clusterName" . }}
+  pollingInterval: {{ .Values.keda.pollingInterval }}
+  cooldownPeriod: {{ .Values.keda.cooldownPeriod }}
+  minReplicaCount: {{ .Values.keda.minReplicaCount }}
+  maxReplicaCount: {{ .Values.keda.maxReplicaCount }}
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          selectPolicy: Disabled
+  triggers:
+    {{- toYaml .Values.keda.triggers | nindent 4 }}
+{{- end }}

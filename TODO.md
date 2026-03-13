@@ -50,6 +50,11 @@ Completed in the scaffold:
    - highest ordinal first
    - reuse disconnect and offload before reducing replicas
    - no bulk scale-down and no bypass of the controller-owned lifecycle coordinator
+17. Keep the experimental KEDA path narrow:
+   - no direct `StatefulSet` targeting through KEDA or HPA
+   - no hidden second autoscaling control plane
+   - keep KEDA limited to optional external scale-up intent on `NiFiCluster`
+   - do not broaden KEDA into controller-bypassing scale-down behavior
 
 ## Current Managed Rollout Behavior
 

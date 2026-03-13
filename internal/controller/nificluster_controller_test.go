@@ -2597,6 +2597,23 @@ func TestReconcileResumesHibernationNodePreparationBeforeRecheckingGlobalHealth(
 	}
 }
 
+func TestSyncReplicaStatusPublishesScaleSelector(t *testing.T) {
+	cluster := managedCluster()
+	target := managedStatefulSet("nifi", 3, "nifi-rev", "nifi-rev")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+		readyPod("nifi-2", "nifi", "nifi-rev"),
+	}
+
+	reconciler := &NiFiClusterReconciler{}
+	reconciler.syncReplicaStatus(cluster, target, pods)
+
+	if cluster.Status.ScaleSelector != "app=nifi" {
+		t.Fatalf("expected scale selector app=nifi, got %q", cluster.Status.ScaleSelector)
+	}
+}
+
 func newTestReconciler(t *testing.T, healthChecker ClusterHealthChecker, objects ...client.Object) (*NiFiClusterReconciler, client.Client) {
 	t.Helper()
 

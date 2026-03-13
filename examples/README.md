@@ -60,6 +60,16 @@ There is also one optional focused fast overlay:
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml) or [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml).
   - The primary focused runtime commands are `make kind-platform-managed-fast-e2e` and `make kind-platform-managed-cert-manager-fast-e2e`.
 
+KEDA note:
+
+- [platform-managed-keda-values.yaml](platform-managed-keda-values.yaml) is an optional experimental overlay for KEDA-triggered external scale-up intent in managed mode
+- use it only with `charts/nifi-platform`, for example: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-values.yaml -f examples/platform-managed-keda-values.yaml`
+- it renders a `ScaledObject` that targets `NiFiCluster`, not the NiFi `StatefulSet`
+- it does not add any KEDA resources or values to `charts/nifi`
+- the controller still performs all actual scale-up and scale-down execution
+- the focused live runtime proof command is `make kind-keda-scale-up-fast-e2e`
+- see [../docs/keda.md](../docs/keda.md) for the current recommendation and ownership model
+
 There are also prepared authentication overlays:
 
 - [oidc-values.yaml](oidc-values.yaml)
