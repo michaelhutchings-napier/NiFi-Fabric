@@ -19,6 +19,7 @@ NiFi-Fabric is aimed at platform teams and application teams that want:
 - safe lifecycle operations for rollout, TLS handling, hibernation, and restore
 - controller-owned autoscaling rather than direct `StatefulSet` scaling by a second autoscaler
 - first-class managed authentication options
+- small named policy bundles for common viewer, editor, version-manager, and admin roles
 - a simpler product surface than a large NiFi-specific operator stack
 
 ## Why It Exists

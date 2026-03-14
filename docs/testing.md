@@ -23,6 +23,7 @@ Focused runtime proof in this repository includes:
 - controller-owned autoscaling focused flows on NiFi `2.8.0`
 - optional experimental KEDA intent-source flows on NiFi `2.8.0`
 - GitHub, GitLab, and Bitbucket Flow Registry Client focused flows on NiFi `2.8.0`
+- a GitHub versioned-flow save-to-registry workflow on NiFi `2.8.0`
 
 Current auth and exposure hardening notes:
 
@@ -55,6 +56,29 @@ What these focused gates prove:
 - AKS guidance is published but still conservative
 - OpenShift guidance is published but still conservative
 - Azure DevOps Flow Registry Client definitions are prepared and render-validated
+
+## Flow Registry Workflow Proof
+
+The current focused end-to-end workflow command is:
+
+- `make kind-flow-registry-github-workflow-fast-e2e`
+- `make kind-flow-registry-github-workflow-fast-e2e-reuse`
+
+What it proves:
+
+- NiFi `2.8.0` starts healthy with the chart-prepared GitHub Flow Registry Client overlay
+- the external client is created successfully through the NiFi runtime API
+- bucket discovery succeeds against the GitHub-compatible evaluator
+- the chart-seeded mutable-flow and flow-version-manager authz bundle is sufficient for child process-group creation and version-control attachment
+- a real user-driven save-to-registry workflow succeeds through the NiFi API
+- the versioned flow snapshot is written into the external Git-backed registry path and the process group reports attached version-control state
+
+What it does not prove:
+
+- controller-managed flow deployment
+- automatic synchronization
+- classic NiFi Registry integration
+- provider parity beyond the current GitHub workflow proof
 
 ## Customer Meaning of Support Levels
 

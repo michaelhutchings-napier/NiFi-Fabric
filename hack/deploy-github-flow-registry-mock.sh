@@ -6,7 +6,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NAMESPACE="${NAMESPACE:-nifi}"
 DEPLOYMENT_NAME="${DEPLOYMENT_NAME:-github-mock}"
 SERVICE_NAME="${SERVICE_NAME:-github-mock}"
-IMAGE="${IMAGE:-python:3.12-slim}"
+IMAGE="${IMAGE:-${NIFI_IMAGE:-apache/nifi:2.8.0}}"
+CONFIG_SHA="$(sha256sum "${ROOT_DIR}/hack/github-flow-registry-mock.py" | awk '{print $1}')"
 
 kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl -n "${NAMESPACE}" create configmap "${DEPLOYMENT_NAME}" \
@@ -25,13 +26,16 @@ spec:
       app: ${DEPLOYMENT_NAME}
   template:
     metadata:
+      annotations:
+        checksum/config: ${CONFIG_SHA}
       labels:
         app: ${DEPLOYMENT_NAME}
     spec:
       containers:
       - name: mock
         image: ${IMAGE}
-        command: ["python", "/app/server.py"]
+        imagePullPolicy: IfNotPresent
+        command: ["python3", "/app/server.py"]
         ports:
         - containerPort: 8080
           name: http
@@ -56,5 +60,4 @@ spec:
     targetPort: 8080
 EOF
 
-kubectl -n "${NAMESPACE}" rollout restart deployment/"${DEPLOYMENT_NAME}" >/dev/null
 kubectl -n "${NAMESPACE}" rollout status deployment/"${DEPLOYMENT_NAME}" --timeout=3m

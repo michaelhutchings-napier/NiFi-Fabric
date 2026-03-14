@@ -76,3 +76,216 @@ func TestBitbucketFlowRegistryKindExampleRendersPreparedClient(t *testing.T) {
 		}
 	}
 }
+
+func TestMutableFlowAuthzExampleRendersRootProcessGroupBootstrapPolicies(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"-f", "examples/managed/values.yaml",
+		"-f", "examples/mutable-flow-authz-values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+
+	for _, want := range []string{
+		`resource="/process-groups/__ROOT_PROCESS_GROUP_ID__" action="R"`,
+		`resource="/process-groups/__ROOT_PROCESS_GROUP_ID__" action="W"`,
+		`resource="/flow" action="R"`,
+		`resource="/controller" action="R"`,
+		`Bootstrapping mutable flow authorizations from the discovered root process group id`,
+		`authorizations.template.xml`,
+		`__ROOT_PROCESS_GROUP_ID__`,
+		`root_group.get("instanceIdentifier")`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestMutableFlowAuthzRejectsLdapSync(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"-f", "examples/ldap-values.yaml",
+		"-f", "examples/mutable-flow-authz-values.yaml",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail for ldapSync mutableFlow\n%s", output)
+	}
+	if !strings.Contains(output, "authz.capabilities.mutableFlow is not supported when authz.mode=ldapSync") {
+		t.Fatalf("expected ldapSync validation failure in output\n%s", output)
+	}
+}
+
+func TestMutableFlowAuthzSupportsOIDCExternalClaimGroups(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"-f", "examples/managed/values.yaml",
+		"-f", "examples/oidc-values.yaml",
+		"-f", "examples/oidc-group-claims-values.yaml",
+		"-f", "examples/oidc-kind-values.yaml",
+		"--set", "authz.capabilities.mutableFlow.enabled=true",
+		"--set", "authz.capabilities.mutableFlow.groups[0]=nifi-flow-operators",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+
+	for _, want := range []string{
+		`resource="/process-groups/__ROOT_PROCESS_GROUP_ID__" action="R"`,
+		`resource="/process-groups/__ROOT_PROCESS_GROUP_ID__" action="W"`,
+		`<group identifier="1163e273-26f6-87ef-bd86-1506e7c3e6c7"/>`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestMutableFlowAuthzRejectsUnknownTargetGroup(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"-f", "examples/managed/values.yaml",
+		"--set", "authz.capabilities.mutableFlow.enabled=true",
+		"--set", "authz.capabilities.mutableFlow.includeInitialAdmin=false",
+		"--set", "authz.capabilities.mutableFlow.groups[0]=missing-group",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail for unknown mutableFlow group\n%s", output)
+	}
+	if !strings.Contains(output, `authz.capabilities.mutableFlow.groups[0] contains "missing-group"`) {
+		t.Fatalf("expected unknown-group validation failure in output\n%s", output)
+	}
+}
+
+func TestMutableFlowAuthzRejectsEmptyTargets(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"-f", "examples/managed/values.yaml",
+		"--set", "authz.capabilities.mutableFlow.enabled=true",
+		"--set", "authz.capabilities.mutableFlow.includeInitialAdmin=false",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail when mutableFlow has no targets\n%s", output)
+	}
+	if !strings.Contains(output, "authz.capabilities.mutableFlow requires at least one target group or includeInitialAdmin=true") {
+		t.Fatalf("expected empty-target validation failure in output\n%s", output)
+	}
+}
+
+func TestNamedPolicyBundlesRenderExpectedPolicies(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"-f", "examples/managed/values.yaml",
+		"--set", "authz.applicationGroups[0]=nifi-viewers",
+		"--set", "authz.applicationGroups[1]=nifi-editors",
+		"--set", "authz.applicationGroups[2]=nifi-version-managers",
+		"--set", "authz.bundles.viewer.groups[0]=nifi-viewers",
+		"--set", "authz.bundles.editor.groups[0]=nifi-editors",
+		"--set", "authz.bundles.flowVersionManager.groups[0]=nifi-version-managers",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+
+	for _, want := range []string{
+		`resource="/flow" action="R"`,
+		`resource="/controller" action="R"`,
+		`resource="/process-groups/__ROOT_PROCESS_GROUP_ID__" action="R"`,
+		`resource="/process-groups/__ROOT_PROCESS_GROUP_ID__" action="W"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestNamedPolicyBundlesSupportOIDCExternalClaimGroups(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"-f", "examples/managed/values.yaml",
+		"-f", "examples/oidc-values.yaml",
+		"-f", "examples/oidc-group-claims-values.yaml",
+		"-f", "examples/oidc-kind-values.yaml",
+		"--set", "authz.bundles.viewer.groups[0]=nifi-flow-observers",
+		"--set", "authz.bundles.editor.groups[0]=nifi-flow-operators",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+
+	for _, want := range []string{
+		`<group identifier="0881bb71-9b50-c83c-08ac-ada65cb2cef2"/>`,
+		`<group identifier="1163e273-26f6-87ef-bd86-1506e7c3e6c7"/>`,
+		`resource="/process-groups/__ROOT_PROCESS_GROUP_ID__" action="W"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestGitHubWorkflowExampleRendersFlowVersionManagerBundle(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"-f", "examples/managed/values.yaml",
+		"-f", "examples/nifi-2.8.0-values.yaml",
+		"-f", "examples/github-flow-registry-kind-values.yaml",
+		"-f", "examples/test-fast-values.yaml",
+		"-f", "examples/github-flow-registry-workflow-values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+
+	for _, want := range []string{
+		`"provider": "github"`,
+		`"implementationClass": "org.apache.nifi.github.GitHubFlowRegistryClient"`,
+		`resource="/process-groups/__ROOT_PROCESS_GROUP_ID__" action="R"`,
+		`resource="/process-groups/__ROOT_PROCESS_GROUP_ID__" action="W"`,
+		`Bootstrapping mutable flow authorizations from the discovered root process group id`,
+		`replicas: 1`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestNamedPolicyBundlesRejectUnknownTargetGroup(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"-f", "examples/managed/values.yaml",
+		"--set", "authz.bundles.viewer.groups[0]=missing-group",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail for unknown named-bundle group\n%s", output)
+	}
+	if !strings.Contains(output, `authz.bundles.viewer.groups[0] contains "missing-group"`) {
+		t.Fatalf("expected unknown-group validation failure in output\n%s", output)
+	}
+}
+
+func TestNamedPolicyBundlesRejectLdapSyncNonAdminBundles(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"-f", "examples/ldap-values.yaml",
+		"--set", "authz.bundles.viewer.includeInitialAdmin=true",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail for ldapSync viewer bundle\n%s", output)
+	}
+	if !strings.Contains(output, "authz.bundles.viewer is not supported when authz.mode=ldapSync") {
+		t.Fatalf("expected ldapSync named-bundle validation failure in output\n%s", output)
+	}
+}

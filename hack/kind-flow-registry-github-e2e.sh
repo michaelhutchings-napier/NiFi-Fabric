@@ -5,7 +5,14 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${ROOT_DIR}/hack/install-common.sh"
 
-KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-nifi-fabric-flow-registry-github}"
+WORKFLOW_PROOF="${WORKFLOW_PROOF:-false}"
+if [[ -z "${KIND_CLUSTER_NAME:-}" ]]; then
+  if [[ "${WORKFLOW_PROOF}" == "true" ]]; then
+    KIND_CLUSTER_NAME="nifi-fabric-flow-registry-github-workflow"
+  else
+    KIND_CLUSTER_NAME="nifi-fabric-flow-registry-github"
+  fi
+fi
 NAMESPACE="${NAMESPACE:-nifi}"
 HELM_RELEASE="${HELM_RELEASE:-nifi}"
 CONTROLLER_NAMESPACE="${CONTROLLER_NAMESPACE:-nifi-system}"
@@ -63,21 +70,26 @@ helm_values_args=(
   -f "${ROOT_DIR}/examples/github-flow-registry-kind-values.yaml"
 )
 
+proof_label="GitHub Flow Registry proof"
 profile_label=""
 if [[ "${FAST_PROFILE}" == "true" ]]; then
   helm_values_args+=(-f "${ROOT_DIR}/${FAST_VALUES_FILE}")
   profile_label=" with fast profile"
+fi
+if [[ "${WORKFLOW_PROOF}" == "true" ]]; then
+  helm_values_args+=(-f "${ROOT_DIR}/examples/github-flow-registry-workflow-values.yaml")
+  proof_label="GitHub Flow Registry workflow proof"
 fi
 
 phase "Checking prerequisites"
 require_local_prereqs
 
 if [[ "${SKIP_KIND_BOOTSTRAP}" == "true" ]]; then
-  phase "Reusing existing kind cluster for NiFi ${NIFI_IMAGE##*:} GitHub Flow Registry proof"
+  phase "Reusing existing kind cluster for NiFi ${NIFI_IMAGE##*:} ${proof_label}"
   configure_kind_cluster_access "${KIND_CLUSTER_NAME}"
   require_reuse_prereqs
 else
-  phase "Creating fresh kind cluster for NiFi ${NIFI_IMAGE##*:} GitHub Flow Registry proof"
+  phase "Creating fresh kind cluster for NiFi ${NIFI_IMAGE##*:} ${proof_label}"
   ensure_fresh_cluster
   configure_kind_cluster_access "${KIND_CLUSTER_NAME}"
 fi
@@ -98,7 +110,7 @@ kubectl -n "${NAMESPACE}" create secret generic "${FLOW_REGISTRY_SECRET_NAME}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 phase "Deploying GitHub-compatible evaluator service"
-NAMESPACE="${NAMESPACE}" bash "${ROOT_DIR}/hack/deploy-github-flow-registry-mock.sh"
+NAMESPACE="${NAMESPACE}" NIFI_IMAGE="${NIFI_IMAGE}" bash "${ROOT_DIR}/hack/deploy-github-flow-registry-mock.sh"
 
 if [[ "${SKIP_KIND_BOOTSTRAP}" == "true" ]]; then
   phase "Reusing existing CRD and controller"
@@ -127,15 +139,26 @@ kubectl apply -f "${ROOT_DIR}/examples/managed/nificluster.yaml"
 phase "Verifying base NiFi cluster health"
 run_make kind-health KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NAMESPACE="${NAMESPACE}" HELM_RELEASE="${HELM_RELEASE}"
 
-phase "Creating and exercising the GitHub Flow Registry client"
-bash "${ROOT_DIR}/hack/prove-github-flow-registry-client.sh" \
-  --namespace "${NAMESPACE}" \
-  --release "${HELM_RELEASE}" \
-  --client-name "${FLOW_REGISTRY_CLIENT_NAME}" \
-  --expect-bucket team-a \
-  --expect-bucket team-b
+if [[ "${WORKFLOW_PROOF}" == "true" ]]; then
+  phase "Creating the GitHub Flow Registry client and proving a versioned-flow save workflow"
+  bash "${ROOT_DIR}/hack/prove-github-flow-registry-workflow.sh" \
+    --namespace "${NAMESPACE}" \
+    --release "${HELM_RELEASE}" \
+    --client-name "${FLOW_REGISTRY_CLIENT_NAME}" \
+    --workflow-bucket team-a
+  success_title="NiFi ${NIFI_IMAGE##*:} GitHub Flow Registry workflow proof completed"
+else
+  phase "Creating and exercising the GitHub Flow Registry client"
+  bash "${ROOT_DIR}/hack/prove-github-flow-registry-client.sh" \
+    --namespace "${NAMESPACE}" \
+    --release "${HELM_RELEASE}" \
+    --client-name "${FLOW_REGISTRY_CLIENT_NAME}" \
+    --expect-bucket team-a \
+    --expect-bucket team-b
+  success_title="NiFi ${NIFI_IMAGE##*:} GitHub Flow Registry client runtime proof completed"
+fi
 
-print_success_footer "NiFi ${NIFI_IMAGE##*:} GitHub Flow Registry client runtime proof completed" \
+print_success_footer "${success_title}" \
   "make kind-health KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}" \
   "kubectl -n ${NAMESPACE} get configmap ${HELM_RELEASE}-flow-registry-clients -o jsonpath='{.data.clients\\.json}'" \
   "kubectl -n ${NAMESPACE} logs deployment/github-mock --tail=100" \

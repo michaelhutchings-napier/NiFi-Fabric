@@ -21,12 +21,14 @@ NiFi-Fabric is built around a small, explainable split of responsibilities.
 - optional trust-manager `Bundle` resources when that mode is enabled
 - metrics Services and ServiceMonitors
 - prepared Flow Registry Client catalog files
+- bounded authz bootstrap bundles for mutable flow work
 
 ### NiFi owns
 
 - NiFi-native clustering behavior
 - NiFi-native auth provider behavior
 - NiFi-native API and runtime signals
+- persisted file-provider authorization state after chart bootstrap
 
 ### The controller owns
 

@@ -168,10 +168,15 @@ spec:
           cp /config/authorizers.xml /work-conf/authorizers.xml
           cp /config/login-identity-providers.xml /work-conf/login-identity-providers.xml
           cp /config/users.xml /work-conf/users.xml
-          if [ "${AUTHZ_MODE}" = "ldapSync" ] || { [ "${AUTHZ_MODE}" = "externalClaimGroups" ] && [ "{{ len .Values.authz.policies }}" = "0" ]; }; then
+          if [ "${AUTHZ_MODE}" = "ldapSync" ] || { [ "${AUTHZ_MODE}" = "externalClaimGroups" ] && [ "{{ len .Values.authz.policies }}" = "0" ] && [ "{{ ternary "true" "false" .Values.authz.capabilities.mutableFlow.enabled }}" != "true" ] && [ "{{ include "nifi.namedPolicyBundlesEnabled" . }}" != "true" ]; }; then
+            rm -f /work-conf/authorizations.xml
+            rm -f /work-conf/authorizations.template.xml
+          elif grep -q "__ROOT_PROCESS_GROUP_ID__" /config/authorizations.xml; then
+            cp /config/authorizations.xml /work-conf/authorizations.template.xml
             rm -f /work-conf/authorizations.xml
           else
             cp /config/authorizations.xml /work-conf/authorizations.xml
+            rm -f /work-conf/authorizations.template.xml
           fi
           sed -i "s|^java.arg.2=.*$|java.arg.2=-Xms{{ .Values.nifi.jvmHeapInit }}|" /work-conf/bootstrap.conf
           sed -i "s|^java.arg.3=.*$|java.arg.3=-Xmx{{ .Values.nifi.jvmHeapMax }}|" /work-conf/bootstrap.conf
@@ -233,9 +238,11 @@ spec:
             replace_token /work-conf/users.xml "__NODE_IDENTITY__" "${NODE_IDENTITY_ESCAPED}"
             replace_token /work-conf/users.xml "__NODE_IDENTITY_ID__" "${NODE_IDENTITY_ID}"
           fi
-          if [ -f /work-conf/authorizations.xml ]; then
-            replace_token /work-conf/authorizations.xml "__NODE_IDENTITY_ID__" "${NODE_IDENTITY_ID}"
-          fi
+          for authz_file in /work-conf/authorizations.xml /work-conf/authorizations.template.xml; do
+            if [ -f "${authz_file}" ]; then
+              replace_token "${authz_file}" "__NODE_IDENTITY_ID__" "${NODE_IDENTITY_ID}"
+            fi
+          done
           replace_token /work-conf/authorizers.xml "__NODE_IDENTITY__" "${NODE_IDENTITY_ESCAPED}"
 
           if [ "${AUTH_MODE}" = "singleUser" ]; then
@@ -245,9 +252,11 @@ spec:
               replace_token /work-conf/users.xml "__SINGLE_USER_IDENTITY__" "${SINGLE_USER_IDENTITY_ESCAPED}"
               replace_token /work-conf/users.xml "__ADMIN_IDENTITY_ID__" "${SINGLE_USER_IDENTITY_ID}"
             fi
-            if [ -f /work-conf/authorizations.xml ]; then
-              replace_token /work-conf/authorizations.xml "__ADMIN_IDENTITY_ID__" "${SINGLE_USER_IDENTITY_ID}"
-            fi
+            for authz_file in /work-conf/authorizations.xml /work-conf/authorizations.template.xml; do
+              if [ -f "${authz_file}" ]; then
+                replace_token "${authz_file}" "__ADMIN_IDENTITY_ID__" "${SINGLE_USER_IDENTITY_ID}"
+              fi
+            done
             replace_token /work-conf/authorizers.xml "__SINGLE_USER_IDENTITY__" "${SINGLE_USER_IDENTITY_ESCAPED}"
           else
             if [ -f /work-conf/users.xml ]; then
@@ -261,9 +270,11 @@ spec:
               admin_identity="$(xmlstarlet sel -t -v "/tenants/users/user[@identifier='__ADMIN_IDENTITY_ID__']/@identity" /work-conf/users.xml 2>/dev/null || true)"
               if [ -n "${admin_identity}" ] && [ "${admin_identity}" != "__SINGLE_USER_IDENTITY__" ]; then
                 replace_token /work-conf/users.xml "__ADMIN_IDENTITY_ID__" "$(stable_id "${admin_identity}")"
-                if [ -f /work-conf/authorizations.xml ]; then
-                  replace_token /work-conf/authorizations.xml "__ADMIN_IDENTITY_ID__" "$(stable_id "${admin_identity}")"
-                fi
+                for authz_file in /work-conf/authorizations.xml /work-conf/authorizations.template.xml; do
+                  if [ -f "${authz_file}" ]; then
+                    replace_token "${authz_file}" "__ADMIN_IDENTITY_ID__" "$(stable_id "${admin_identity}")"
+                  fi
+                done
                 replace_token /work-conf/authorizers.xml "__INITIAL_ADMIN_IDENTITY__" "${admin_identity}"
               fi
             fi
@@ -344,9 +355,40 @@ spec:
         - /bin/sh
         - -ec
         - |
+          bootstrap_root_process_group_authorizations() {
+            if [ ! -f /opt/nifi/nifi-current/conf/authorizations.template.xml ]; then
+              return 0
+            fi
+
+            echo "Bootstrapping mutable flow authorizations from the discovered root process group id"
+            /opt/nifi/nifi-current/bin/nifi.sh start
+
+            root_group_id=""
+            for _ in $(seq 1 90); do
+              if root_group_id="$(
+                python3 -c 'import gzip, json, os, sys; path="/opt/nifi/nifi-current/conf/flow.json.gz"; payload=json.load(gzip.open(path, "rt")) if os.path.exists(path) else {}; root_group=payload.get("rootGroup", {}) or {}; candidates=[root_group.get("instanceIdentifier"), payload.get("rootGroupIdentifier"), payload.get("rootGroupId"), root_group.get("identifier"), root_group.get("id")]; value=next((candidate for candidate in candidates if candidate), ""); print(value) if value else sys.exit(1)' 2>/dev/null
+              )" && [ -n "${root_group_id}" ]; then
+                break
+              fi
+              sleep 2
+            done
+
+            /opt/nifi/nifi-current/bin/nifi.sh stop >/dev/null 2>&1 || true
+
+            if [ -z "${root_group_id}" ]; then
+              echo "failed to discover the NiFi root process group id for mutable flow authz bootstrap" >&2
+              exit 1
+            fi
+
+            cp /opt/nifi/nifi-current/conf/authorizations.template.xml /opt/nifi/nifi-current/conf/authorizations.xml
+            sed -i "s|__ROOT_PROCESS_GROUP_ID__|${root_group_id}|g" /opt/nifi/nifi-current/conf/authorizations.xml
+            rm -f /opt/nifi/nifi-current/conf/authorizations.template.xml
+          }
+
           {{- if eq (include "nifi.authMode" .) "singleUser" }}
           /opt/nifi/nifi-current/bin/nifi.sh set-single-user-credentials "${SINGLE_USER_CREDENTIALS_USERNAME}" "${SINGLE_USER_CREDENTIALS_PASSWORD}"
           {{- end }}
+          bootstrap_root_process_group_authorizations
           /opt/nifi/nifi-current/bin/nifi.sh run &
           nifi_pid="$!"
           tail -F --pid="${nifi_pid}" /opt/nifi/nifi-current/logs/nifi-app.log &

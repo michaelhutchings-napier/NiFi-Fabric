@@ -108,6 +108,13 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | `authz.bootstrap.initialAdminGroup` | string | Initial admin group bootstrap value. | No | `""` |
 | `authz.bootstrap.initialAdminIdentity` | string | Initial admin identity bootstrap value. | No | `""` |
 | `authz.applicationGroups[]` | object list | Application groups seeded into NiFi. | No | `[]` |
+| `authz.bundles.viewer.*` | object | Named read-only bundle binding for viewer groups. | No | see values file |
+| `authz.bundles.editor.*` | object | Named process-group editing bundle binding. | No | see values file |
+| `authz.bundles.flowVersionManager.*` | object | Named version-control workflow bundle binding. | No | see values file |
+| `authz.bundles.admin.*` | object | Named admin bundle binding. | No | see values file |
+| `authz.capabilities.mutableFlow.enabled` | boolean | Enables the bounded mutable-flow capability bundle for inherited root-canvas process-group write and process-group-level version-control access. | No | `false` |
+| `authz.capabilities.mutableFlow.includeInitialAdmin` | boolean | Also grants the mutable-flow bundle to the bootstrap admin path. | No | `true` |
+| `authz.capabilities.mutableFlow.groups[]` | string list | Seeded NiFi groups that should receive the mutable-flow bundle. Each group must also be seeded through `authz.applicationGroups[]` or `authz.bootstrap.initialAdminGroup`. | No | `[]` |
 | `authz.policies[]` | object list | File-managed policy definitions. | No | `[]` |
 
 ## Observability and Metrics

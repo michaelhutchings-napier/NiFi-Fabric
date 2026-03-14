@@ -127,6 +127,15 @@ There are also prepared authentication overlays:
   - The current chart now renders the richer policy file in a NiFi 2-compatible order instead of crashing at startup.
   - End-to-end browser-flow authorization proof for observer, operator, and admin groups is still conservative on the current local Keycloak `26.x` path.
 
+- [mutable-flow-authz-values.yaml](mutable-flow-authz-values.yaml)
+  - Enables the bounded mutable-flow capability bundle for chart-managed groups.
+  - Seeds the root canvas policies needed for process-group editing and version-control actions.
+  - Compose it with [managed/values.yaml](managed/values.yaml) or with the OIDC group-claims overlays when those external groups should be allowed to edit flows.
+
+- [authz-policy-bundles-values.yaml](authz-policy-bundles-values.yaml)
+  - Enables the recommended named policy bundles for viewer, editor, and version-manager group bindings.
+  - Compose it with [managed/values.yaml](managed/values.yaml).
+
 - [oidc-kind-values.yaml](oidc-kind-values.yaml)
   - Focused kind OIDC overlay.
   - Keeps the flow internal to the cluster.
@@ -167,6 +176,12 @@ There are also prepared Flow Registry Client overlays:
   - Focused kind GitHub Flow Registry Client runtime overlay.
   - Compose with [managed/values.yaml](managed/values.yaml), [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml), and [test-fast-values.yaml](test-fast-values.yaml).
   - The focused runtime commands are `make kind-flow-registry-github-fast-e2e` and `make kind-flow-registry-github-fast-e2e-reuse`.
+
+- [github-flow-registry-workflow-values.yaml](github-flow-registry-workflow-values.yaml)
+  - Focused GitHub versioned-flow workflow overlay.
+  - Adds the bounded `flowVersionManager` authz bundle and single-node shape used for the save-to-registry proof.
+  - Compose with [managed/values.yaml](managed/values.yaml), [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml), [github-flow-registry-kind-values.yaml](github-flow-registry-kind-values.yaml), and [test-fast-values.yaml](test-fast-values.yaml).
+  - The focused runtime commands are `make kind-flow-registry-github-workflow-fast-e2e` and `make kind-flow-registry-github-workflow-fast-e2e-reuse`.
 
 - [gitlab-flow-registry-values.yaml](gitlab-flow-registry-values.yaml)
   - Prepared GitLab Flow Registry Client catalog entry.
@@ -237,6 +252,7 @@ Flow Registry Client notes:
 - there is no controller-managed flow import or synchronization
 - the focused kind proof covers the GitLab client path on NiFi `2.8.0` against a GitLab-compatible evaluator service
 - the focused kind proof also covers the GitHub client path on NiFi `2.8.0` against a GitHub-compatible evaluator service with the fast profile
+- the focused kind proof also covers a user-driven GitHub save-to-registry workflow on NiFi `2.8.0`
 - the focused kind proof also covers the Bitbucket client path on NiFi `2.8.0` against a Bitbucket-compatible evaluator service with the fast profile
 
 ## Standalone

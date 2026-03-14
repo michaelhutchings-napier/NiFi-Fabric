@@ -52,12 +52,16 @@ NiFi-Fabric keeps the product surface small and explicit.
 - OIDC for managed browser-facing identity
 - LDAP for enterprise directory integration
 - OIDC and LDAP are first-class managed auth options
+- named viewer, editor, flow-version-manager, and admin bundles provide the recommended customer-facing authz path
+- bounded mutable-flow authz bootstrap can seed the inherited root-canvas policies needed for process-group editing and process-group-level version-control actions
 - richer OIDC group-claims policy seeding is supported in the chart, with current kind browser-flow proof still being hardened conservatively
 
 ## Flow Registry Clients
 
 - Git-based Flow Registry Clients are the supported modern direction
 - GitHub, GitLab, and Bitbucket paths have focused runtime proof on NiFi `2.8.0`
+- GitHub also has a focused end-to-end save-to-registry workflow proof on NiFi `2.8.0`
+- the workflow proof is user-driven through the NiFi API; it does not introduce controller-managed flow deployment or synchronization
 - Azure DevOps remains prepared and render-validated
 
 ## Observability

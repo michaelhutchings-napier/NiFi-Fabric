@@ -1,0 +1,12 @@
+# Enable bounded mutable-flow authorization bootstrap for file-backed NiFi authz.
+# This seeds the root-process-group read/write policies needed for process-group
+# editing and version-control actions under the main canvas.
+authz:
+  applicationGroups:
+  - flow-editors
+  capabilities:
+    mutableFlow:
+      enabled: true
+      includeInitialAdmin: true
+      groups:
+      - flow-editors

@@ -34,9 +34,28 @@ Use platform chart values under:
 ## Support Level
 
 - GitHub: focused runtime proof on NiFi `2.8.0`
+- GitHub: focused end-to-end save-to-registry workflow proof on NiFi `2.8.0`
 - GitLab: focused runtime proof on NiFi `2.8.0`
 - Bitbucket: focused runtime proof on NiFi `2.8.0`
 - Azure DevOps: prepared definition, render-validated
+
+## Current End-to-End Workflow Proof
+
+The first bounded workflow proof uses GitHub on NiFi `2.8.0`.
+
+What it proves:
+
+- the chart-prepared external client is usable through the NiFi runtime API
+- bucket discovery works
+- a user can create a child process group with the seeded mutable-flow bundle
+- a user can save that process group to the external Git-backed registry through NiFi version control APIs
+
+What remains manual or out of scope:
+
+- importing flows remains user-driven
+- deployment remains user-driven
+- there is no controller-managed flow synchronization
+- there are no flow CRDs
 
 ## What This Feature Does Not Do
 

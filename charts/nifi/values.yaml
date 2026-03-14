@@ -233,6 +233,33 @@ authz:
     initialAdminGroup: ""
     initialAdminIdentity: ""
   applicationGroups: []
+  bundles:
+    # -- Recommended named policy bundles for common customer roles.
+    # These compile down to the same file-managed policies the chart already supports.
+    # Keep `authz.policies` for exceptions rather than as the default customer path.
+    viewer:
+      groups: []
+      includeInitialAdmin: false
+    editor:
+      groups: []
+      includeInitialAdmin: false
+    flowVersionManager:
+      groups: []
+      includeInitialAdmin: false
+    admin:
+      groups: []
+      includeInitialAdmin: false
+  capabilities:
+    # -- Bounded built-in capability bundles for common NiFi access patterns.
+    # `mutableFlow` seeds the inherited root-canvas policies needed for child
+    # process-group create/edit work and process-group-level version-control
+    # actions without introducing a general policy control plane.
+    # It intentionally does not seed policy management, tenant management, or
+    # parameter-context administration.
+    mutableFlow:
+      enabled: false
+      includeInitialAdmin: true
+      groups: []
   policies: []
 
 # ------------------------------------------------------------------------------

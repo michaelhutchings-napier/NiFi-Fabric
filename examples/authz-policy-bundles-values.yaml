@@ -1,0 +1,18 @@
+# Prepared named policy-bundle overlay.
+# Compose with examples/managed/values.yaml.
+
+authz:
+  applicationGroups:
+  - nifi-viewers
+  - nifi-editors
+  - nifi-version-managers
+  bundles:
+    viewer:
+      groups:
+      - nifi-viewers
+    editor:
+      groups:
+      - nifi-editors
+    flowVersionManager:
+      groups:
+      - nifi-version-managers

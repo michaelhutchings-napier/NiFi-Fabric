@@ -80,6 +80,33 @@
     {{- end -}}
   {{- end -}}
 {{- end -}}
+{{- $bundleTargets := dict "viewer" .Values.authz.bundles.viewer "editor" .Values.authz.bundles.editor "flowVersionManager" .Values.authz.bundles.flowVersionManager "admin" .Values.authz.bundles.admin -}}
+{{- range $bundleName, $bundle := $bundleTargets }}
+  {{- if and (eq $authzMode "ldapSync") (ne $bundleName "admin") (or $bundle.includeInitialAdmin (gt (len $bundle.groups) 0)) -}}
+    {{- fail (printf "authz.bundles.%s is not supported when authz.mode=ldapSync; ldapSync currently supports only the bootstrap admin path through authz.bootstrap.*" $bundleName) -}}
+  {{- end -}}
+  {{- if and (eq $authzMode "ldapSync") (eq $bundleName "admin") (gt (len $bundle.groups) 0) -}}
+    {{- fail "authz.bundles.admin.groups is not supported when authz.mode=ldapSync; use authz.bootstrap.initialAdminGroup for the LDAP bootstrap admin path" -}}
+  {{- end -}}
+  {{- range $index, $group := $bundle.groups -}}
+    {{- if not (has $group $seededGroups) -}}
+      {{- fail (printf "authz.bundles.%s.groups[%d] contains %q, but bundle targets must also be present in authz.applicationGroups or authz.bootstrap.initialAdminGroup" $bundleName $index $group) -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- if .Values.authz.capabilities.mutableFlow.enabled -}}
+  {{- if eq $authzMode "ldapSync" -}}
+    {{- fail "authz.capabilities.mutableFlow is not supported when authz.mode=ldapSync; this slice only supports file-backed authorization modes" -}}
+  {{- end -}}
+  {{- if and (not .Values.authz.capabilities.mutableFlow.includeInitialAdmin) (eq (len .Values.authz.capabilities.mutableFlow.groups) 0) -}}
+    {{- fail "authz.capabilities.mutableFlow requires at least one target group or includeInitialAdmin=true" -}}
+  {{- end -}}
+  {{- range $index, $group := .Values.authz.capabilities.mutableFlow.groups -}}
+    {{- if not (has $group $seededGroups) -}}
+      {{- fail (printf "authz.capabilities.mutableFlow.groups[%d] contains %q, but mutableFlow targets must also be present in authz.applicationGroups or authz.bootstrap.initialAdminGroup" $index $group) -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "nifi.authzMode" -}}
@@ -237,6 +264,62 @@ file-user-group-provider
 {{- toYaml $keys -}}
 {{- end -}}
 
+{{- define "nifi.mutableFlowCapabilityPoliciesYaml" -}}
+{{- $policies := list -}}
+{{- if .Values.authz.capabilities.mutableFlow.enabled -}}
+  {{- $groups := default (list) .Values.authz.capabilities.mutableFlow.groups -}}
+  {{- $includeAdmin := .Values.authz.capabilities.mutableFlow.includeInitialAdmin -}}
+  {{- range $spec := (list
+    (dict "resource" "/flow" "actions" (list "R"))
+    (dict "resource" "/controller" "actions" (list "R"))
+    (dict "resource" "/process-groups/__ROOT_PROCESS_GROUP_ID__" "actions" (list "R" "W"))) -}}
+    {{- $policies = append $policies (dict "resource" $spec.resource "actions" $spec.actions "groups" $groups "includeAdmin" $includeAdmin) -}}
+  {{- end -}}
+{{- end -}}
+{{- toYaml $policies -}}
+{{- end -}}
+
+{{- define "nifi.namedPolicyBundlePoliciesYaml" -}}
+{{- $policies := list -}}
+{{- $bundleSpecs := dict
+  "viewer" (list
+    (dict "resource" "/flow" "actions" (list "R")))
+  "editor" (list
+    (dict "resource" "/flow" "actions" (list "R"))
+    (dict "resource" "/controller" "actions" (list "R"))
+    (dict "resource" "/process-groups/__ROOT_PROCESS_GROUP_ID__" "actions" (list "R" "W")))
+  "flowVersionManager" (list
+    (dict "resource" "/flow" "actions" (list "R"))
+    (dict "resource" "/controller" "actions" (list "R"))
+    (dict "resource" "/process-groups/__ROOT_PROCESS_GROUP_ID__" "actions" (list "R" "W")))
+  "admin" (list
+    (dict "resource" "/flow" "actions" (list "R"))
+    (dict "resource" "/restricted-components" "actions" (list "W"))
+    (dict "resource" "/tenants" "actions" (list "R" "W"))
+    (dict "resource" "/policies" "actions" (list "R" "W"))
+    (dict "resource" "/controller" "actions" (list "R" "W"))) -}}
+{{- $bundleTargets := dict "viewer" .Values.authz.bundles.viewer "editor" .Values.authz.bundles.editor "flowVersionManager" .Values.authz.bundles.flowVersionManager "admin" .Values.authz.bundles.admin -}}
+{{- range $bundleName, $target := $bundleTargets -}}
+  {{- $groups := default (list) $target.groups -}}
+  {{- $includeAdmin := default false $target.includeInitialAdmin -}}
+  {{- range $spec := (get $bundleSpecs $bundleName) -}}
+    {{- $policies = append $policies (dict "resource" $spec.resource "actions" $spec.actions "groups" $groups "includeAdmin" $includeAdmin) -}}
+  {{- end -}}
+{{- end -}}
+{{- toYaml $policies -}}
+{{- end -}}
+
+{{- define "nifi.namedPolicyBundlesEnabled" -}}
+{{- $bundleTargets := list .Values.authz.bundles.viewer .Values.authz.bundles.editor .Values.authz.bundles.flowVersionManager .Values.authz.bundles.admin -}}
+{{- $enabled := false -}}
+{{- range $bundle := $bundleTargets -}}
+  {{- if or $bundle.includeInitialAdmin (gt (len $bundle.groups) 0) -}}
+    {{- $enabled = true -}}
+  {{- end -}}
+{{- end -}}
+{{ ternary "true" "false" $enabled }}
+{{- end -}}
+
 {{- define "nifi.authorizationsXml" -}}
 {{- if eq (include "nifi.authzMode" .) "ldapSync" -}}
 {{- printf "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n" -}}
@@ -247,6 +330,7 @@ file-user-group-provider
 {{- else -}}
 {{- $baseAdminPolicyKeys := fromYamlArray (include "nifi.baseAdminPolicyKeysYaml" .) -}}
 {{- $bootstrapAdminGroup := .Values.authz.bootstrap.initialAdminGroup -}}
+{{- $declaredPolicies := concat (default (list) .Values.authz.policies) (fromYamlArray (include "nifi.namedPolicyBundlePoliciesYaml" .)) (fromYamlArray (include "nifi.mutableFlowCapabilityPoliciesYaml" .)) -}}
 {{- $policySpecs := dict -}}
 {{- if or .Values.authz.bootstrap.initialAdminGroup (include "nifi.adminIdentityForFiles" .) }}
 {{- range $policy := (fromYamlArray (include "nifi.baseAdminPoliciesYaml" .)) }}
@@ -260,15 +344,19 @@ file-user-group-provider
 {{- $_ := set $entry "includeNode" true -}}
 {{- $_ := set $policySpecs $key $entry -}}
 {{- end }}
-{{- range .Values.authz.policies }}
+{{- range $declaredPolicies }}
 {{- $policy := . -}}
 {{- $resource := required "authz.policies[].resource is required" $policy.resource -}}
+{{- $includeAdmin := default false $policy.includeAdmin -}}
 {{- range $action := $policy.actions }}
 {{- $key := printf "%s|%s" $resource $action -}}
 {{- $entry := get $policySpecs $key | default (dict "resource" $resource "action" $action "includeAdmin" false "includeNode" false "groups" (list)) -}}
+{{- if $includeAdmin -}}
+{{- $_ := set $entry "includeAdmin" true -}}
+{{- end -}}
 {{- $policyGroups := default (list) (get $entry "groups") -}}
 {{- range $group := $policy.groups }}
-{{- if and $bootstrapAdminGroup (eq $group $bootstrapAdminGroup) (has (printf "%s|%s" $resource $action) $baseAdminPolicyKeys) -}}
+{{- if and $bootstrapAdminGroup (eq $group $bootstrapAdminGroup) (or $includeAdmin (has (printf "%s|%s" $resource $action) $baseAdminPolicyKeys)) -}}
 {{- else -}}
 {{- $policyGroups = append $policyGroups $group -}}
 {{- end -}}

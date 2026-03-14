@@ -1,0 +1,22 @@
+# Focused overlay for versioned-flow workflow proof with the GitHub Flow Registry
+# Client on NiFi 2.8.0.
+#
+# Compose with:
+# - examples/managed/values.yaml
+# - examples/nifi-2.8.0-values.yaml
+# - examples/github-flow-registry-kind-values.yaml
+# - examples/test-fast-values.yaml
+#
+# This keeps the workflow proof single-node and enables the bounded
+# flow-version-manager bundle for the initial admin user.
+
+replicaCount: 1
+
+authz:
+  applicationGroups:
+  - nifi-flow-version-managers
+  bundles:
+    flowVersionManager:
+      includeInitialAdmin: true
+      groups:
+      - nifi-flow-version-managers

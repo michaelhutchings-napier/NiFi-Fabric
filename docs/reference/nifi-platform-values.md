@@ -126,7 +126,7 @@ These values render the managed `NiFiCluster` resource when `mode=managed`.
 | `nifi.image.*` | object | NiFi image repository, tag, and pull policy. | No | chart-derived |
 | `nifi.tls.*` | object | TLS source, Secret keys, cert-manager integration, and optional extra trust bundle import. | No | chart-derived |
 | `nifi.auth.*` | object | NiFi authentication provider settings. | No | chart-derived |
-| `nifi.authz.*` | object | NiFi authorization bootstrap and policy settings. | No | chart-derived |
+| `nifi.authz.*` | object | NiFi authorization bootstrap, bounded mutable-flow capability bundles, and policy settings. | No | chart-derived |
 | `nifi.ingress.*` | object | Standard Kubernetes ingress settings. | No | chart-derived |
 | `nifi.openshift.route.*` | object | OpenShift Route settings. | No | chart-derived |
 | `nifi.observability.metrics.*` | object | Metrics subsystem settings, including optional trust-manager bundle consumption. | No | chart-derived |

@@ -10,6 +10,8 @@ It provides a product-facing one-release install path through `charts/nifi-platf
 - the controller stays focused on safe rollout, TLS restart policy, hibernation, restore, and controller-owned autoscaling
 - NiFi-native behavior stays in NiFi, standard Kubernetes resources stay in Helm
 - OIDC and LDAP are first-class managed authentication options
+- bounded mutable-flow authorization bootstrap is available for chart-managed process-group editing and versioning work
+- named viewer, editor, flow-version-manager, and admin bundles are available as the recommended customer-facing authz path
 - cert-manager is supported when it already exists in the cluster
 - optional trust-manager integration is available for shared CA bundle distribution
 - Git-based Flow Registry Clients are the supported modern direction
@@ -128,7 +130,9 @@ See [Compatibility](docs/compatibility.md) for the detailed matrix.
 - `charts/nifi` is the standalone-capable app chart
 - built-in controller-owned autoscaling is the primary autoscaling model
 - KEDA is optional, experimental, and secondary as an external intent source
+- mutable-flow authorization bootstrap stays chart-first and controller-free
 - GitHub, GitLab, and Bitbucket Flow Registry Client paths are runtime-proven on NiFi `2.8.0`
+- a user-driven GitHub versioned-flow save-to-registry workflow is focused-runtime-proven on NiFi `2.8.0`
 - Azure DevOps Flow Registry Client remains prepared and render-validated
 - native API metrics are the primary, recommended metrics path and are runtime-proven on kind
 - exporter metrics are a supported secondary path and are runtime-proven on kind
@@ -199,6 +203,7 @@ NiFi-Fabric documentation is intentionally conservative in a few areas:
 - autoscaling scale-down remains intentionally one-step-at-a-time and experimental
 - site-to-site metrics remain prepared-only
 - exporter support remains intentionally bounded to flow metrics plus selected `/flow/status` gauges
+- versioned-flow workflow proof currently covers a user-driven GitHub save-to-registry path only; it does not add automatic import, deployment, or synchronization
 - trust-manager currently distributes shared CA bundles only; it does not replace cert-manager or move trust orchestration into the controller
 - automatic mirroring of the workload TLS `ca.crt` into a trust-manager source Secret is available as an optional chart-owned helper path
 - ConfigMap and Secret bundle targets are supported, but current automatic app consumption still centers on the PEM `ca.crt` bundle key

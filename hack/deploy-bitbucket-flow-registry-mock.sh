@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NAMESPACE="${NAMESPACE:-nifi}"
 DEPLOYMENT_NAME="${DEPLOYMENT_NAME:-bitbucket-mock}"
 SERVICE_NAME="${SERVICE_NAME:-bitbucket-mock}"
-IMAGE="${IMAGE:-python:3.12-slim}"
+IMAGE="${IMAGE:-${NIFI_IMAGE:-apache/nifi:2.8.0}}"
 CONFIG_SHA="$(sha256sum "${ROOT_DIR}/hack/bitbucket-flow-registry-mock.py" | awk '{print $1}')"
 
 kubectl -n "${NAMESPACE}" create configmap "${DEPLOYMENT_NAME}" \
@@ -33,7 +33,8 @@ spec:
       containers:
       - name: mock
         image: ${IMAGE}
-        command: ["python", "/app/server.py"]
+        imagePullPolicy: IfNotPresent
+        command: ["python3", "/app/server.py"]
         ports:
         - containerPort: 8080
           name: http
