@@ -25,6 +25,12 @@ See [KEDA Integration Position](keda.md).
 - flow metrics only
 - separate from the primary `nativeApi` path
 
+### Local OIDC Browser-Flow Hardening
+
+- focused kind evaluator only
+- used to harden ingress and group-claims proof paths
+- current local Keycloak `26.x` browser-flow coverage remains conservative until the focused gate is green again
+
 ## Prepared-Only Today
 
 ### Site-to-Site Metrics

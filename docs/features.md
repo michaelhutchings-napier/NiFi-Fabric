@@ -41,6 +41,10 @@ NiFi-Fabric keeps the product surface small and explicit.
 - external Secret TLS is supported
 - cert-manager integration is supported when cert-manager already exists in the cluster
 - cert-manager remains a prerequisite, not a bundled dependency
+- optional trust-manager integration distributes shared CA bundles into the NiFi namespace
+- optional trust-manager integration can mirror the workload TLS `ca.crt` into a trust-manager source Secret
+- trust-manager `Bundle` targets can be rendered as either ConfigMaps or Secrets
+- trust-manager does not replace cert-manager or move TLS orchestration into the controller
 
 ## Authentication
 
@@ -48,23 +52,27 @@ NiFi-Fabric keeps the product surface small and explicit.
 - OIDC for managed browser-facing identity
 - LDAP for enterprise directory integration
 - OIDC and LDAP are first-class managed auth options
+- richer OIDC group-claims policy seeding is supported in the chart, with current kind browser-flow proof still being hardened conservatively
 
 ## Flow Registry Clients
 
 - Git-based Flow Registry Clients are the supported modern direction
-- GitHub and GitLab paths have focused runtime proof
-- Bitbucket and Azure DevOps definitions are prepared and render-validated
+- GitHub, GitLab, and Bitbucket paths have focused runtime proof on NiFi `2.8.0`
+- Azure DevOps remains prepared and render-validated
 
 ## Observability
 
 - native API metrics are the primary supported metrics mode
-- exporter metrics mode is experimental
+- exporter metrics mode is a supported secondary path for clean `/metrics` scraping
 - site-to-site metrics are prepared-only
 - machine-auth metrics credentials use a provider-agnostic Secret contract
+- optional trust-manager bundle consumption can simplify CA trust for metrics and outbound NiFi TLS clients
+- optional PKCS12 and JKS trust-manager outputs can be rendered for downstream consumers that need them
 
 ## Environment Scope
 
 - kind is the current runtime proof baseline in this repository
 - AKS is the primary target environment
 - OpenShift is supported as a prepared secondary target
+- current AKS and OpenShift claims remain render, overlay, and docs validation only unless a real cluster is explicitly exercised
 - environment-specific claims remain conservative until runtime proof is recorded

@@ -42,6 +42,7 @@ NiFi-Fabric keeps Helm in charge of ordinary Kubernetes resources and keeps the 
 - controller-owned autoscaling
 - optional experimental KEDA integration
 - supported cert-manager integration
+- optional trust-manager CA bundle distribution
 - OIDC and LDAP support for managed deployments
 - Git-based Flow Registry Client catalog support
 - first-class observability and metrics subsystem
@@ -57,7 +58,9 @@ helm upgrade --install nifi charts/nifi-platform \
   -f examples/platform-managed-values.yaml
 ```
 
-You provide the required Secrets and, if needed, cert-manager as a cluster prerequisite. See [Install with Helm](install/helm.md).
+You provide the required Secrets and, if needed, cert-manager or trust-manager as cluster prerequisites. See [Install with Helm](install/helm.md).
+
+If you need a manifest-based secondary path, NiFi-Fabric also ships a generated install bundle rendered from the same platform chart. See [Advanced Install Paths](install/advanced.md). Helm remains the primary recommendation.
 
 ## Read Next
 

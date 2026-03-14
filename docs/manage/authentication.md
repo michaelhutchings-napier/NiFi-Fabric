@@ -34,6 +34,13 @@ Use OIDC when you want:
 - browser-based access with external identity
 - group-based authorization with NiFi-managed group seeding
 
+Current proof boundary:
+
+- managed OIDC wiring, discovery configuration, and seeded group definitions are render-validated
+- the multi-group `authorizations.xml` seed path now renders in a NiFi 2-compatible order and no longer crashes the cluster on startup
+- the richer browser-flow policy proof for observer, operator, and admin groups is still being hardened against the current local Keycloak `26.x` path on kind
+- use OIDC for the product auth model today, but keep local kind browser-flow claims conservative until that focused proof is green again
+
 Key values:
 
 - `auth.oidc.discoveryUrl`
@@ -62,7 +69,7 @@ Key values:
 ## Support Level
 
 - single-user: supported
-- OIDC: supported, with focused runtime proof on kind
+- OIDC: supported, with conservative kind proof for the current browser-flow group-claims path
 - LDAP: supported, with focused runtime proof on kind
 
 What remains intentionally out of scope:

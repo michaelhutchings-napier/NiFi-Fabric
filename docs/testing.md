@@ -19,16 +19,42 @@ Focused runtime proof in this repository includes:
 - OIDC and LDAP focused auth paths on kind
 - native API metrics on kind
 - exporter metrics on kind
+- optional trust-manager shared CA distribution on kind
 - controller-owned autoscaling focused flows on NiFi `2.8.0`
 - optional experimental KEDA intent-source flows on NiFi `2.8.0`
-- GitHub and GitLab Flow Registry Client focused flows on NiFi `2.8.0`
+- GitHub, GitLab, and Bitbucket Flow Registry Client focused flows on NiFi `2.8.0`
+
+Current auth and exposure hardening notes:
+
+- the richer OIDC group-claims overlay is render-validated and now boot-validates cleanly instead of crashing NiFi during `authorizations.xml` load
+- the local Keycloak `26.x` browser-flow evaluator for observer, operator, and admin policy enforcement is still under active hardening on kind
+- ingress-backed OIDC exposure on kind is still conservative until that evaluator path is green
+- AKS and OpenShift auth and exposure guidance remain render-only in this slice
+
+## Platform Chart Runtime Confidence
+
+The platform chart path is part of the ongoing confidence suite through:
+
+- `make kind-platform-managed-fast-e2e`
+- `make kind-platform-managed-cert-manager-fast-e2e`
+- `make kind-platform-managed-trust-manager-fast-e2e`
+
+What these focused gates prove:
+
+- `charts/nifi-platform` installs the CRD, controller, app chart, and managed `NiFiCluster` in one Helm release
+- no manual `kubectl apply` step is required for the standard platform-chart path
+- the chart-installed `NiFiCluster` becomes healthy
+- the controller observes and manages the chart-installed `NiFiCluster`
+- the cert-manager platform overlay works through the same one-release chart path when cert-manager is present
+- the optional trust-manager overlay reconciles a shared CA bundle into the NiFi namespace and keeps the managed cluster healthy
+- the focused trust-manager proof bootstraps cert-manager first because the current upstream trust-manager chart uses cert-manager resources for its webhook certificate path
 
 ## What Is Render-Validated or Prepared
 
 - site-to-site metrics remains prepared-only
 - AKS guidance is published but still conservative
 - OpenShift guidance is published but still conservative
-- Bitbucket and Azure DevOps Flow Registry Client definitions are prepared and render-validated
+- Azure DevOps Flow Registry Client definitions are prepared and render-validated
 
 ## Customer Meaning of Support Levels
 
@@ -46,13 +72,16 @@ Customer-facing docs should stay aligned with:
 - `helm lint charts/nifi`
 - `helm lint charts/nifi-platform`
 - `helm template` for the standard chart install paths
+- `helm template` for optional trust-manager overlays when trust-manager docs or values change
 - focused checks for the feature being documented
+- focused auth and exposure render checks for OIDC internal, OIDC external URL, AKS managed, and OpenShift managed overlays when auth docs change
 
 ## Metrics Runtime Proof Matrix
 
 The current focused metrics runtime command is:
 
 - `make kind-metrics-fast-e2e`
+- `make kind-metrics-native-api-trust-manager-fast-e2e`
 
 That matrix runs:
 
@@ -62,19 +91,24 @@ That matrix runs:
 What it proves for `nativeApi`:
 
 - the metrics-enabled platform overlay renders and applies
-- the dedicated metrics `Service` and named `ServiceMonitor` resources exist
+- the dedicated metrics `Service` and named `ServiceMonitor` resources exist with the expected TLS and auth wiring
 - the machine-auth Secret and CA Secret contract works with operator-provided material
 - the secured NiFi flow metrics endpoint can be scraped live end to end
+- the recommended default shape, dedicated metrics `Service` plus multiple named scrape profiles, stays green on kind
+- the optional trust-manager overlay can distribute the CA bundle that `nativeApi` consumes for the secured scrape path
+- trust updates propagate from the workload TLS Secret through the mirrored trust-manager source Secret, Bundle target, and mounted probe consumer path
 
 What it proves for `exporter`:
 
-- the experimental exporter overlay renders and applies
+- the exporter overlay renders and applies
 - the exporter `Deployment`, metrics `Service`, and `ServiceMonitor` exist
 - the same machine-auth Secret and CA Secret contract is mounted and consumed correctly
 - Prometheus can scrape the exporter `/metrics` endpoint live end to end
 - the exporter republishes the secured `/nifi-api/flow/metrics/prometheus` endpoint
 - the exporter also appends selected controller-status gauges derived from `/nifi-api/flow/status`
 - exporter self-diagnostics report successful refresh for both upstream sources during the scrape
+- the exporter readiness probe tracks upstream secured-scrape health instead of only local process health
+- the exporter recovers after mounted auth Secret rotation without restarting the exporter pod
 - the focused proof uses a freshly minted token written into the referenced Secret; long-lived rotation remains operator-owned
 
 Current honest limit:
@@ -83,6 +117,7 @@ Current honest limit:
 - exporter runtime proof adds a second secured endpoint, `/nifi-api/flow/status`, but not a JVM or system-diagnostics family
 - the second native scrape profile is still a cadence variant of the same flow endpoint
 - `siteToSite` remains prepared-only and is intentionally excluded from the live matrix
+- the site-to-site overlay is only validated at Helm render time for destination URL, input port, auth, TLS, transport, and format compatibility
 
 ## Current Conservative Boundaries
 

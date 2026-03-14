@@ -16,7 +16,6 @@ NiFi-Fabric keeps the roadmap small and explicit.
 
 - controller-owned enforced autoscaling scale-down
 - KEDA as an optional external autoscaling intent source
-- exporter metrics mode
 
 ## Prepared-Only
 
@@ -28,4 +27,4 @@ NiFi-Fabric keeps the roadmap small and explicit.
 - broader NiFi `2.x` compatibility proof
 - broader cloud environment proof, especially AKS
 - more environment-specific operational guides
-- deeper observability coverage where it stays smaller than a full metrics platform
+- broader metrics-family proof where it stays smaller than a full metrics platform

@@ -2,6 +2,11 @@
 
 This is the standard customer-facing install path.
 
+Environment note:
+
+- kind is the current runtime-proof baseline for this install path
+- AKS and OpenShift overlays are validated through Helm rendering and docs in this slice, not by real-cluster runtime gates
+
 ## Standard Path
 
 Use `charts/nifi-platform` for a one-release install.
@@ -71,6 +76,12 @@ helm upgrade --install nifi charts/nifi \
 ```
 
 That is a valid install path, but it is not the standard product path.
+
+## Secondary Manifest Bundle
+
+If you need a manifest-based workflow, use the generated bundle path documented in [Advanced Install Paths](advanced.md).
+
+That bundle is rendered from `charts/nifi-platform`, so Helm remains the source of truth even when you do not install with `helm upgrade --install`.
 
 ## After Install
 

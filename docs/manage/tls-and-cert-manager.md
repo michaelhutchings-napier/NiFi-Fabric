@@ -24,6 +24,7 @@ Use `charts/nifi-platform` values under:
 
 - `nifi.tls.*`
 - `cluster.restartPolicy.tlsDrift`
+- `trustManager.*` for optional shared CA bundle distribution
 
 ## External Secret Mode
 
@@ -57,8 +58,55 @@ What NiFi-Fabric does not do:
 - install cert-manager for you as part of the product chart
 - replace cert-manager lifecycle with controller lifecycle
 
+## Optional trust-manager Integration
+
+trust-manager is optional and disabled by default.
+
+Use it when you already run trust-manager in the cluster and want a chart-managed way to distribute a shared CA bundle into the NiFi namespace for:
+
+- secured metrics scraping
+- NiFi outbound trust such as LDAP, OIDC, or Flow Registry TLS
+
+What this integration does:
+
+- renders an optional trust-manager `Bundle` from `charts/nifi-platform`
+- targets the NiFi release namespace only
+- supports ConfigMap or Secret bundle targets, with optional PKCS12 and JKS additional formats when trust-manager is configured to produce them
+- can mirror the workload TLS Secret `ca.crt` into trust-manager's trust namespace through a chart-owned bootstrap Job plus recurring CronJob
+- lets `charts/nifi` consume the resulting PEM bundle for metrics TLS and optional extra trust import
+- adds the generated bundle ConfigMap or Secret to the default managed restart-trigger set when NiFi imports that bundle into its runtime truststore
+
+What it does not do:
+
+- install trust-manager
+- replace cert-manager
+- move trust orchestration into the controller
+- manage arbitrary NiFi internal TLS objects beyond the existing chart-owned trust bundle consumption path
+- make Secret targets work unless the upstream trust-manager installation already enables and authorizes secret targets
+
+Current source options:
+
+- source Secrets or ConfigMaps can be operator-provided directly in trust-manager's configured trust namespace
+- or `trustManager.mirrorTLSSecret.enabled=true` can mirror the workload TLS `ca.crt` into a trust-manager source Secret automatically
+
+Focused proof:
+
+- `make kind-platform-managed-trust-manager-fast-e2e`
+- `make kind-metrics-native-api-trust-manager-fast-e2e`
+
+Current operator-controlled values:
+
+- `trustManager.sources.*`
+- `trustManager.target.*`
+- `trustManager.mirrorTLSSecret.*`
+- `nifi.tls.additionalTrustBundle.*`
+- `nifi.trustManagerBundleRef.*` when the platform bundle target is a Secret or uses a non-default key
+- `nifi.observability.metrics.nativeApi.tlsConfig.ca.*`
+- `nifi.observability.metrics.exporter.source.tlsConfig.ca.*`
+
 ## Support Level
 
 - external Secret mode: supported
 - cert-manager mode: supported, with cert-manager as a prerequisite
+- trust-manager integration: optional supported CA bundle distribution, with trust-manager as a prerequisite
 - environment-specific proof: kind-focused today, see [Compatibility](../compatibility.md)

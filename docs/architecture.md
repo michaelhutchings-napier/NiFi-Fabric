@@ -18,6 +18,7 @@ NiFi-Fabric is built around a small, explainable split of responsibilities.
 - Services, PVCs, ingress or Route resources
 - Secret references
 - cert-manager `Certificate` resources when that mode is enabled
+- optional trust-manager `Bundle` resources when that mode is enabled
 - metrics Services and ServiceMonitors
 - prepared Flow Registry Client catalog files
 
@@ -66,15 +67,23 @@ Optional experimental extension:
 Primary metrics path:
 
 - `observability.metrics.mode=nativeApi`
-- chart-owned Services and ServiceMonitors
+- dedicated chart-owned metrics `Service` plus named `ServiceMonitor` resources
 - provider-agnostic machine-auth Secret contract
 - focused live runtime proof for secured flow metrics scraping
+- recommended production path for customers by default
 
 Experimental or prepared paths:
 
-- `exporter` is experimental and has focused live runtime proof for the current companion-exporter contract
+- `exporter` is a supported secondary metrics path for environments that want a clean `/metrics` endpoint
 - the exporter republishes the secured flow Prometheus endpoint and can append selected controller-status gauges from `/nifi-api/flow/status`
-- `siteToSite` is prepared-only
+- the exporter keeps local liveness separate from upstream-aware readiness and rereads mounted auth material without requiring a pod restart
+- `siteToSite` stays optional and currently remains a prepared contract with explicit destination, auth, TLS, transport, and format assumptions
+- runtime `siteToSite` support is still intentionally withheld until this repo can own a bounded internal path for:
+- one `SiteToSiteMetricsReportingTask`
+- its SSL Context Service reference when destination TLS is used
+- its optional Record Writer reference if a non-Ambari output format is ever supported
+- any receiver-specific input-port assumptions
+- that ownership line is still beyond the current chart-owned metrics boundary, so `siteToSite` remains prepared-only
 
 Current conservative boundary:
 
@@ -82,6 +91,36 @@ Current conservative boundary:
 - exporter runtime proof adds one second secured endpoint, `/nifi-api/flow/status`, through the chart-owned exporter path
 - JVM or system-diagnostics metrics are not yet runtime-proven
 - machine-auth Secret bootstrap is partially automated, but machine principal provisioning and IdP write-back remain out of scope
+
+## Trust Distribution Architecture
+
+Primary TLS path:
+
+- external Secret or cert-manager-issued NiFi TLS material
+- chart-owned mounting and restart-trigger wiring
+- controller-owned TLS drift observation and safe restart policy
+
+Optional trust-manager extension:
+
+- `charts/nifi-platform` can render a trust-manager `Bundle` for shared CA distribution
+- the Bundle targets the NiFi release namespace only
+- `charts/nifi` can consume that bundle for:
+- secured metrics CA trust
+- optional extra CA import into NiFi's runtime truststore for outbound trust
+- the controller does not orchestrate trust bundles
+- supported Bundle targets stay bounded:
+- ConfigMap targets for PEM distribution
+- Secret targets when the upstream trust-manager installation allows secret targets
+- optional additional PKCS12 and JKS outputs when explicitly configured
+
+Current conservative boundary:
+
+- trust-manager is optional and disabled by default
+- cert-manager remains the primary supported certificate lifecycle
+- trust-manager support stays focused on CA and trust bundle distribution, not full TLS orchestration
+- optional platform-owned TLS CA mirroring can copy the workload `ca.crt` into trust-manager's source namespace
+- that mirroring remains chart-owned helper automation, not controller-owned trust orchestration
+- trust-manager source Secrets or ConfigMaps can still be operator-provided directly in trust-manager's configured trust namespace
 
 ## Install Architecture
 
@@ -93,5 +132,6 @@ Secondary paths:
 
 - standalone `charts/nifi`
 - advanced manual assembly for platform teams
+- generated manifest bundle rendered from `charts/nifi-platform`
 
-A separate kustomize product install surface is not shipped in this slice.
+The secondary manifest bundle stays generated from the Helm chart at render time, so Helm remains the source of truth and kustomize-specific chart duplication is avoided.

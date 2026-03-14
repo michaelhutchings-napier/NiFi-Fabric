@@ -59,6 +59,11 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | `tls.sensitiveProps.secretRef.*` | object | Secret reference for the sensitive properties key. | No | empty |
 | `tls.autoReload.enabled` | boolean | Enables NiFi TLS autoreload. | No | `false` |
 | `tls.autoReload.interval` | string | NiFi TLS autoreload interval. | No | `10 secs` |
+| `tls.additionalTrustBundle.enabled` | boolean | Enables import of an extra PEM CA bundle into a writable copy of the NiFi truststore. | No | `false` |
+| `tls.additionalTrustBundle.useTrustManagerBundle` | boolean | Uses the configured `trustManagerBundleRef.*` Bundle source from the optional platform trust-manager integration. | No | `false` |
+| `tls.additionalTrustBundle.mountPath` | string | Mount path for the extra CA bundle inside the init container. | No | `/opt/nifi/trust-bundle` |
+| `tls.additionalTrustBundle.configMapRef.*` | object | ConfigMap reference for an extra PEM CA bundle. | No | empty |
+| `tls.additionalTrustBundle.secretRef.*` | object | Secret reference for an extra PEM CA bundle. | No | empty |
 | `tls.certManager.enabled` | boolean | Enables cert-manager resource rendering. | No | `false` |
 | `tls.certManager.issuerRef.*` | object | cert-manager issuer reference. | No | see values file |
 | `tls.certManager.secretName` | string | Target Secret name written by cert-manager. | No | `nifi-tls` |
@@ -69,6 +74,14 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | `tls.certManager.usages[]` | string list | Certificate usages. | No | `["server auth","client auth"]` |
 | `tls.certManager.privateKey.*` | object | Private key settings. | No | see values file |
 | `tls.certManager.pkcs12.*` | object | PKCS12 output settings. | No | see values file |
+
+## Shared Trust Bundle Reference
+
+| Field | Type | Description | Required | Default |
+| --- | --- | --- | --- | --- |
+| `trustManagerBundleRef.type` | enum | Bundle source type used when app consumers enable `useTrustManagerBundle`. Values: `configMap`, `secret`. | No | `configMap` |
+| `trustManagerBundleRef.name` | string | Explicit Bundle source name override. Leave empty to use the platform-generated `<release>-nifi-trust-bundle` name. | No | `""` |
+| `trustManagerBundleRef.key` | string | Bundle key consumed by app-level trust-manager integrations. | No | `ca.crt` |
 
 ## Authentication and Authorization
 
@@ -108,16 +121,25 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | `observability.metrics.nativeApi.service.*` | object | Native metrics Service settings. | No | see values file |
 | `observability.metrics.nativeApi.serviceMonitor.defaults.*` | object | Default ServiceMonitor settings for native metrics endpoints. | No | see values file |
 | `observability.metrics.nativeApi.machineAuth.*` | object | Provider-agnostic machine-auth Secret contract. | No | see values file |
-| `observability.metrics.nativeApi.tlsConfig.*` | object | TLS settings for secured native metrics scraping. | No | see values file |
+| `observability.metrics.nativeApi.tlsConfig.*` | object | TLS settings for secured native metrics scraping, including Secret or ConfigMap CA references. | No | see values file |
+| `observability.metrics.nativeApi.tlsConfig.ca.useTrustManagerBundle` | boolean | Uses the configured `trustManagerBundleRef.*` Bundle source for native metrics TLS trust. | No | `false` |
+| `observability.metrics.nativeApi.tlsConfig.ca.configMapRef.*` | object | ConfigMap CA reference for native metrics TLS. | No | empty |
+| `observability.metrics.nativeApi.tlsConfig.ca.secretRef.*` | object | Secret CA reference for native metrics TLS. | No | empty |
 | `observability.metrics.nativeApi.endpoints[]` | object list | Named native metrics scrape profiles. | No | see values file |
-| `observability.metrics.exporter.image.*` | object | Experimental exporter image settings. | No | see values file |
-| `observability.metrics.exporter.service.*` | object | Experimental exporter Service settings. | No | see values file |
-| `observability.metrics.exporter.serviceMonitor.*` | object | Experimental exporter ServiceMonitor settings. | No | see values file |
+| `observability.metrics.exporter.image.*` | object | Exporter image settings for the supported secondary metrics path. | No | see values file |
+| `observability.metrics.exporter.service.*` | object | Exporter Service settings. | No | see values file |
+| `observability.metrics.exporter.serviceMonitor.*` | object | Exporter ServiceMonitor settings. | No | see values file |
 | `observability.metrics.exporter.machineAuth.*` | object | Machine-auth Secret contract for exporter upstream scraping. | No | see values file |
-| `observability.metrics.exporter.source.*` | object | Upstream NiFi metrics source settings for the exporter. | No | see values file |
+| `observability.metrics.exporter.source.*` | object | Upstream NiFi metrics source settings for the exporter, including Secret or ConfigMap CA references. | No | see values file |
+| `observability.metrics.exporter.source.tlsConfig.ca.useTrustManagerBundle` | boolean | Uses the configured `trustManagerBundleRef.*` Bundle source for exporter upstream TLS trust. | No | `false` |
+| `observability.metrics.exporter.source.tlsConfig.ca.configMapRef.*` | object | ConfigMap CA reference for exporter upstream TLS. | No | empty |
+| `observability.metrics.exporter.source.tlsConfig.ca.secretRef.*` | object | Secret CA reference for exporter upstream TLS. | No | empty |
 | `observability.metrics.exporter.supplemental.flowStatus.*` | object | Optional controller-status gauges derived from `/nifi-api/flow/status`. | No | see values file |
 | `observability.metrics.exporter.resources.*` | object | Exporter pod resources. | No | `{}` |
-| `observability.metrics.siteToSite.*` | object | Prepared-only site-to-site metrics contract. | No | see values file |
+| `observability.metrics.siteToSite.destination.*` | object | Prepared receiver URL, input port, auth, and TLS contract for a future site-to-site path. | No | see values file |
+| `observability.metrics.siteToSite.source.*` | object | Prepared reporting-task source identity hints. | No | see values file |
+| `observability.metrics.siteToSite.transport.*` | object | Prepared site-to-site transport settings. | No | see values file |
+| `observability.metrics.siteToSite.format.*` | object | Prepared site-to-site output format settings. | No | see values file |
 
 ## Flow Registry Clients
 
@@ -172,5 +194,5 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
 | `observability.metrics.mode=nativeApi` | support status | Primary supported metrics mode. | No |  |
-| `observability.metrics.mode=exporter` | support status | Experimental mode with live proof for flow Prometheus passthrough and selected `/flow/status` gauges. | No |  |
-| `observability.metrics.mode=siteToSite` | support status | Prepared-only contract, not runtime-enabled. | No |  |
+| `observability.metrics.mode=exporter` | support status | Supported secondary mode with live proof for flow Prometheus passthrough, selected `/flow/status` gauges, upstream-aware readiness, and auth Secret rotation recovery. | No |  |
+| `observability.metrics.mode=siteToSite` | support status | Prepared-only contract with render-time validation for destination, auth, TLS, transport, and format; not runtime-enabled. | No |  |

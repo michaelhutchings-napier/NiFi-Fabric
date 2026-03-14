@@ -65,6 +65,7 @@ Check:
 - auth mode values
 - client secret or LDAP manager Secret references
 - `web.proxyHosts` when external browser-facing access is involved
+- for the current kind OIDC browser-flow hardening path, also verify the advertised `loginUri`, Keycloak redirect URIs, and the actual redirected Keycloak host
 
 ### Metrics
 
@@ -99,5 +100,5 @@ Check:
 NiFi-Fabric is intentionally conservative about support claims:
 
 - kind is the runtime proof baseline in this repository
-- AKS and OpenShift guidance is published separately and remains conservative
+- AKS and OpenShift guidance is published separately and remains conservative because no real cluster was exercised in this slice
 - experimental features are clearly marked and should be treated differently from the standard platform path

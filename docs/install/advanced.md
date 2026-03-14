@@ -26,15 +26,35 @@ If you want to assemble the managed path in separate steps, use:
 
 This is useful for advanced platform teams, but it is not the recommended customer entrypoint.
 
-## Kustomize
+### Generated Platform Bundle
 
-A separate customer-facing kustomize install bundle is not shipped in this slice.
+If you need a manifest-based workflow without copying chart logic, render a generated bundle from `charts/nifi-platform`:
 
-That is intentional:
+```bash
+make render-platform-managed-bundle
+kubectl apply -f dist/nifi-platform-managed-bundle.yaml
+```
+
+Cert-manager variant:
+
+```bash
+make render-platform-managed-cert-manager-bundle
+kubectl apply -f dist/nifi-platform-managed-cert-manager-bundle.yaml
+```
+
+Optional standalone variant:
+
+```bash
+make render-platform-standalone-bundle
+kubectl apply -f dist/nifi-platform-standalone-bundle.yaml
+```
+
+This path stays secondary on purpose:
 
 - the product architecture stays centered on Helm
 - `charts/nifi-platform` remains the primary customer install surface
-- a new install wrapper should only be added if it improves customer UX without creating a parallel product story
+- the bundle is generated from the same chart and example overlays, so there is no second install architecture
+- no separate kustomize wrapper is shipped, because that would either duplicate chart logic or depend on Helm-enabled kustomize behavior that is less predictable for customers
 
 ## When to Use an Advanced Path
 
@@ -43,4 +63,4 @@ Use an advanced path when you need:
 - standalone NiFi without the controller
 - separate controller and workload release boundaries
 - lower-level platform integration work
-- custom GitOps assembly beyond the standard one-release chart
+- manifest-based GitOps assembly beyond the standard one-release chart

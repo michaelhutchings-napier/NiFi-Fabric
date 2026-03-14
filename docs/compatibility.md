@@ -17,7 +17,7 @@ Other NiFi `2.x` versions are expected to work unless noted, but the repository 
 
 | NiFi version | Status | Notes |
 | --- | --- | --- |
-| `2.0.0` | Focused-runtime-proven | Baseline product image tag and standard kind proof target. |
+| `2.0.0` | Focused-runtime-proven | Baseline product image tag and standard kind proof target. Current richer OIDC browser-flow hardening is still conservative on the local Keycloak `26.x` path. |
 | `2.8.0` | Focused-runtime-proven | Focused compatibility, autoscaling, auth, cert-manager, and Flow Registry Client proof target. |
 | Other `2.x` | Prepared / expected | Expected to work unless noted, but not yet runtime-proven here. |
 | `1.x` | Not supported | Out of scope. |
@@ -38,7 +38,7 @@ Other NiFi `2.x` versions are expected to work unless noted, but the repository 
 | Safe rollout | Focused-runtime-proven | Controller-managed, health-gated rollout sequencing. |
 | Hibernation and restore | Focused-runtime-proven | Controller-owned lifecycle flow. |
 | cert-manager integration | Focused-runtime-proven | cert-manager is a prerequisite. |
-| OIDC | Focused-runtime-proven | First-class managed auth option. |
+| OIDC | Focused-runtime-proven | First-class managed auth option. The richer browser-flow group-claims proof remains conservative on the current local Keycloak `26.x` path. |
 | LDAP | Focused-runtime-proven | First-class managed auth option. |
 | Native API metrics | Focused-runtime-proven | Primary metrics path. |
 | Exporter metrics | Focused-runtime-proven, experimental | Flow metrics only. |
@@ -49,7 +49,7 @@ Other NiFi `2.x` versions are expected to work unless noted, but the repository 
 | KEDA integration | Focused-runtime-proven, experimental | Optional external intent source only. |
 | GitHub Flow Registry Client | Focused-runtime-proven | NiFi `2.8.0`. |
 | GitLab Flow Registry Client | Focused-runtime-proven | NiFi `2.8.0`. |
-| Bitbucket Flow Registry Client | Prepared / render-validated | Prepared catalog definition only. |
+| Bitbucket Flow Registry Client | Focused-runtime-proven | NiFi `2.8.0`. |
 | Azure DevOps Flow Registry Client | Prepared / render-validated | Prepared catalog definition only. |
 
 ## Environment Scope
@@ -57,13 +57,14 @@ Other NiFi `2.x` versions are expected to work unless noted, but the repository 
 | Environment | Status | Notes |
 | --- | --- | --- |
 | kind | Focused-runtime-proven | Current runtime proof baseline. |
-| AKS | Prepared / render-validated | Primary target environment, but real-cluster proof is still conservative. |
-| OpenShift | Prepared / render-validated | Secondary target environment, with published readiness guidance. |
+| AKS | Prepared / render-validated | Primary target environment, but no real-cluster runtime proof is claimed in this slice. |
+| OpenShift | Prepared / render-validated | Secondary target environment, with published readiness guidance and no real-cluster runtime proof claimed in this slice. |
 
 ## Conservative Claims Left Intentionally Conservative
 
 - no production-proven cloud runtime claim is made yet
 - no blanket claim is made for all NiFi `2.x` versions beyond the explicitly proven versions
+- richer ingress-backed OIDC browser-flow proof is still conservative on kind
 - KEDA remains experimental even with green focused proof
 - autoscaling scale-down remains experimental
 - site-to-site metrics remain prepared-only

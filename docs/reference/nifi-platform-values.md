@@ -12,7 +12,7 @@ For install steps, see [Install with Helm](../install/helm.md). For managed life
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
-| `mode` | enum | Install mode. Values: `standalone`, `managed`. | No | `standalone` |
+| `mode` | enum | Install mode. Values: `standalone`, `managed`, `managed-cert-manager`. | No | `standalone` |
 
 ## Controller Settings
 
@@ -68,6 +68,41 @@ These values render the managed `NiFiCluster` resource when `mode=managed`.
 | `cluster.autoscaling.maxReplicas` | integer | Upper autoscaling bound. | No | `0` |
 | `cluster.autoscaling.signals[]` | string list | Signals the controller may evaluate. | No | `[]` |
 
+## Optional trust-manager Integration
+
+`trustManager.*` is optional. It renders a trust-manager `Bundle` for the NiFi release namespace. Source objects can be operator-provided in trust-manager's configured trust namespace, or the platform chart can mirror the workload TLS `ca.crt` into a trust-manager source Secret automatically.
+
+| Field | Type | Description | Required | Default |
+| --- | --- | --- | --- | --- |
+| `trustManager.enabled` | boolean | Enables trust-manager `Bundle` rendering in managed modes. | No | `false` |
+| `trustManager.sources.useDefaultCAs` | boolean | Includes trust-manager's default CA bundle source. | No | `false` |
+| `trustManager.sources.configMaps[]` | object list | Source ConfigMaps in the trust namespace. | No | `[]` |
+| `trustManager.sources.secrets[]` | object list | Source Secrets in the trust namespace. | No | `[]` |
+| `trustManager.sources.inline[]` | object list | Inline PEM bundle sources. | No | `[]` |
+| `trustManager.target.type` | enum | Bundle target type. Values: `configMap`, `secret`. Secret targets require upstream trust-manager secret-target support. | No | `configMap` |
+| `trustManager.target.key` | string | Key written into the target ConfigMap or Secret. | No | `ca.crt` |
+| `trustManager.target.additionalFormats.pkcs12.enabled` | boolean | Renders an extra PKCS12 output in the Bundle target when supported by trust-manager. | No | `false` |
+| `trustManager.target.additionalFormats.pkcs12.key` | string | Key used for the PKCS12 output. | No | `truststore.p12` |
+| `trustManager.target.additionalFormats.pkcs12.password` | string | Optional password written into the PKCS12 output. | No | `""` |
+| `trustManager.target.additionalFormats.pkcs12.profile` | enum | Optional PKCS12 compatibility profile. Values: `LegacyRC2`, `LegacyDES`, `Modern2023`. | No | `""` |
+| `trustManager.target.additionalFormats.jks.enabled` | boolean | Renders an extra JKS output in the Bundle target when supported by trust-manager. | No | `false` |
+| `trustManager.target.additionalFormats.jks.key` | string | Key used for the JKS output. | No | `truststore.jks` |
+| `trustManager.target.additionalFormats.jks.password` | string | Password written into the JKS output. | No | `changeit` |
+| `trustManager.target.labels` | object | Extra labels for the target Bundle metadata. | No | `{}` |
+| `trustManager.target.annotations` | object | Extra annotations for the target Bundle metadata. | No | `{}` |
+| `trustManager.mirrorTLSSecret.enabled` | boolean | Mirrors the workload TLS `ca.crt` into trust-manager's trust namespace using a chart-owned helper Job and CronJob. | No | `false` |
+| `trustManager.mirrorTLSSecret.trustNamespace` | string | Namespace where trust-manager reads mirrored source Secrets. | No | `cert-manager` |
+| `trustManager.mirrorTLSSecret.sourceSecretName` | string | Workload TLS Secret name to mirror. Leave empty to reuse the configured NiFi TLS Secret name. | No | `""` |
+| `trustManager.mirrorTLSSecret.sourceKey` | string | Key read from the workload TLS Secret. | No | `ca.crt` |
+| `trustManager.mirrorTLSSecret.targetSecretName` | string | Secret name written into the trust namespace. Leave empty for the chart-generated default. | No | `""` |
+| `trustManager.mirrorTLSSecret.targetKey` | string | Key written into the mirrored trust-manager source Secret. | No | `ca.crt` |
+| `trustManager.mirrorTLSSecret.schedule` | string | Cron schedule for recurring source synchronization. | No | `*/1 * * * *` |
+| `trustManager.mirrorTLSSecret.image.repository` | string | Mirror helper image repository. | No | `bitnami/kubectl` |
+| `trustManager.mirrorTLSSecret.image.tag` | string | Optional mirror helper image tag. Leave empty when using a digest-pinned image reference. | No | `""` |
+| `trustManager.mirrorTLSSecret.image.digest` | string | Mirror helper image digest used by the default reproducible path. | No | `sha256:6e2cdb22d6ab7264ea198c717f555e30536b54029d26c8781b9f25f78951b564` |
+| `trustManager.mirrorTLSSecret.image.pullPolicy` | string | Mirror helper image pull policy. | No | `IfNotPresent` |
+| `trustManager.mirrorTLSSecret.resources.*` | object | Mirror helper Job and CronJob resources. | No | see values file |
+
 ## Experimental KEDA Integration
 
 `keda.*` is optional and experimental. For behavior details, see [KEDA integration](../keda.md).
@@ -89,12 +124,12 @@ These values render the managed `NiFiCluster` resource when `mode=managed`.
 | --- | --- | --- | --- | --- |
 | `nifi.replicaCount` | integer | NiFi pod count for the nested app chart. | No | chart-derived |
 | `nifi.image.*` | object | NiFi image repository, tag, and pull policy. | No | chart-derived |
-| `nifi.tls.*` | object | TLS source, Secret keys, and cert-manager integration. | No | chart-derived |
+| `nifi.tls.*` | object | TLS source, Secret keys, cert-manager integration, and optional extra trust bundle import. | No | chart-derived |
 | `nifi.auth.*` | object | NiFi authentication provider settings. | No | chart-derived |
 | `nifi.authz.*` | object | NiFi authorization bootstrap and policy settings. | No | chart-derived |
 | `nifi.ingress.*` | object | Standard Kubernetes ingress settings. | No | chart-derived |
 | `nifi.openshift.route.*` | object | OpenShift Route settings. | No | chart-derived |
-| `nifi.observability.metrics.*` | object | Metrics subsystem settings. | No | chart-derived |
+| `nifi.observability.metrics.*` | object | Metrics subsystem settings, including optional trust-manager bundle consumption. | No | chart-derived |
 | `nifi.persistence.*` | object | Repository storage settings. | No | chart-derived |
 | `nifi.resources.*` | object | NiFi pod resources. | No | chart-derived |
 

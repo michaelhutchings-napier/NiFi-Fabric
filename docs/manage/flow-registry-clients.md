@@ -35,7 +35,7 @@ Use platform chart values under:
 
 - GitHub: focused runtime proof on NiFi `2.8.0`
 - GitLab: focused runtime proof on NiFi `2.8.0`
-- Bitbucket: prepared definition, render-validated
+- Bitbucket: focused runtime proof on NiFi `2.8.0`
 - Azure DevOps: prepared definition, render-validated
 
 ## What This Feature Does Not Do
