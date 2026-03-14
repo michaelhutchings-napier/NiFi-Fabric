@@ -53,6 +53,10 @@ wait_for_exporter_ready() {
   kubectl -n "${NAMESPACE}" rollout status deployment/"${EXPORTER_DEPLOYMENT_NAME}" --timeout=3m >/dev/null
 }
 
+exporter_pod_name() {
+  kubectl -n "${NAMESPACE}" get pod -l app.kubernetes.io/component=metrics-exporter -o jsonpath='{.items[0].metadata.name}'
+}
+
 install_prometheus_operator_crds() {
   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null 2>&1 || true
   helm repo update prometheus-community >/dev/null
@@ -179,7 +183,7 @@ verify_exporter_resources() {
 verify_exporter_mounts() {
   local exporter_pod
 
-  exporter_pod="$(kubectl -n "${NAMESPACE}" get pod -l app.kubernetes.io/component=metrics-exporter -o jsonpath='{.items[0].metadata.name}')"
+  exporter_pod="$(exporter_pod_name)"
   [[ -n "${exporter_pod}" ]]
 
   kubectl -n "${NAMESPACE}" exec "${exporter_pod}" -- /bin/sh -ec '
@@ -189,10 +193,78 @@ verify_exporter_mounts() {
   ' >/dev/null
 }
 
+probe_exporter_endpoint() {
+  local path="$1"
+  local expected_status="$2"
+  local attempts="${3:-12}"
+  local sleep_seconds="${4:-5}"
+  local http_code
+  local attempt
+
+  for attempt in $(seq 1 "${attempts}"); do
+    http_code="$(
+      kubectl -n "${NAMESPACE}" exec "${PROBE_POD_NAME}" -- /bin/sh -ec "
+        curl --silent --show-error \
+          --output /dev/null \
+          --write-out '%{http_code}' \
+          http://${HELM_RELEASE}-metrics.${NAMESPACE}.svc.cluster.local:9090${path}
+      "
+    )"
+    if [[ "${http_code}" == "${expected_status}" ]]; then
+      return 0
+    fi
+    if (( attempt == attempts )); then
+      kubectl -n "${NAMESPACE}" exec "${PROBE_POD_NAME}" -- /bin/sh -ec "
+        curl --silent --show-error http://${HELM_RELEASE}-metrics.${NAMESPACE}.svc.cluster.local:9090${path}
+      " >&2 || true
+      echo "exporter ${path} never returned HTTP ${expected_status}: final HTTP status ${http_code:-<empty>}" >&2
+      return 1
+    fi
+    sleep "${sleep_seconds}"
+  done
+}
+
+set_metrics_token_literal() {
+  local token_value="$1"
+
+  kubectl -n "${NAMESPACE}" create secret generic "${METRICS_AUTH_SECRET}" \
+    --from-literal=token="${token_value}" \
+    --dry-run=client \
+    -o yaml | kubectl -n "${NAMESPACE}" apply -f - >/dev/null
+}
+
+wait_for_exporter_auth_file() {
+  local comparison="$1"
+  local expected_value="$2"
+  local attempts="${3:-24}"
+  local sleep_seconds="${4:-5}"
+  local exporter_pod
+  local current_value
+  local attempt
+
+  exporter_pod="$(exporter_pod_name)"
+  [[ -n "${exporter_pod}" ]]
+
+  for attempt in $(seq 1 "${attempts}"); do
+    current_value="$(kubectl -n "${NAMESPACE}" exec "${exporter_pod}" -- /bin/sh -ec 'cat /var/run/nifi-metrics-auth/token' 2>/dev/null || true)"
+    if [[ "${comparison}" == "equals" && "${current_value}" == "${expected_value}" ]]; then
+      return 0
+    fi
+    if [[ "${comparison}" == "not-equals" && "${current_value}" != "${expected_value}" && -n "${current_value}" ]]; then
+      return 0
+    fi
+    sleep "${sleep_seconds}"
+  done
+
+  echo "exporter auth file never reached expected state (${comparison} ${expected_value})" >&2
+  return 1
+}
+
 scrape_exporter_metrics() {
   local attempt
   local max_attempts=12
   local http_code
+  local body
   CURRENT_PHASE="scrape-exporter-metrics"
   FAILURE_CATEGORY="scrape"
   FAILURE_ENDPOINT="http://${HELM_RELEASE}-metrics.${NAMESPACE}.svc.cluster.local:9090/metrics"
@@ -200,22 +272,30 @@ scrape_exporter_metrics() {
     http_code="$(
       kubectl -n "${NAMESPACE}" exec "${PROBE_POD_NAME}" -- /bin/sh -ec "
         curl --silent --show-error \
-          --output /tmp/exporter-metrics.prom \
+          --output /dev/null \
           --write-out '%{http_code}' \
           http://${HELM_RELEASE}-metrics.${NAMESPACE}.svc.cluster.local:9090/metrics
       "
     )"
-    if [[ "${http_code}" == "200" ]] && kubectl -n "${NAMESPACE}" exec "${PROBE_POD_NAME}" -- /bin/sh -ec "
-      grep -q '^# HELP ' /tmp/exporter-metrics.prom
-      grep -q '^# TYPE ' /tmp/exporter-metrics.prom
-      grep -q '^nifi_fabric_exporter_source_up{source=\"flow_prometheus\"} 1$' /tmp/exporter-metrics.prom
-      grep -q '^nifi_fabric_exporter_source_up{source=\"flow_status\"} 1$' /tmp/exporter-metrics.prom
-      grep -q '^nifi_fabric_flow_status_controller_active_thread_count ' /tmp/exporter-metrics.prom
-      grep -q '^nifi_fabric_flow_status_controller_bytes_queued ' /tmp/exporter-metrics.prom
-    " >/dev/null; then
-      return 0
+    if [[ "${http_code}" == "200" ]]; then
+      body="$(
+        kubectl -n "${NAMESPACE}" exec "${PROBE_POD_NAME}" -- /bin/sh -ec "
+          curl --silent --show-error http://${HELM_RELEASE}-metrics.${NAMESPACE}.svc.cluster.local:9090/metrics
+        "
+      )"
+      if printf '%s\n' "${body}" | grep -q '^# HELP ' &&
+        printf '%s\n' "${body}" | grep -q '^# TYPE ' &&
+        printf '%s\n' "${body}" | grep -q '^nifi_fabric_exporter_source_up{source=\"flow_prometheus\"} 1$' &&
+        printf '%s\n' "${body}" | grep -q '^nifi_fabric_exporter_source_up{source=\"flow_status\"} 1$' &&
+        printf '%s\n' "${body}" | grep -q '^nifi_fabric_flow_status_controller_active_thread_count ' &&
+        printf '%s\n' "${body}" | grep -q '^nifi_fabric_flow_status_controller_bytes_queued '; then
+        return 0
+      fi
     fi
     if (( attempt == max_attempts )); then
+      kubectl -n "${NAMESPACE}" exec "${PROBE_POD_NAME}" -- /bin/sh -ec "
+        curl --silent --show-error http://${HELM_RELEASE}-metrics.${NAMESPACE}.svc.cluster.local:9090/metrics
+      " >&2 || true
       echo "exporter scrape never succeeded: final HTTP status ${http_code:-<empty>}" >&2
       return 1
     fi
@@ -226,6 +306,33 @@ scrape_exporter_metrics() {
 restart_exporter_deployment() {
   kubectl -n "${NAMESPACE}" rollout restart deployment/"${EXPORTER_DEPLOYMENT_NAME}" >/dev/null
   wait_for_exporter_ready
+}
+
+verify_exporter_secret_reload_without_restart() {
+  local exporter_pod_before
+  local exporter_uid_before
+  local exporter_pod_after
+  local exporter_uid_after
+  local invalid_token="invalid-exporter-token"
+
+  exporter_pod_before="$(exporter_pod_name)"
+  exporter_uid_before="$(kubectl -n "${NAMESPACE}" get pod "${exporter_pod_before}" -o jsonpath='{.metadata.uid}')"
+
+  set_metrics_token_literal "${invalid_token}"
+  wait_for_exporter_auth_file "equals" "${invalid_token}"
+
+  probe_exporter_endpoint "/readyz" "503" 18 5
+  probe_exporter_endpoint "/metrics" "502" 18 5
+
+  mint_metrics_token
+  wait_for_exporter_auth_file "not-equals" "${invalid_token}"
+  wait_for_exporter_ready
+  probe_exporter_endpoint "/readyz" "200" 18 5
+  scrape_exporter_metrics
+
+  exporter_pod_after="$(exporter_pod_name)"
+  exporter_uid_after="$(kubectl -n "${NAMESPACE}" get pod "${exporter_pod_after}" -o jsonpath='{.metadata.uid}')"
+  assert_equals "${exporter_uid_after}" "${exporter_uid_before}" "exporter pod restarted during auth Secret rotation proof"
 }
 
 dump_diagnostics() {
@@ -326,7 +433,6 @@ helm -n "${NAMESPACE}" status "${HELM_RELEASE}" >/dev/null
 kubectl -n "${CONTROLLER_NAMESPACE}" rollout status deployment/"${CONTROLLER_DEPLOYMENT}" --timeout=5m
 kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" >/dev/null
 kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" >/dev/null
-wait_for_exporter_ready
 
 CURRENT_PHASE="verify-cluster-health"
 FAILURE_CATEGORY="scrape"
@@ -339,6 +445,12 @@ FAILURE_CATEGORY="auth-material"
 FAILURE_ENDPOINT="NiFi access token bootstrap"
 phase "Minting a bearer token for the operator-provided metrics Secret"
 mint_metrics_token
+
+CURRENT_PHASE="wait-for-exporter-readiness"
+FAILURE_CATEGORY="scrape"
+FAILURE_ENDPOINT="/readyz"
+phase "Waiting for exporter readiness against the secured upstream NiFi metrics endpoint"
+wait_for_exporter_ready
 
 CURRENT_PHASE="verify-exporter-contract"
 FAILURE_CATEGORY="rendering"
@@ -353,7 +465,14 @@ FAILURE_CATEGORY="scrape"
 FAILURE_ENDPOINT="/metrics"
 phase "Probing the clean exporter /metrics endpoint"
 install_probe_pod
+probe_exporter_endpoint "/readyz" "200"
 scrape_exporter_metrics
+
+CURRENT_PHASE="verify-exporter-secret-rotation"
+FAILURE_CATEGORY="auth-material"
+FAILURE_ENDPOINT="Secret/${METRICS_AUTH_SECRET} mounted into ${EXPORTER_DEPLOYMENT_NAME}"
+phase "Proving exporter recovery after machine-auth Secret rotation without restarting the pod"
+verify_exporter_secret_reload_without_restart
 
 print_success_footer "exporter metrics runtime proof completed" \
   "make kind-metrics-exporter-fast-e2e-reuse" \

@@ -1,0 +1,33 @@
+# Optional overlay for trust-manager-backed native metrics scraping.
+#
+# Layer this on top of:
+# - examples/platform-managed-values.yaml
+# - examples/platform-managed-trust-manager-values.yaml
+# - examples/platform-managed-metrics-native-values.yaml
+#
+# Prerequisites:
+# - trust-manager is installed with secret targets enabled
+# - the generated trust bundle Secret name is authorized in that trust-manager install
+
+trustManager:
+  target:
+    type: secret
+    additionalFormats:
+      pkcs12:
+        enabled: true
+        key: truststore.p12
+        profile: Modern2023
+
+nifi:
+  trustManagerBundleRef:
+    type: secret
+    key: ca.crt
+  observability:
+    metrics:
+      nativeApi:
+        tlsConfig:
+          ca:
+            secretRef:
+              name: ""
+              key: ca.crt
+            useTrustManagerBundle: true

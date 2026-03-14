@@ -205,6 +205,18 @@ file-user-group-provider
 {{- end -}}
 {{- end -}}
 
+{{- define "nifi.adminGroupBindingXml" -}}
+{{- if .Values.authz.bootstrap.initialAdminGroup }}
+            <group identifier="{{ include "nifi.stableId" (printf "group:%s" .Values.authz.bootstrap.initialAdminGroup) }}"/>
+{{- end -}}
+{{- end -}}
+
+{{- define "nifi.adminUserBindingXml" -}}
+{{- if and (not .Values.authz.bootstrap.initialAdminGroup) (include "nifi.adminIdentityForFiles" .) }}
+            <user identifier="__ADMIN_IDENTITY_ID__"/>
+{{- end -}}
+{{- end -}}
+
 {{- define "nifi.baseAdminPoliciesYaml" -}}
 {{- toYaml (list
   (dict "resource" "/flow" "action" "R")
@@ -273,14 +285,17 @@ file-user-group-provider
 {{- $policyGroups := sortAlpha (uniq (default (list) (get $entry "groups"))) -}}
 {{- if or (get $entry "includeAdmin") (get $entry "includeNode") (gt (len $policyGroups) 0) }}
         <policy identifier="{{ include "nifi.stableId" (printf "policy:%s:%s:admin=%t:node=%t:groups=%v" (get $entry "resource") (get $entry "action") (get $entry "includeAdmin") (get $entry "includeNode") $policyGroups) }}" resource="{{ get $entry "resource" }}" action="{{ get $entry "action" }}">
+{{- if get $entry "includeAdmin" }}
+{{ include "nifi.adminGroupBindingXml" $ }}
+{{- end }}
+{{- range $group := $policyGroups }}
+            <group identifier="{{ include "nifi.stableId" (printf "group:%s" $group) }}"/>
+{{- end }}
 {{- if get $entry "includeNode" }}
             <user identifier="__NODE_IDENTITY_ID__"/>
 {{- end }}
 {{- if get $entry "includeAdmin" }}
-{{ include "nifi.adminBindingXml" $ }}
-{{- end }}
-{{- range $group := $policyGroups }}
-            <group identifier="{{ include "nifi.stableId" (printf "group:%s" $group) }}"/>
+{{ include "nifi.adminUserBindingXml" $ }}
 {{- end }}
         </policy>
 {{- end }}
@@ -314,7 +329,7 @@ file-user-group-provider
         <property name="TLS - Keystore">{{ .Values.tls.mountPath }}/{{ .Values.tls.keystoreKey }}</property>
         <property name="TLS - Keystore Password">__KEYSTORE_PASSWORD__</property>
         <property name="TLS - Keystore Type">PKCS12</property>
-        <property name="TLS - Truststore">{{ .Values.tls.mountPath }}/{{ .Values.tls.truststoreKey }}</property>
+        <property name="TLS - Truststore">__TRUSTSTORE_PATH__</property>
         <property name="TLS - Truststore Password">__TRUSTSTORE_PASSWORD__</property>
         <property name="TLS - Truststore Type">PKCS12</property>
         <property name="TLS - Client Auth">{{ .Values.auth.ldap.tls.clientAuth }}</property>
@@ -389,7 +404,7 @@ file-user-group-provider
         <property name="TLS - Keystore">{{ .Values.tls.mountPath }}/{{ .Values.tls.keystoreKey }}</property>
         <property name="TLS - Keystore Password">__KEYSTORE_PASSWORD__</property>
         <property name="TLS - Keystore Type">PKCS12</property>
-        <property name="TLS - Truststore">{{ .Values.tls.mountPath }}/{{ .Values.tls.truststoreKey }}</property>
+        <property name="TLS - Truststore">__TRUSTSTORE_PATH__</property>
         <property name="TLS - Truststore Password">__TRUSTSTORE_PASSWORD__</property>
         <property name="TLS - Truststore Type">PKCS12</property>
         <property name="TLS - Client Auth">{{ .Values.auth.ldap.tls.clientAuth }}</property>

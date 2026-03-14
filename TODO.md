@@ -57,7 +57,8 @@ Completed in the scaffold:
    - do not broaden KEDA into controller-bypassing scale-down behavior
 18. Extend the first-class metrics subsystem beyond the initial native API slice only after the contract stays understandable:
    - broader exporter metrics-family coverage beyond the now-proven flow Prometheus plus controller-status slice
-   - site-to-site runtime wiring only after reporting-task lifecycle and destination receiver assumptions are modeled deliberately
+   - site-to-site runtime wiring only after reporting-task lifecycle ownership and receiver/input-port assumptions move beyond the now-validated prepared contract
+   - if site-to-site runtime is revisited, keep it limited to one bounded reporting-task path rather than a general NiFi object-management layer
    - optional provider-side machine-principal provisioning only if it stays clearly isolated from the provider-agnostic Secret bootstrap helper
    - JVM or system-diagnostics runtime proof only after a provider-agnostic authz story exists for those endpoints
 

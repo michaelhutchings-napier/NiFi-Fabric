@@ -32,10 +32,19 @@ check_cert_manager_prereqs() {
 
 require_kind_cluster() {
   local cluster_name="$1"
-  if ! kind get clusters | grep -qx "${cluster_name}"; then
-    echo "ERROR: kind cluster ${cluster_name} does not exist" >&2
-    exit 1
-  fi
+  local attempts="${2:-10}"
+  local sleep_seconds="${3:-1}"
+  local attempt
+
+  for attempt in $(seq 1 "${attempts}"); do
+    if kind get clusters | grep -qx "${cluster_name}"; then
+      return 0
+    fi
+    sleep "${sleep_seconds}"
+  done
+
+  echo "ERROR: kind cluster ${cluster_name} does not exist" >&2
+  exit 1
 }
 
 configure_kind_cluster_access() {

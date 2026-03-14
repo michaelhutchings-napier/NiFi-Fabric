@@ -19,6 +19,9 @@ spec:
       {{- end }}
       {{- else }}
       - name: {{ printf "%s-config" (include "nifi-platform.nifiFullname" .) | quote }}
+      {{- if and .Values.trustManager.enabled (eq (include "nifi-platform.trustManagerTargetType" .) "configMap") (dig "tls" "additionalTrustBundle" "enabled" false .Values.nifi) (dig "tls" "additionalTrustBundle" "useTrustManagerBundle" false .Values.nifi) }}
+      - name: {{ include "nifi-platform.trustManagerBundleName" . | quote }}
+      {{- end }}
       {{- end }}
     secrets:
       {{- if .Values.cluster.restartTriggers.secrets }}
@@ -27,6 +30,9 @@ spec:
       {{- end }}
       {{- else }}
       - name: {{ include "nifi-platform.tlsSecretName" . | quote }}
+      {{- if and .Values.trustManager.enabled (eq (include "nifi-platform.trustManagerTargetType" .) "secret") (dig "tls" "additionalTrustBundle" "enabled" false .Values.nifi) (dig "tls" "additionalTrustBundle" "useTrustManagerBundle" false .Values.nifi) }}
+      - name: {{ include "nifi-platform.trustManagerBundleName" . | quote }}
+      {{- end }}
       {{- end }}
   restartPolicy:
     tlsDrift: {{ .Values.cluster.restartPolicy.tlsDrift }}

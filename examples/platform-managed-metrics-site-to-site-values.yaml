@@ -1,7 +1,8 @@
 # Optional managed-platform overlay for the prepared-only site-to-site metrics contract.
-# This does not enable a runtime path yet. It documents the intended operator-facing
-# values for a future SiteToSiteMetricsReportingTask integration once reporting-task
-# lifecycle and receiver assumptions are deliberately modeled.
+# This still does not enable a runtime path. It documents the intended operator-facing
+# destination, auth, TLS, transport, and format contract for a future
+# SiteToSiteMetricsReportingTask integration once reporting-task and receiver
+# ownership assumptions are deliberately modeled.
 nifi:
   observability:
     metrics:
@@ -10,6 +11,18 @@ nifi:
         destination:
           url: https://metrics-receiver.example.com/nifi
           inputPortName: nifi-metrics
+          auth:
+            type: authorizationHeader
+            secretRef:
+              name: nifi-metrics-destination-auth
+            authorization:
+              type: Bearer
+              credentialsKey: token
+          tls:
+            ca:
+              secretRef:
+                name: nifi-metrics-destination-ca
+                key: ca.crt
         source:
           applicationId: nifi
           instanceUrl: https://nifi.example.com/nifi

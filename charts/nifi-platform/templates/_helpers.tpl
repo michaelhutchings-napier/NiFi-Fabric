@@ -86,6 +86,34 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- end -}}
 
+{{- define "nifi-platform.trustManagerBundleName" -}}
+{{- printf "%s-trust-bundle" (include "nifi-platform.nifiFullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "nifi-platform.trustManagerTargetType" -}}
+{{- default "configMap" .Values.trustManager.target.type -}}
+{{- end -}}
+
+{{- define "nifi-platform.trustManagerMirrorTrustNamespace" -}}
+{{- default "cert-manager" .Values.trustManager.mirrorTLSSecret.trustNamespace -}}
+{{- end -}}
+
+{{- define "nifi-platform.trustManagerMirrorSourceSecretName" -}}
+{{- default (include "nifi-platform.tlsSecretName" .) .Values.trustManager.mirrorTLSSecret.sourceSecretName -}}
+{{- end -}}
+
+{{- define "nifi-platform.trustManagerMirrorTargetSecretName" -}}
+{{- default (printf "%s-tls-ca-source" (include "nifi-platform.nifiFullname" .)) .Values.trustManager.mirrorTLSSecret.targetSecretName -}}
+{{- end -}}
+
+{{- define "nifi-platform.trustManagerMirrorSecretKey" -}}
+{{- default "ca.crt" .Values.trustManager.mirrorTLSSecret.targetKey -}}
+{{- end -}}
+
+{{- define "nifi-platform.trustManagerMirrorName" -}}
+{{- printf "%s-trust-source-mirror" (include "nifi-platform.nifiFullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "nifi-platform.validate" -}}
 {{- $mode := include "nifi-platform.mode" . -}}
 {{- $managed := eq (include "nifi-platform.managedMode" .) "true" -}}
@@ -101,6 +129,103 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- if and (eq $mode "managed-cert-manager") (not (dig "tls" "certManager" "enabled" false .Values.nifi)) -}}
 {{- fail "mode=managed-cert-manager requires nifi.tls.certManager.enabled=true" -}}
+{{- end -}}
+{{- if .Values.trustManager.enabled -}}
+{{- if not $managed -}}
+{{- fail "trustManager.enabled=true requires a managed platform mode" -}}
+{{- end -}}
+{{- $sources := default (dict) .Values.trustManager.sources -}}
+{{- $sourceConfigMaps := default (list) $sources.configMaps -}}
+{{- $sourceSecrets := default (list) $sources.secrets -}}
+{{- $sourceInline := default (list) $sources.inline -}}
+{{- $mirror := default (dict) .Values.trustManager.mirrorTLSSecret -}}
+{{- $mirrorEnabled := default false $mirror.enabled -}}
+{{- $target := default (dict) .Values.trustManager.target -}}
+{{- $targetType := default "configMap" $target.type -}}
+{{- if and (ne $targetType "configMap") (ne $targetType "secret") -}}
+{{- fail "trustManager.target.type must be one of: configMap, secret" -}}
+{{- end -}}
+{{- if and (not $sources.useDefaultCAs) (eq (len $sourceConfigMaps) 0) (eq (len $sourceSecrets) 0) (eq (len $sourceInline) 0) (not $mirrorEnabled) -}}
+{{- fail "trustManager.enabled=true requires at least one source: useDefaultCAs, sources.configMaps, sources.secrets, sources.inline, or mirrorTLSSecret.enabled=true" -}}
+{{- end -}}
+{{- range $index, $source := $sourceConfigMaps -}}
+{{- if not $source.name -}}
+{{- fail (printf "trustManager.sources.configMaps[%d].name is required" $index) -}}
+{{- end -}}
+{{- if not $source.key -}}
+{{- fail (printf "trustManager.sources.configMaps[%d].key is required" $index) -}}
+{{- end -}}
+{{- end -}}
+{{- range $index, $source := $sourceSecrets -}}
+{{- if not $source.name -}}
+{{- fail (printf "trustManager.sources.secrets[%d].name is required" $index) -}}
+{{- end -}}
+{{- if not $source.key -}}
+{{- fail (printf "trustManager.sources.secrets[%d].key is required" $index) -}}
+{{- end -}}
+{{- end -}}
+{{- range $index, $source := $sourceInline -}}
+{{- if not $source.pem -}}
+{{- fail (printf "trustManager.sources.inline[%d].pem is required" $index) -}}
+{{- end -}}
+{{- end -}}
+{{- if not .Values.trustManager.target.key -}}
+{{- fail "trustManager.target.key is required when trustManager.enabled=true" -}}
+{{- end -}}
+{{- $pkcs12 := default (dict) $target.additionalFormats.pkcs12 -}}
+{{- if $pkcs12.enabled -}}
+{{- if not $pkcs12.key -}}
+{{- fail "trustManager.target.additionalFormats.pkcs12.key is required when PKCS12 output is enabled" -}}
+{{- end -}}
+{{- if and $pkcs12.profile (not (has $pkcs12.profile (list "LegacyRC2" "LegacyDES" "Modern2023"))) -}}
+{{- fail "trustManager.target.additionalFormats.pkcs12.profile must be one of: LegacyRC2, LegacyDES, Modern2023" -}}
+{{- end -}}
+{{- end -}}
+{{- $jks := default (dict) $target.additionalFormats.jks -}}
+{{- if $jks.enabled -}}
+{{- if not $jks.key -}}
+{{- fail "trustManager.target.additionalFormats.jks.key is required when JKS output is enabled" -}}
+{{- end -}}
+{{- if not $jks.password -}}
+{{- fail "trustManager.target.additionalFormats.jks.password is required when JKS output is enabled" -}}
+{{- end -}}
+{{- end -}}
+{{- if $mirrorEnabled -}}
+{{- $mirrorImage := default (dict) .Values.trustManager.mirrorTLSSecret.image -}}
+{{- if not $mirrorImage.repository -}}
+{{- fail "trustManager.mirrorTLSSecret.image.repository is required when mirrorTLSSecret.enabled=true" -}}
+{{- end -}}
+{{- if and (not $mirrorImage.tag) (not $mirrorImage.digest) -}}
+{{- fail "trustManager.mirrorTLSSecret.image.tag or trustManager.mirrorTLSSecret.image.digest is required when mirrorTLSSecret.enabled=true" -}}
+{{- end -}}
+{{- if not $mirror.targetKey -}}
+{{- fail "trustManager.mirrorTLSSecret.targetKey is required when mirrorTLSSecret.enabled=true" -}}
+{{- end -}}
+{{- if not $mirror.sourceKey -}}
+{{- fail "trustManager.mirrorTLSSecret.sourceKey is required when mirrorTLSSecret.enabled=true" -}}
+{{- end -}}
+{{- if not $mirror.schedule -}}
+{{- fail "trustManager.mirrorTLSSecret.schedule is required when mirrorTLSSecret.enabled=true" -}}
+{{- end -}}
+{{- if and (eq (include "nifi-platform.trustManagerMirrorTrustNamespace" .) .Release.Namespace) (eq (include "nifi-platform.trustManagerMirrorSourceSecretName" .) (include "nifi-platform.trustManagerMirrorTargetSecretName" .)) -}}
+{{- fail "trustManager.mirrorTLSSecret cannot target the same Secret name in the release namespace as its source" -}}
+{{- end -}}
+{{- end -}}
+{{- $nifiTrustManagerRef := default (dict) .Values.nifi.trustManagerBundleRef -}}
+{{- $nifiTrustManagerRefType := default "configMap" $nifiTrustManagerRef.type -}}
+{{- $nifiTrustManagerRefKey := default "ca.crt" $nifiTrustManagerRef.key -}}
+{{- $nifiUsesTrustManagerBundle := or (dig "tls" "additionalTrustBundle" "useTrustManagerBundle" false .Values.nifi) (dig "observability" "metrics" "nativeApi" "tlsConfig" "ca" "useTrustManagerBundle" false .Values.nifi) (dig "observability" "metrics" "exporter" "source" "tlsConfig" "ca" "useTrustManagerBundle" false .Values.nifi) -}}
+{{- if $nifiUsesTrustManagerBundle -}}
+{{- if ne $nifiTrustManagerRefType $targetType -}}
+{{- fail "nifi.trustManagerBundleRef.type must match trustManager.target.type when the app chart consumes the platform trust-manager bundle" -}}
+{{- end -}}
+{{- if ne $nifiTrustManagerRefKey $target.key -}}
+{{- fail "nifi.trustManagerBundleRef.key must match trustManager.target.key when the app chart consumes the platform trust-manager bundle" -}}
+{{- end -}}
+{{- if and $nifiTrustManagerRef.name (ne $nifiTrustManagerRef.name (include "nifi-platform.trustManagerBundleName" .)) -}}
+{{- fail "nifi.trustManagerBundleRef.name must match the platform-generated trust bundle name when the app chart consumes the platform trust-manager bundle" -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- if .Values.keda.enabled -}}
 {{- if not $managed -}}

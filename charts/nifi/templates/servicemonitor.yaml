@@ -22,6 +22,9 @@ spec:
 {{- $machineAuth := $native.machineAuth -}}
 {{- $tlsConfig := $native.tlsConfig -}}
 {{- $tlsServerName := include "nifi.metricsTLSServerName" $ -}}
+{{- $caRefType := include "nifi.nativeMetricsCARefType" $ -}}
+{{- $caRefName := include "nifi.nativeMetricsCARefName" $ -}}
+{{- $caRefKey := include "nifi.nativeMetricsCARefKey" $ -}}
 {{- range $endpoint := $native.endpoints }}
 {{- if $endpoint.enabled }}
 {{- $defaultAnnotations := default (dict) $defaults.annotations }}
@@ -87,15 +90,21 @@ spec:
         name: {{ $machineAuth.secretRef.name }}
         key: {{ $machineAuth.authorization.credentialsKey }}
     {{- end }}
-    {{- if or $tlsConfig.serverName $tlsConfig.insecureSkipVerify $tlsConfig.ca.secretRef.name }}
+    {{- if or $tlsConfig.serverName $tlsConfig.insecureSkipVerify $caRefName }}
     tlsConfig:
       insecureSkipVerify: {{ $tlsConfig.insecureSkipVerify }}
       serverName: {{ $tlsServerName }}
-      {{- with $tlsConfig.ca.secretRef.name }}
+      {{- if and $caRefName (eq $caRefType "secret") }}
       ca:
         secret:
-          name: {{ . }}
-          key: {{ $tlsConfig.ca.secretRef.key }}
+          name: {{ $caRefName }}
+          key: {{ $caRefKey }}
+      {{- end }}
+      {{- if and $caRefName (eq $caRefType "configMap") }}
+      ca:
+        configMap:
+          name: {{ $caRefName }}
+          key: {{ $caRefKey }}
       {{- end }}
     {{- end }}
 ---

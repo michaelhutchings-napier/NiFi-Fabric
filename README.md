@@ -11,6 +11,7 @@ It provides a product-facing one-release install path through `charts/nifi-platf
 - NiFi-native behavior stays in NiFi, standard Kubernetes resources stay in Helm
 - OIDC and LDAP are first-class managed authentication options
 - cert-manager is supported when it already exists in the cluster
+- optional trust-manager integration is available for shared CA bundle distribution
 - Git-based Flow Registry Clients are the supported modern direction
 - observability and metrics are a first-class subsystem instead of an afterthought
 
@@ -24,6 +25,7 @@ Prerequisites:
 - `Secret/nifi-tls`
 - `Secret/nifi-auth`
 - cert-manager only when you choose cert-manager TLS mode
+- trust-manager only when you choose the optional trust-manager bundle overlay
 
 Managed platform install:
 
@@ -42,6 +44,35 @@ helm upgrade --install nifi charts/nifi-platform \
   --create-namespace \
   -f examples/platform-managed-values.yaml \
   -f examples/platform-managed-cert-manager-values.yaml
+```
+
+Managed platform install with optional trust-manager bundle distribution:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  -f examples/platform-managed-values.yaml \
+  -f examples/platform-managed-trust-manager-values.yaml
+```
+
+Focused trust-manager proof:
+
+```bash
+make kind-platform-managed-trust-manager-fast-e2e
+```
+
+Focused trust-manager-backed native metrics proof:
+
+```bash
+make kind-metrics-native-api-trust-manager-fast-e2e
+```
+
+Secondary manifest-bundle path:
+
+```bash
+make render-platform-managed-bundle
+kubectl apply -f dist/nifi-platform-managed-bundle.yaml
 ```
 
 ## Documentation
@@ -87,6 +118,7 @@ NiFi-Fabric targets Apache NiFi `2.0.0` through `2.8.x`.
 - NiFi `1.x` is not supported
 - AKS is a primary target, but current repo proof is still kind-first
 - OpenShift is supported as a prepared secondary target and remains conservative until real-cluster proof is recorded
+- richer ingress-backed OIDC browser-flow proof is still conservative on the current local Keycloak `26.x` path
 
 See [Compatibility](docs/compatibility.md) for the detailed matrix.
 
@@ -96,9 +128,12 @@ See [Compatibility](docs/compatibility.md) for the detailed matrix.
 - `charts/nifi` is the standalone-capable app chart
 - built-in controller-owned autoscaling is the primary autoscaling model
 - KEDA is optional, experimental, and secondary as an external intent source
-- native API metrics are the primary supported metrics path and are runtime-proven on kind
-- exporter metrics are experimental and are runtime-proven on kind
-- site-to-site metrics are prepared-only
+- GitHub, GitLab, and Bitbucket Flow Registry Client paths are runtime-proven on NiFi `2.8.0`
+- Azure DevOps Flow Registry Client remains prepared and render-validated
+- native API metrics are the primary, recommended metrics path and are runtime-proven on kind
+- exporter metrics are a supported secondary path and are runtime-proven on kind
+- site-to-site metrics are prepared-only, with a validated destination contract but no runtime path
+- optional trust-manager integration distributes shared CA bundles without moving TLS orchestration into the controller
 
 ## Experimental Features
 
@@ -106,7 +141,6 @@ These features are available but intentionally marked experimental:
 
 - controller-owned enforced autoscaling scale-down
 - KEDA integration
-- exporter metrics mode
 
 Prepared-only, not runtime-enabled:
 
@@ -121,33 +155,40 @@ The repo now carries a focused metrics runtime proof matrix:
 
 That matrix proves:
 
-- secured `nativeApi` scraping with chart-managed `Service` and `ServiceMonitor` resources
-- experimental `exporter` mode with its companion `Deployment`, `Service`, and `ServiceMonitor`
+- secured `nativeApi` scraping with a dedicated chart-managed metrics `Service` and named `ServiceMonitor` resources
+- supported `exporter` mode with its companion `Deployment`, `Service`, and `ServiceMonitor`
 - the documented machine-auth Secret and CA Secret contract used by both modes
 
 Current conservative boundary:
 
 - `nativeApi` is runtime-proven for the secured `/nifi-api/flow/metrics/prometheus` endpoint
+- `nativeApi` is also runtime-proven consuming a trust-manager-distributed CA bundle through the optional platform trust-manager overlay
+- `nativeApi` is the recommended production path unless you have a clear reason to prefer the exporter shape
 - `exporter` is runtime-proven for `/nifi-api/flow/metrics/prometheus` plus selected controller-status gauges derived from `/nifi-api/flow/status`
+- `exporter` is runtime-proven for upstream-aware readiness and mounted auth Secret rotation without restarting the exporter pod
 - two named native scrape profiles are proven, but they still scrape the same flow Prometheus endpoint at different cadence
 - JVM or system-diagnostics metrics are not yet runtime-proven
-- `siteToSite` remains outside the live proof matrix because it is still prepared-only
+- `siteToSite` remains outside the live proof matrix because this repo still does not own NiFi reporting-task lifecycle or the destination receiver/input-port pipeline
+- `siteToSite` now validates destination URL, input port name, provider-agnostic auth references, TLS references, transport protocol, and output format at render time
+- a clean runtime `siteToSite` path would also require bounded ownership of NiFi internal references such as the reporting task itself, SSL Context Service wiring, and any future Record Writer wiring
 
 Operators still provide, out of band:
 
 - a machine credential already accepted by NiFi, or a pre-minted token
 - the machine principal lifecycle itself, including IdP-side provisioning and rotation policy
+- any trust-manager trust namespace and Secret-target permissions required by your chosen trust-manager installation
 
 The focused kind proof can mint a short-lived NiFi access token for the metrics Secret. Production deployments still need an operator-managed credential or rotation path that stays valid for steady-state scraping.
 
 ## Install Surface Note
 
-A separate customer-facing kustomize install bundle is not shipped in this slice.
-
-The supported install surfaces remain:
+The supported install surfaces are:
 
 - `charts/nifi-platform` for the standard one-release platform path
+- a generated manifest bundle rendered from `charts/nifi-platform` for advanced manifest-based workflows
 - `charts/nifi` for standalone or advanced assembly
+
+Helm remains the primary recommendation because it stays the source of truth for the product install surface. The generated bundle is a secondary path for teams that prefer applying rendered manifests.
 
 ## Conservative Claims
 
@@ -156,5 +197,8 @@ NiFi-Fabric documentation is intentionally conservative in a few areas:
 - AKS and OpenShift guidance is published, but real-cluster runtime proof is not yet claimed here
 - KEDA is documented as experimental even though focused kind proof is green
 - autoscaling scale-down remains intentionally one-step-at-a-time and experimental
-- exporter metrics are experimental
 - site-to-site metrics remain prepared-only
+- exporter support remains intentionally bounded to flow metrics plus selected `/flow/status` gauges
+- trust-manager currently distributes shared CA bundles only; it does not replace cert-manager or move trust orchestration into the controller
+- automatic mirroring of the workload TLS `ca.crt` into a trust-manager source Secret is available as an optional chart-owned helper path
+- ConfigMap and Secret bundle targets are supported, but current automatic app consumption still centers on the PEM `ca.crt` bundle key

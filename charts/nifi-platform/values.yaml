@@ -97,6 +97,65 @@ cluster:
     requireClusterHealthy: true
 
 # ------------------------------------------------------------------------------
+# Optional trust-manager Integration
+# Docs: ../../docs/manage/tls-and-cert-manager.md
+# Docs: ../../docs/manage/observability.md
+# ------------------------------------------------------------------------------
+
+# -- Optional trust-manager integration for distributing a shared CA bundle into the
+# NiFi namespace. trust-manager remains a cluster prerequisite and is not installed
+# by this chart.
+trustManager:
+  enabled: false
+  sources:
+    # -- Include the trust-manager default/public CA bundle.
+    useDefaultCAs: false
+    # -- Source ConfigMaps and Secrets must already exist in trust-manager's configured
+    # trust namespace unless `mirrorTLSSecret.enabled=true`.
+    configMaps: []
+    secrets: []
+    inline: []
+  target:
+    # -- Bundle target type. `configMap` is the default path. `secret` requires an
+    # upstream trust-manager installation with secret targets enabled and authorized.
+    type: configMap
+    key: ca.crt
+    additionalFormats:
+      pkcs12:
+        enabled: false
+        key: truststore.p12
+        password: ""
+        profile: ""
+      jks:
+        enabled: false
+        key: truststore.jks
+        password: changeit
+    labels: {}
+    annotations: {}
+  mirrorTLSSecret:
+    # -- Optionally mirror the workload TLS Secret's `ca.crt` into trust-manager's
+    # trust namespace so Bundle sources do not have to be created manually.
+    enabled: false
+    trustNamespace: cert-manager
+    sourceSecretName: ""
+    sourceKey: ca.crt
+    targetSecretName: ""
+    targetKey: ca.crt
+    schedule: "*/1 * * * *"
+    image:
+      repository: bitnami/kubectl
+      tag: ""
+      digest: "sha256:6e2cdb22d6ab7264ea198c717f555e30536b54029d26c8781b9f25f78951b564"
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+# ------------------------------------------------------------------------------
 # Experimental KEDA Integration
 # Docs: ../../docs/keda.md
 # ------------------------------------------------------------------------------
@@ -129,10 +188,13 @@ keda:
 # - `nifi.replicaCount`
 # - `nifi.image.tag`
 # - `nifi.tls.*`
+# - `nifi.tls.additionalTrustBundle.*` when using the optional trust-manager bundle
+# - `nifi.trustManagerBundleRef.*` when the platform trust-manager target type or key differs from the default ConfigMap/`ca.crt` path
 # - `nifi.auth.*`
 # - `nifi.authz.*`
 # - `nifi.ingress.*` or `nifi.openshift.route.*`
-# - `nifi.observability.metrics.*`
+# - `nifi.observability.metrics.*` with `mode=nativeApi` for the recommended metrics path
+# - `nifi.observability.metrics.*.tlsConfig.ca.useTrustManagerBundle=true` when using the optional trust-manager bundle
 nifi:
   observability:
     metrics:

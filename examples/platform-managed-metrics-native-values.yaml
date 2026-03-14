@@ -1,6 +1,7 @@
-# Optional managed-platform overlay for secured native NiFi metrics scraping.
-# Supply a bearer token Secret and CA Secret out of band; this slice does not
-# provision or rotate machine principals or tokens for you.
+# Recommended managed-platform overlay for secured native NiFi metrics scraping.
+# Supply a bearer-token Secret and CA Secret out of band. This repo can help
+# bootstrap those Kubernetes Secrets, but operators still own credential
+# issuance and rotation.
 nifi:
   observability:
     metrics:

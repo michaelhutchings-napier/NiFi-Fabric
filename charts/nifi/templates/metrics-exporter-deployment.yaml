@@ -4,6 +4,9 @@
 {{- $supplemental := default (dict) $exporter.supplemental -}}
 {{- $flowStatus := default (dict) $supplemental.flowStatus -}}
 {{- $machineAuth := $exporter.machineAuth -}}
+{{- $caRefType := include "nifi.exporterSourceCARefType" . -}}
+{{- $caRefName := include "nifi.exporterSourceCARefName" . -}}
+{{- $caRefKey := include "nifi.exporterSourceCARefKey" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -90,16 +93,16 @@ spec:
         {{- end }}
         - name: EXPORTER_TLS_INSECURE_SKIP_VERIFY
           value: {{ $source.tlsConfig.insecureSkipVerify | quote }}
-        {{- if $source.tlsConfig.ca.secretRef.name }}
+        {{- if $caRefName }}
         - name: EXPORTER_TLS_CA_FILE
-          value: {{ printf "/var/run/nifi-metrics-ca/%s" $source.tlsConfig.ca.secretRef.key | quote }}
+          value: {{ printf "/var/run/nifi-metrics-ca/%s" $caRefKey | quote }}
         {{- end }}
         ports:
         - name: metrics
           containerPort: {{ $exporter.service.port }}
         readinessProbe:
           httpGet:
-            path: /healthz
+            path: /readyz
             port: metrics
           periodSeconds: 10
           failureThreshold: 6
@@ -120,7 +123,7 @@ spec:
         - name: exporter-auth
           mountPath: /var/run/nifi-metrics-auth
           readOnly: true
-        {{- if $source.tlsConfig.ca.secretRef.name }}
+        {{- if $caRefName }}
         - name: exporter-ca
           mountPath: /var/run/nifi-metrics-ca
           readOnly: true
@@ -132,9 +135,14 @@ spec:
       - name: exporter-auth
         secret:
           secretName: {{ $machineAuth.secretRef.name }}
-      {{- if $source.tlsConfig.ca.secretRef.name }}
+      {{- if and $caRefName (eq $caRefType "secret") }}
       - name: exporter-ca
         secret:
-          secretName: {{ $source.tlsConfig.ca.secretRef.name }}
+          secretName: {{ $caRefName }}
+      {{- end }}
+      {{- if and $caRefName (eq $caRefType "configMap") }}
+      - name: exporter-ca
+        configMap:
+          name: {{ $caRefName }}
       {{- end }}
 {{- end }}

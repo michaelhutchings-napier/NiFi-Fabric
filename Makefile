@@ -12,7 +12,7 @@ ENVTEST_K8S_VERSION ?= 1.31.0
 CONTROLLER_IMAGE ?= nifi-fabric-controller:dev
 NIFI_IMAGE ?= apache/nifi:2.0.0
 
-.PHONY: fmt test test-unit test-envtest helm-lint run setup-envtest envtest-use kind-up kind-down kind-secrets kind-health kind-config-drift kind-tls-drift kind-tls-config-drift kind-tls-restart-e2e kind-hibernate kind-restore kind-alpha-e2e kind-e2e-rollout kind-e2e-config-drift kind-e2e-tls kind-e2e-hibernate kind-bootstrap-cert-manager kind-cert-manager-secrets kind-cert-manager-e2e kind-cert-manager-e2e-reuse kind-cert-manager-fast-e2e kind-cert-manager-fast-e2e-reuse kind-cert-manager-nifi-2-8-e2e kind-cert-manager-nifi-2-8-e2e-reuse kind-cert-manager-nifi-2-8-fast-e2e kind-cert-manager-nifi-2-8-fast-e2e-reuse kind-platform-managed-e2e kind-platform-managed-e2e-reuse kind-platform-managed-fast-e2e kind-platform-managed-fast-e2e-reuse kind-platform-managed-cert-manager-e2e kind-platform-managed-cert-manager-e2e-reuse kind-platform-managed-cert-manager-fast-e2e kind-platform-managed-cert-manager-fast-e2e-reuse kind-metrics-fast-e2e kind-metrics-fast-e2e-reuse kind-metrics-native-api-fast-e2e kind-metrics-native-api-fast-e2e-reuse kind-metrics-exporter-fast-e2e kind-metrics-exporter-fast-e2e-reuse kind-keda-scale-up-fast-e2e kind-keda-scale-up-fast-e2e-reuse kind-keda-scale-down-fast-e2e kind-keda-scale-down-fast-e2e-reuse kind-auth-oidc-e2e kind-auth-oidc-e2e-reuse kind-auth-oidc-fast-e2e kind-auth-oidc-fast-e2e-reuse kind-auth-oidc-nifi-2-8-fast-e2e kind-auth-oidc-nifi-2-8-fast-e2e-reuse kind-auth-ldap-e2e kind-auth-ldap-e2e-reuse kind-auth-ldap-fast-e2e kind-auth-ldap-fast-e2e-reuse kind-nifi-2-8-e2e kind-nifi-2-8-e2e-reuse kind-nifi-2-8-fast-e2e kind-nifi-2-8-fast-e2e-reuse kind-autoscaling-scale-up-fast-e2e kind-autoscaling-scale-up-fast-e2e-reuse kind-autoscaling-scale-down-fast-e2e kind-autoscaling-scale-down-fast-e2e-reuse kind-autoscaling-churn-fast-e2e kind-autoscaling-churn-fast-e2e-reuse kind-flow-registry-gitlab-e2e kind-flow-registry-gitlab-e2e-reuse kind-flow-registry-gitlab-fast-e2e kind-flow-registry-gitlab-fast-e2e-reuse kind-flow-registry-github-fast-e2e kind-flow-registry-github-fast-e2e-reuse docker-build-controller kind-load-controller kind-load-nifi-image deploy-controller undeploy-controller install-crd helm-install-standalone helm-install-managed apply-managed install-standalone install-managed install-managed-cert-manager
+.PHONY: fmt test test-unit test-envtest helm-lint run setup-envtest envtest-use kind-up kind-down kind-secrets kind-health kind-config-drift kind-tls-drift kind-tls-config-drift kind-tls-restart-e2e kind-hibernate kind-restore kind-alpha-e2e kind-e2e-rollout kind-e2e-config-drift kind-e2e-tls kind-e2e-hibernate kind-bootstrap-cert-manager kind-cert-manager-secrets kind-cert-manager-e2e kind-cert-manager-e2e-reuse kind-cert-manager-fast-e2e kind-cert-manager-fast-e2e-reuse kind-cert-manager-nifi-2-8-e2e kind-cert-manager-nifi-2-8-e2e-reuse kind-cert-manager-nifi-2-8-fast-e2e kind-cert-manager-nifi-2-8-fast-e2e-reuse kind-platform-managed-e2e kind-platform-managed-e2e-reuse kind-platform-managed-fast-e2e kind-platform-managed-fast-e2e-reuse kind-platform-managed-cert-manager-e2e kind-platform-managed-cert-manager-e2e-reuse kind-platform-managed-cert-manager-fast-e2e kind-platform-managed-cert-manager-fast-e2e-reuse kind-platform-managed-trust-manager-fast-e2e kind-platform-managed-trust-manager-fast-e2e-reuse kind-metrics-fast-e2e kind-metrics-fast-e2e-reuse kind-metrics-native-api-fast-e2e kind-metrics-native-api-fast-e2e-reuse kind-metrics-native-api-trust-manager-fast-e2e kind-metrics-native-api-trust-manager-fast-e2e-reuse kind-metrics-exporter-fast-e2e kind-metrics-exporter-fast-e2e-reuse kind-keda-scale-up-fast-e2e kind-keda-scale-up-fast-e2e-reuse kind-keda-scale-down-fast-e2e kind-keda-scale-down-fast-e2e-reuse kind-auth-oidc-e2e kind-auth-oidc-e2e-reuse kind-auth-oidc-fast-e2e kind-auth-oidc-fast-e2e-reuse kind-auth-oidc-ingress-fast-e2e kind-auth-oidc-ingress-fast-e2e-reuse kind-auth-oidc-nifi-2-8-fast-e2e kind-auth-oidc-nifi-2-8-fast-e2e-reuse kind-auth-ldap-e2e kind-auth-ldap-e2e-reuse kind-auth-ldap-fast-e2e kind-auth-ldap-fast-e2e-reuse kind-nifi-2-8-e2e kind-nifi-2-8-e2e-reuse kind-nifi-2-8-fast-e2e kind-nifi-2-8-fast-e2e-reuse kind-autoscaling-scale-up-fast-e2e kind-autoscaling-scale-up-fast-e2e-reuse kind-autoscaling-scale-down-fast-e2e kind-autoscaling-scale-down-fast-e2e-reuse kind-autoscaling-churn-fast-e2e kind-autoscaling-churn-fast-e2e-reuse kind-flow-registry-gitlab-e2e kind-flow-registry-gitlab-e2e-reuse kind-flow-registry-gitlab-fast-e2e kind-flow-registry-gitlab-fast-e2e-reuse kind-flow-registry-github-fast-e2e kind-flow-registry-github-fast-e2e-reuse kind-flow-registry-bitbucket-fast-e2e kind-flow-registry-bitbucket-fast-e2e-reuse render-platform-managed-bundle render-platform-managed-cert-manager-bundle render-platform-standalone-bundle docker-build-controller kind-load-controller kind-load-nifi-image deploy-controller undeploy-controller install-crd helm-install-standalone helm-install-managed apply-managed install-standalone install-managed install-managed-cert-manager
 
 fmt:
 	$(GO) fmt ./...
@@ -142,6 +142,12 @@ kind-platform-managed-cert-manager-fast-e2e:
 kind-platform-managed-cert-manager-fast-e2e-reuse:
 	KIND_CLUSTER_NAME=nifi-fabric-platform-managed-cert-manager FAST_PROFILE=true SKIP_KIND_BOOTSTRAP=true bash hack/kind-platform-managed-cert-manager-e2e.sh
 
+kind-platform-managed-trust-manager-fast-e2e:
+	KIND_CLUSTER_NAME=nifi-fabric-platform-managed-trust-manager FAST_PROFILE=true bash hack/kind-platform-managed-trust-manager-e2e.sh
+
+kind-platform-managed-trust-manager-fast-e2e-reuse:
+	KIND_CLUSTER_NAME=nifi-fabric-platform-managed-trust-manager FAST_PROFILE=true SKIP_KIND_BOOTSTRAP=true bash hack/kind-platform-managed-trust-manager-e2e.sh
+
 kind-metrics-fast-e2e:
 	FAST_PROFILE=true bash hack/kind-metrics-matrix-e2e.sh
 
@@ -153,6 +159,12 @@ kind-metrics-native-api-fast-e2e:
 
 kind-metrics-native-api-fast-e2e-reuse:
 	KIND_CLUSTER_NAME=nifi-fabric-metrics-native-api FAST_PROFILE=true SKIP_KIND_BOOTSTRAP=true bash hack/kind-metrics-native-api-e2e.sh
+
+kind-metrics-native-api-trust-manager-fast-e2e:
+	KIND_CLUSTER_NAME=nifi-fabric-metrics-native-api-trust-manager FAST_PROFILE=true TRUST_MANAGER_ENABLED=true bash hack/kind-metrics-native-api-e2e.sh
+
+kind-metrics-native-api-trust-manager-fast-e2e-reuse:
+	KIND_CLUSTER_NAME=nifi-fabric-metrics-native-api-trust-manager FAST_PROFILE=true TRUST_MANAGER_ENABLED=true SKIP_KIND_BOOTSTRAP=true bash hack/kind-metrics-native-api-e2e.sh
 
 kind-metrics-exporter-fast-e2e:
 	KIND_CLUSTER_NAME=nifi-fabric-metrics-exporter FAST_PROFILE=true bash hack/kind-metrics-exporter-e2e.sh
@@ -183,6 +195,12 @@ kind-auth-oidc-fast-e2e:
 
 kind-auth-oidc-fast-e2e-reuse:
 	FAST_PROFILE=true SKIP_KIND_BOOTSTRAP=true bash hack/kind-auth-oidc-e2e.sh
+
+kind-auth-oidc-ingress-fast-e2e:
+	FAST_PROFILE=true OIDC_EXTERNAL_INGRESS=true KIND_CLUSTER_NAME=nifi-fabric-auth-oidc-ingress bash hack/kind-auth-oidc-e2e.sh
+
+kind-auth-oidc-ingress-fast-e2e-reuse:
+	FAST_PROFILE=true OIDC_EXTERNAL_INGRESS=true KIND_CLUSTER_NAME=nifi-fabric-auth-oidc-ingress SKIP_KIND_BOOTSTRAP=true bash hack/kind-auth-oidc-e2e.sh
 
 kind-auth-oidc-nifi-2-8-fast-e2e:
 	NIFI_IMAGE=apache/nifi:2.8.0 VERSION_VALUES_FILE=examples/nifi-2.8.0-values.yaml KIND_CLUSTER_NAME=nifi-fabric-auth-oidc-nifi-2-8 FAST_PROFILE=true bash hack/kind-auth-oidc-e2e.sh
@@ -249,6 +267,21 @@ kind-flow-registry-github-fast-e2e:
 
 kind-flow-registry-github-fast-e2e-reuse:
 	FAST_PROFILE=true SKIP_KIND_BOOTSTRAP=true bash hack/kind-flow-registry-github-e2e.sh
+
+kind-flow-registry-bitbucket-fast-e2e:
+	FAST_PROFILE=true bash hack/kind-flow-registry-bitbucket-e2e.sh
+
+kind-flow-registry-bitbucket-fast-e2e-reuse:
+	FAST_PROFILE=true SKIP_KIND_BOOTSTRAP=true bash hack/kind-flow-registry-bitbucket-e2e.sh
+
+render-platform-managed-bundle:
+	bash hack/render-platform-bundle.sh --profile managed --output dist/nifi-platform-managed-bundle.yaml
+
+render-platform-managed-cert-manager-bundle:
+	bash hack/render-platform-bundle.sh --profile managed-cert-manager --output dist/nifi-platform-managed-cert-manager-bundle.yaml
+
+render-platform-standalone-bundle:
+	bash hack/render-platform-bundle.sh --profile standalone --output dist/nifi-platform-standalone-bundle.yaml
 
 docker-build-controller:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -o bin/manager ./main.go

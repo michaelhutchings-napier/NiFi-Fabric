@@ -1,0 +1,26 @@
+# Focused kind runtime overlay for Bitbucket Flow Registry Client proof on NiFi 2.8.0.
+# Compose with examples/managed/values.yaml and examples/nifi-2.8.0-values.yaml.
+# This uses the in-cluster Bitbucket-compatible evaluator service deployed by
+# hack/deploy-bitbucket-flow-registry-mock.sh.
+
+flowRegistryClients:
+  enabled: true
+  clients:
+  - name: bitbucket-flows-kind
+    provider: bitbucket
+    description: Kind-focused Bitbucket Flow Registry Client runtime proof
+    repository:
+      workspace: example-workspace
+      name: nifi-flows
+      path: flows
+      branch: main
+    parameterContextValues: retain
+    bitbucket:
+      formFactor: cloud
+      apiUrl: http://bitbucket-mock.nifi.svc.cluster.local:8080
+      webClientServiceName: bitbucket-web-client
+      auth:
+        type: accessToken
+        accessTokenSecret:
+          name: bitbucket-flow-registry
+          key: token

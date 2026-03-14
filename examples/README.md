@@ -8,6 +8,11 @@ Primary one-command product installs:
 - managed: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-values.yaml`
 - managed + cert-manager: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-cert-manager-values.yaml`
 
+Generated manifest-bundle installs:
+
+- managed: `make render-platform-managed-bundle && kubectl apply -f dist/nifi-platform-managed-bundle.yaml`
+- managed + cert-manager: `make render-platform-managed-cert-manager-bundle && kubectl apply -f dist/nifi-platform-managed-cert-manager-bundle.yaml`
+
 Advanced evaluator installs still exist:
 
 - standalone: `make install-standalone`
@@ -64,13 +69,24 @@ Metrics note:
 
 - [platform-managed-metrics-native-values.yaml](platform-managed-metrics-native-values.yaml) is an optional overlay for the first-class native API metrics subsystem
 - it enables `nifi.observability.metrics.mode=nativeApi`
+- it is the recommended default metrics overlay for managed installs
 - it renders a dedicated metrics `Service` plus multiple named `ServiceMonitor` resources
 - it uses the provider-agnostic machine-auth Secret and CA Secret contract shared by the metrics subsystem
 - `hack/bootstrap-metrics-machine-auth.sh` can create those Kubernetes Secrets from a pre-minted token or from existing NiFi-accepted credentials
 - the focused live runtime proof command is `make kind-metrics-native-api-fast-e2e`
 - the broader focused matrix command is `make kind-metrics-fast-e2e`
 - the current live proof covers the secured flow-metrics endpoint and two named scrape profiles against that same endpoint
-- [platform-managed-metrics-exporter-values.yaml](platform-managed-metrics-exporter-values.yaml) is an optional overlay for the experimental exporter metrics mode
+- [platform-managed-trust-manager-values.yaml](platform-managed-trust-manager-values.yaml) is an optional overlay for trust-manager-based shared CA bundle distribution
+- it enables `trustManager.enabled=true`
+- it enables `trustManager.mirrorTLSSecret.enabled=true` so the workload TLS `ca.crt` is mirrored into trust-manager's trust namespace automatically
+- it wires the resulting bundle into optional NiFi extra trust import
+- nativeApi and exporter can also consume the same bundle through `*.tlsConfig.ca.useTrustManagerBundle=true`
+- the focused runtime proof command is `make kind-platform-managed-trust-manager-fast-e2e`
+- [platform-managed-metrics-native-trust-manager-values.yaml](platform-managed-metrics-native-trust-manager-values.yaml) layers trust-manager-backed native API metrics on top of the managed metrics overlay
+- it switches the Bundle target to a Secret, enables an additional PKCS12 output, and points nativeApi TLS trust at the trust-manager bundle
+- use it together with `examples/platform-managed-values.yaml`, `examples/platform-managed-trust-manager-values.yaml`, and `examples/platform-managed-metrics-native-values.yaml`
+- the focused runtime proof command is `make kind-metrics-native-api-trust-manager-fast-e2e`
+- [platform-managed-metrics-exporter-values.yaml](platform-managed-metrics-exporter-values.yaml) is an optional overlay for the supported exporter metrics mode
 - it enables `nifi.observability.metrics.mode=exporter`
 - it renders a small companion exporter `Deployment`, a clean HTTP metrics `Service`, and one exporter `ServiceMonitor`
 - it uses the same provider-agnostic machine-auth Secret and CA Secret contract
@@ -78,10 +94,11 @@ Metrics note:
 - the broader focused matrix command is `make kind-metrics-fast-e2e`
 - the current live proof covers the secured `/nifi-api/flow/metrics/prometheus` endpoint republished on exporter `/metrics`
 - it also enables selected controller-status gauges derived from `/nifi-api/flow/status`
+- the live proof also covers upstream-aware readiness and mounted auth Secret rotation without restarting the exporter pod
 - [platform-managed-metrics-site-to-site-values.yaml](platform-managed-metrics-site-to-site-values.yaml) is an optional prepared-only overlay for a future site-to-site metrics path
 - it enables `nifi.observability.metrics.mode=siteToSite`
-- it documents the intended destination, source, transport, and format contract for a future `SiteToSiteMetricsReportingTask` integration
-- it does not render a supported runtime path yet and currently fails clearly at Helm render time
+- it documents the intended destination, auth, TLS, source, transport, and format contract for a future `SiteToSiteMetricsReportingTask` integration
+- it validates that contract at Helm render time and then still fails clearly because runtime ownership is not implemented
 - it is intentionally excluded from the live metrics runtime proof matrix
 
 KEDA note:
@@ -107,16 +124,20 @@ There are also prepared authentication overlays:
 - [oidc-group-claims-values.yaml](oidc-group-claims-values.yaml)
   - Seeds NiFi application groups and file-managed policies for OIDC group claims.
   - Group names in the token must match these NiFi application group names exactly.
+  - The current chart now renders the richer policy file in a NiFi 2-compatible order instead of crashing at startup.
+  - End-to-end browser-flow authorization proof for observer, operator, and admin groups is still conservative on the current local Keycloak `26.x` path.
 
 - [oidc-kind-values.yaml](oidc-kind-values.yaml)
   - Focused kind OIDC overlay.
   - Keeps the flow internal to the cluster.
   - Uses the documented `Initial Admin Identity` fallback for the first admin path.
   - The focused runtime commands are `make kind-auth-oidc-e2e` and `make kind-auth-oidc-nifi-2-8-fast-e2e` when composed with [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml) and [test-fast-values.yaml](test-fast-values.yaml).
+  - Treat the current kind evaluator as an active hardening path for browser-flow proof, not as a blanket claim that every local Keycloak combination is green.
 
 - [oidc-external-url-values.yaml](oidc-external-url-values.yaml)
   - Adds an ingress-backed public HTTPS host and matching `web.proxyHosts` entry for OIDC redirects.
   - Compose with [oidc-values.yaml](oidc-values.yaml) and [oidc-group-claims-values.yaml](oidc-group-claims-values.yaml).
+  - Current local ingress-backed OIDC runtime proof is still conservative while the focused browser-flow evaluator is being hardened.
 
 - [ldap-values.yaml](ldap-values.yaml)
   - Enables `auth.mode=ldap` with `authz.mode=ldapSync`.
@@ -134,6 +155,7 @@ There are also prepared authentication overlays:
 - [openshift/route-proxy-host-values.yaml](openshift/route-proxy-host-values.yaml)
   - OpenShift passthrough Route host plus matching `web.proxyHosts`.
   - Compose with OpenShift overlays and either OIDC or LDAP when the cluster is available.
+  - Render and docs only in this slice. No real OpenShift runtime proof is claimed here.
 
 There are also prepared Flow Registry Client overlays:
 
@@ -159,6 +181,11 @@ There are also prepared Flow Registry Client overlays:
 - [bitbucket-flow-registry-values.yaml](bitbucket-flow-registry-values.yaml)
   - Prepared Bitbucket Flow Registry Client catalog entry.
   - Renders a validated definition only; it does not auto-create the client in NiFi.
+
+- [bitbucket-flow-registry-kind-values.yaml](bitbucket-flow-registry-kind-values.yaml)
+  - Focused kind Bitbucket Flow Registry Client runtime overlay.
+  - Compose with [managed/values.yaml](managed/values.yaml), [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml), and [test-fast-values.yaml](test-fast-values.yaml).
+  - The focused runtime commands are `make kind-flow-registry-bitbucket-fast-e2e` and `make kind-flow-registry-bitbucket-fast-e2e-reuse`.
 
 - [azure-devops-flow-registry-values.yaml](azure-devops-flow-registry-values.yaml)
   - Prepared Azure DevOps Flow Registry Client catalog entry.
@@ -195,6 +222,7 @@ Focused auth evaluator commands:
 - `make kind-nifi-2-8-e2e`
 - `make kind-flow-registry-gitlab-e2e`
 - `make kind-flow-registry-github-fast-e2e`
+- `make kind-flow-registry-bitbucket-fast-e2e`
 - `make kind-auth-oidc-fast-e2e`
 - `make kind-auth-ldap-fast-e2e`
 - `make kind-nifi-2-8-fast-e2e`
@@ -209,6 +237,7 @@ Flow Registry Client notes:
 - there is no controller-managed flow import or synchronization
 - the focused kind proof covers the GitLab client path on NiFi `2.8.0` against a GitLab-compatible evaluator service
 - the focused kind proof also covers the GitHub client path on NiFi `2.8.0` against a GitHub-compatible evaluator service with the fast profile
+- the focused kind proof also covers the Bitbucket client path on NiFi `2.8.0` against a Bitbucket-compatible evaluator service with the fast profile
 
 ## Standalone
 

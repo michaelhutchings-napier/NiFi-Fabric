@@ -37,6 +37,26 @@ PERSONAL_ACCESS_TOKEN
 {{- end -}}
 {{- end -}}
 
+{{- define "nifi.flowRegistryBitbucketFormFactor" -}}
+{{- $value := default "cloud" . -}}
+{{- if eq $value "dataCenter" -}}
+DATA_CENTER
+{{- else -}}
+CLOUD
+{{- end -}}
+{{- end -}}
+
+{{- define "nifi.flowRegistryBitbucketAuthType" -}}
+{{- $value := default "accessToken" . -}}
+{{- if eq $value "basicAuth" -}}
+BASIC_AUTH
+{{- else if eq $value "oauth2" -}}
+OAUTH2
+{{- else -}}
+ACCESS_TOKEN
+{{- end -}}
+{{- end -}}
+
 {{- define "nifi.flowRegistryValidation" -}}
 {{- if not .Values.flowRegistryClients.enabled -}}
 {{- else -}}
@@ -229,8 +249,9 @@ clients:
       {{- end }}
     {{- end }}
     {{- if eq $client.provider "bitbucket" }}
-      API URL: {{ $client.bitbucket.apiUrl | quote }}
-      Bucket Name: {{ $client.repository.name | quote }}
+      Form Factor: {{ include "nifi.flowRegistryBitbucketFormFactor" $client.bitbucket.formFactor | trim | quote }}
+      Bitbucket API Instance: {{ $client.bitbucket.apiUrl | quote }}
+      Repository Name: {{ $client.repository.name | quote }}
       {{- if eq $client.bitbucket.formFactor "cloud" }}
       Workspace Name: {{ $client.repository.workspace | quote }}
       {{- end }}
@@ -241,10 +262,10 @@ clients:
       Repository Path: {{ . | quote }}
       {{- end }}
       Default Branch: {{ default "main" $client.repository.branch | quote }}
-      Authentication Type: {{ ternary "OAuth 2 Access Token" (ternary "Username and Password" "Access Token" (eq $client.bitbucket.auth.type "basicAuth")) (eq $client.bitbucket.auth.type "oauth2") | quote }}
+      Authentication Type: {{ include "nifi.flowRegistryBitbucketAuthType" $client.bitbucket.auth.type | trim | quote }}
       Web Client Service: {{ $client.bitbucket.webClientServiceName | quote }}
       Directory Filter Exclusion: {{ default "[.].*" $client.directoryFilterExclusion | quote }}
-      Parameter Context Values: {{ ternary "Ignore Changes" (ternary "Remove" "Retain" (eq $client.parameterContextValues "remove")) (eq $client.parameterContextValues "ignoreChanges") | quote }}
+      Parameter Context Values: {{ include "nifi.flowRegistryParameterContextValues" $client.parameterContextValues | trim | quote }}
       {{- with $client.sslContextServiceName }}
       SSL Context Service: {{ . | quote }}
       {{- end }}

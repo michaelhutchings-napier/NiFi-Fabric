@@ -1,0 +1,90 @@
+{{- if .Values.trustManager.enabled }}
+{{- $sources := default (dict) .Values.trustManager.sources -}}
+{{- $target := default (dict) .Values.trustManager.target -}}
+{{- $targetType := include "nifi-platform.trustManagerTargetType" . -}}
+{{- $mirror := default (dict) .Values.trustManager.mirrorTLSSecret -}}
+apiVersion: trust.cert-manager.io/v1alpha1
+kind: Bundle
+metadata:
+  name: {{ include "nifi-platform.trustManagerBundleName" . }}
+  labels:
+    {{- include "nifi-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: trust
+spec:
+  sources:
+    {{- if $sources.useDefaultCAs }}
+    - useDefaultCAs: true
+    {{- end }}
+    {{- range $source := $sources.configMaps }}
+    - configMap:
+        name: {{ $source.name }}
+        key: {{ $source.key }}
+    {{- end }}
+    {{- range $source := $sources.secrets }}
+    - secret:
+        name: {{ $source.name }}
+        key: {{ $source.key }}
+    {{- end }}
+    {{- range $source := $sources.inline }}
+    - inLine: |
+{{ $source.pem | indent 10 }}
+    {{- end }}
+    {{- if $mirror.enabled }}
+    - secret:
+        name: {{ include "nifi-platform.trustManagerMirrorTargetSecretName" . }}
+        key: {{ include "nifi-platform.trustManagerMirrorSecretKey" . }}
+    {{- end }}
+  target:
+    {{- if eq $targetType "configMap" }}
+    configMap:
+      key: {{ $target.key }}
+      metadata:
+        labels:
+          {{- include "nifi-platform.labels" . | nindent 10 }}
+          app.kubernetes.io/component: trust
+          {{- with $target.labels }}
+          {{- toYaml . | nindent 10 }}
+          {{- end }}
+        {{- with $target.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+    {{- else }}
+    secret:
+      key: {{ $target.key }}
+      metadata:
+        labels:
+          {{- include "nifi-platform.labels" . | nindent 10 }}
+          app.kubernetes.io/component: trust
+          {{- with $target.labels }}
+          {{- toYaml . | nindent 10 }}
+          {{- end }}
+        {{- with $target.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+    {{- end }}
+    {{- $pkcs12 := default (dict) $target.additionalFormats.pkcs12 }}
+    {{- $jks := default (dict) $target.additionalFormats.jks }}
+    {{- if or $pkcs12.enabled $jks.enabled }}
+    additionalFormats:
+      {{- if $pkcs12.enabled }}
+      pkcs12:
+        key: {{ $pkcs12.key }}
+        {{- if hasKey $pkcs12 "password" }}
+        password: {{ $pkcs12.password | quote }}
+        {{- end }}
+        {{- if $pkcs12.profile }}
+        profile: {{ $pkcs12.profile }}
+        {{- end }}
+      {{- end }}
+      {{- if $jks.enabled }}
+      jks:
+        key: {{ $jks.key }}
+        password: {{ $jks.password | quote }}
+      {{- end }}
+    {{- end }}
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: {{ .Release.Namespace }}
+{{- end }}

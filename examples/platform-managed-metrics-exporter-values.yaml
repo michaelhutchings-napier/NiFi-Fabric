@@ -1,6 +1,6 @@
-# Optional managed-platform overlay for the experimental exporter metrics mode.
-# Supply a machine-auth Secret and CA Secret out of band; this slice does not
-# provision or rotate machine principals or tokens for you.
+# Optional managed-platform overlay for the supported exporter metrics mode.
+# Use it when you want a clean Prometheus `/metrics` endpoint instead of direct
+# secured API scraping. Operators still provide machine-auth and CA material.
 nifi:
   observability:
     metrics:

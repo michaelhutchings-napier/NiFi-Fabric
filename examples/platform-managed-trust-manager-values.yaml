@@ -1,0 +1,17 @@
+# Optional trust-manager overlay for the managed platform chart.
+#
+# Prerequisites:
+# - trust-manager is already installed in the cluster
+
+mode: managed
+
+trustManager:
+  enabled: true
+  mirrorTLSSecret:
+    enabled: true
+
+nifi:
+  tls:
+    additionalTrustBundle:
+      enabled: true
+      useTrustManagerBundle: true

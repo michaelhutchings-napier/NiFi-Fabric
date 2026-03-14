@@ -27,6 +27,19 @@ OIDC_CLIENT_SECRET="${OIDC_CLIENT_SECRET:-ChangeMeChangeMe1!}"
 OIDC_ALICE_PASSWORD="${OIDC_ALICE_PASSWORD:-ChangeMeChangeMe1!}"
 OIDC_BOB_PASSWORD="${OIDC_BOB_PASSWORD:-ChangeMeChangeMe1!}"
 OIDC_CHARLIE_PASSWORD="${OIDC_CHARLIE_PASSWORD:-ChangeMeChangeMe1!}"
+OIDC_DORA_PASSWORD="${OIDC_DORA_PASSWORD:-ChangeMeChangeMe1!}"
+OIDC_EXTERNAL_INGRESS="${OIDC_EXTERNAL_INGRESS:-false}"
+INGRESS_NAMESPACE="${INGRESS_NAMESPACE:-ingress-nginx}"
+INGRESS_RELEASE="${INGRESS_RELEASE:-ingress-nginx}"
+INGRESS_CLASS_NAME="${INGRESS_CLASS_NAME:-nginx}"
+INGRESS_HTTP_NODEPORT="${INGRESS_HTTP_NODEPORT:-30080}"
+
+KEYCLOAK_DISCOVERY_URL=""
+NIFI_ACCESS_URL=""
+NIFI_AUTH_CONFIG_URL=""
+NIFI_PUBLIC_HOST=""
+KEYCLOAK_PUBLIC_HOST=""
+EXTERNAL_VALUES_FILE=""
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -100,10 +113,71 @@ cleanup_namespaces() {
   if [[ "${SKIP_KIND_BOOTSTRAP}" != "true" ]]; then
     kubectl delete namespace "${SYSTEM_NAMESPACE}" --ignore-not-found --wait=true --timeout=5m >/dev/null 2>&1 || true
   fi
+  if [[ "${OIDC_EXTERNAL_INGRESS}" == "true" ]] && [[ "${SKIP_KIND_BOOTSTRAP}" != "true" ]]; then
+    kubectl delete namespace "${INGRESS_NAMESPACE}" --ignore-not-found --wait=true --timeout=5m >/dev/null 2>&1 || true
+  fi
+}
+
+cleanup_temp_files() {
+  rm -f "${EXTERNAL_VALUES_FILE}" >/dev/null 2>&1 || true
 }
 
 controller_ready() {
   kubectl -n "${SYSTEM_NAMESPACE}" get deployment/nifi-fabric-controller-manager >/dev/null 2>&1
+}
+
+kind_control_plane_ip() {
+  docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "${KIND_CLUSTER_NAME}-control-plane"
+}
+
+install_ingress_controller() {
+  helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx >/dev/null 2>&1 || true
+  helm repo update ingress-nginx >/dev/null
+  helm upgrade --install "${INGRESS_RELEASE}" ingress-nginx/ingress-nginx \
+    --namespace "${INGRESS_NAMESPACE}" \
+    --create-namespace \
+    --wait \
+    --timeout 10m \
+    --set controller.ingressClassResource.name="${INGRESS_CLASS_NAME}" \
+    --set controller.ingressClassResource.controllerValue="k8s.io/ingress-nginx" \
+    --set controller.ingressClassByName=true \
+    --set controller.service.type=NodePort \
+    --set controller.service.nodePorts.http="${INGRESS_HTTP_NODEPORT}" >/dev/null
+  kubectl -n "${INGRESS_NAMESPACE}" rollout status deployment/"${INGRESS_RELEASE}"-controller --timeout=10m >/dev/null
+}
+
+configure_external_ingress_hosts() {
+  local node_ip
+  node_ip="$(kind_control_plane_ip)"
+  if [[ -z "${node_ip}" ]]; then
+    fail "could not determine the kind control-plane IP for external ingress proof"
+  fi
+
+  NIFI_PUBLIC_HOST="nifi.${node_ip}.nip.io"
+  KEYCLOAK_PUBLIC_HOST="keycloak.${node_ip}.nip.io"
+  NIFI_ACCESS_URL="http://${NIFI_PUBLIC_HOST}:${INGRESS_HTTP_NODEPORT}"
+  NIFI_AUTH_CONFIG_URL="${NIFI_ACCESS_URL}/nifi-api/authentication/configuration"
+  KEYCLOAK_DISCOVERY_URL="http://${KEYCLOAK_PUBLIC_HOST}:${INGRESS_HTTP_NODEPORT}/realms/nifi/.well-known/openid-configuration"
+  EXTERNAL_VALUES_FILE="$(mktemp)"
+  cat >"${EXTERNAL_VALUES_FILE}" <<EOF
+auth:
+  oidc:
+    discoveryUrl: ${KEYCLOAK_DISCOVERY_URL}
+ingress:
+  enabled: true
+  className: ${INGRESS_CLASS_NAME}
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+  hosts:
+  - host: ${NIFI_PUBLIC_HOST}
+    paths:
+    - path: /
+      pathType: Prefix
+web:
+  proxyHosts:
+  - ${NIFI_PUBLIC_HOST}:${INGRESS_HTTP_NODEPORT}
+EOF
+  helm_values_args+=(-f "${EXTERNAL_VALUES_FILE}")
 }
 
 wait_for_nifi_pod_ready() {
@@ -144,7 +218,7 @@ wait_for_oidc_discovery_from_nifi_pod() {
   local deadline=$(( $(date +%s) + 300 ))
   while true; do
     if kubectl -n "${NAMESPACE}" exec -c nifi "${HELM_RELEASE}-0" -- \
-      curl -fsS "http://keycloak.${NAMESPACE}.svc.cluster.local:8080/realms/nifi/.well-known/openid-configuration" >/dev/null 2>&1; then
+      curl -fsS "${KEYCLOAK_DISCOVERY_URL}" >/dev/null 2>&1; then
       return 0
     fi
     if (( $(date +%s) >= deadline )); then
@@ -195,6 +269,7 @@ dump_diagnostics() {
   kubectl config current-context || true
   kubectl get ns || true
   kubectl -n "${NAMESPACE}" get deployment,statefulset,pod,svc,secret,configmap,nificluster || true
+  kubectl -n "${NAMESPACE}" get ingress || true
   kubectl -n "${NAMESPACE}" get deployment keycloak -o yaml || true
   kubectl -n "${NAMESPACE}" get pods -l app=keycloak -o wide || true
   kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o yaml || true
@@ -205,6 +280,10 @@ dump_diagnostics() {
   kubectl -n "${NAMESPACE}" logs deployment/keycloak --tail=300 || true
   kubectl -n "${NAMESPACE}" logs pod/oidc-probe --tail=300 || true
   kubectl -n "${SYSTEM_NAMESPACE}" logs deployment/nifi-fabric-controller-manager --tail=300 || true
+  if [[ "${OIDC_EXTERNAL_INGRESS}" == "true" ]]; then
+    kubectl -n "${INGRESS_NAMESPACE}" get deployment,svc,pod || true
+    kubectl -n "${INGRESS_NAMESPACE}" logs deployment/"${INGRESS_RELEASE}"-controller --tail=300 || true
+  fi
   kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 100 || true
   kubectl -n "${SYSTEM_NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 100 || true
   nifi_exec sh -ec '
@@ -237,6 +316,7 @@ fail() {
 }
 
 trap 'fail "OIDC evaluator workflow aborted"' ERR
+trap cleanup_temp_files EXIT
 
 helm_values_args=(
   -f examples/managed/values.yaml
@@ -281,6 +361,7 @@ data:
       "realm": "nifi",
       "enabled": true,
       "registrationAllowed": false,
+      "defaultSignatureAlgorithm": "RS256",
       "clients": [
         {
           "clientId": "${OIDC_CLIENT_ID}",
@@ -291,11 +372,15 @@ data:
           "secret": "${OIDC_CLIENT_SECRET}",
           "standardFlowEnabled": true,
           "directAccessGrantsEnabled": false,
+          "attributes": {
+            "id.token.signed.response.alg": "RS256",
+            "access.token.signed.response.alg": "RS256"
+          },
           "redirectUris": [
-            "https://${HELM_RELEASE}-0.${HELM_RELEASE}-headless.${NAMESPACE}.svc.cluster.local:8443/*"
+            "${NIFI_ACCESS_URL}/*"
           ],
           "webOrigins": [
-            "https://${HELM_RELEASE}-0.${HELM_RELEASE}-headless.${NAMESPACE}.svc.cluster.local:8443"
+            "${NIFI_ACCESS_URL}"
           ],
           "protocolMappers": [
             {
@@ -316,6 +401,7 @@ data:
       ],
       "groups": [
         { "name": "nifi-platform-admins" },
+        { "name": "nifi-flow-operators" },
         { "name": "nifi-flow-observers" }
       ],
       "users": [
@@ -353,6 +439,18 @@ data:
           "credentials": [
             { "type": "password", "value": "${OIDC_CHARLIE_PASSWORD}", "temporary": false }
           ]
+        },
+        {
+          "username": "dora",
+          "enabled": true,
+          "emailVerified": true,
+          "firstName": "Dora",
+          "lastName": "Operator",
+          "email": "dora@example.com",
+          "credentials": [
+            { "type": "password", "value": "${OIDC_DORA_PASSWORD}", "temporary": false }
+          ],
+          "groups": [ "nifi-flow-operators" ]
         }
       ]
     }
@@ -422,6 +520,28 @@ spec:
     targetPort: http
 EOF
 
+  if [[ "${OIDC_EXTERNAL_INGRESS}" == "true" ]]; then
+    kubectl -n "${NAMESPACE}" apply -f - >/dev/null <<EOF
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: keycloak
+spec:
+  ingressClassName: ${INGRESS_CLASS_NAME}
+  rules:
+  - host: ${KEYCLOAK_PUBLIC_HOST}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: keycloak
+            port:
+              number: 8080
+EOF
+  fi
+
   kubectl -n "${NAMESPACE}" create secret generic nifi-oidc \
     --from-literal=clientSecret="${OIDC_CLIENT_SECRET}" \
     --dry-run=client -o yaml | kubectl apply -f -
@@ -445,9 +565,11 @@ EOF
   wait_for_probe_pod_ready
 
   kubectl -n "${NAMESPACE}" exec -i oidc-probe -- env \
-    NIFI_BASE_URL="https://${HELM_RELEASE}-0.${HELM_RELEASE}-headless.${NAMESPACE}.svc.cluster.local:8443" \
-    NIFI_AUTH_CONFIG_URL="https://${HELM_RELEASE}-0.${HELM_RELEASE}-headless.${NAMESPACE}.svc.cluster.local:8443/nifi-api/authentication/configuration" \
+    NIFI_BASE_URL="${NIFI_ACCESS_URL}" \
+    NIFI_AUTH_CONFIG_URL="${NIFI_AUTH_CONFIG_URL}" \
     EXPECTED_REPLICAS="$(kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" -o jsonpath='{.spec.replicas}')" \
+    EXPECTED_LOGIN_HOST="$(printf '%s' "${KEYCLOAK_DISCOVERY_URL}" | awk -F/ '{print $3}')" \
+    KEYCLOAK_DISCOVERY_URL="${KEYCLOAK_DISCOVERY_URL}" \
     python - <<'PY'
 import html
 import http.cookiejar
@@ -464,9 +586,11 @@ ctx = ssl._create_unverified_context()
 base_url = __import__("os").environ["NIFI_BASE_URL"]
 auth_config_url = __import__("os").environ["NIFI_AUTH_CONFIG_URL"]
 expected_replicas = int(__import__("os").environ["EXPECTED_REPLICAS"])
+expected_login_host = __import__("os").environ["EXPECTED_LOGIN_HOST"]
 
 def build_opener():
     return urllib.request.build_opener(
+        urllib.request.HTTPHandler(),
         urllib.request.HTTPSHandler(context=ctx),
         urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()),
     )
@@ -481,6 +605,10 @@ def login(username, password):
     response = opener.open(start_url, timeout=60)
     body = response.read().decode("utf-8", "ignore")
     final_url = response.geturl()
+    if urllib.parse.urlparse(final_url).netloc != expected_login_host:
+        raise SystemExit(
+            f"expected redirected login host {expected_login_host} for {username}, got {urllib.parse.urlparse(final_url).netloc}"
+        )
     if "kc-form-login" not in body and "login-actions/authenticate" not in final_url:
         raise SystemExit(f"expected Keycloak login page for {username}, got {final_url}")
 
@@ -544,10 +672,11 @@ wait_for_admin_ready()
 results = {
     "alice_controller": login_and_check("alice", "ChangeMeChangeMe1!", "/nifi-api/controller/config", 200),
     "alice_cluster_summary": check_cluster_summary("alice", "ChangeMeChangeMe1!", expected_replicas),
-    "alice_flow": login_and_check("alice", "ChangeMeChangeMe1!", "/nifi-api/flow/process-groups/root", 200),
-    "bob_flow": login_and_check("bob", "ChangeMeChangeMe1!", "/nifi-api/flow/process-groups/root", 403),
+    "bob_cluster_summary": check_cluster_summary("bob", "ChangeMeChangeMe1!", expected_replicas),
     "bob_controller": login_and_check("bob", "ChangeMeChangeMe1!", "/nifi-api/controller/config", 403),
-    "charlie_flow": login_and_check("charlie", "ChangeMeChangeMe1!", "/nifi-api/flow/process-groups/root", 403),
+    "dora_cluster_summary": check_cluster_summary("dora", "ChangeMeChangeMe1!", expected_replicas),
+    "dora_controller": login_and_check("dora", "ChangeMeChangeMe1!", "/nifi-api/controller/config", 200),
+    "charlie_cluster_summary": login_and_check("charlie", "ChangeMeChangeMe1!", "/nifi-api/flow/cluster/summary", 403),
 }
 print(json.dumps(results, indent=2, sort_keys=True))
 PY
@@ -594,6 +723,16 @@ cleanup_namespaces
 log_step "creating baseline TLS material"
 NIFI_IMAGE="${NIFI_IMAGE}" bash "${ROOT_DIR}/hack/create-kind-secrets.sh" "${NAMESPACE}" "${HELM_RELEASE}" nifi-tls nifi-auth
 
+if [[ "${OIDC_EXTERNAL_INGRESS}" == "true" ]]; then
+  log_step "installing ingress-nginx for external OIDC host routing"
+  install_ingress_controller
+  configure_external_ingress_hosts
+else
+  NIFI_ACCESS_URL="https://${HELM_RELEASE}.${NAMESPACE}.svc.cluster.local:8443"
+  NIFI_AUTH_CONFIG_URL="${NIFI_ACCESS_URL}/nifi-api/authentication/configuration"
+  KEYCLOAK_DISCOVERY_URL="http://keycloak.${NAMESPACE}.svc.cluster.local:8080/realms/nifi/.well-known/openid-configuration"
+fi
+
 log_step "bootstrapping Keycloak"
 bootstrap_keycloak
 kubectl -n "${NAMESPACE}" rollout status deployment/keycloak --timeout=10m
@@ -620,8 +759,8 @@ wait_for_oidc_runtime_ready
 
 log_step "verifying OIDC runtime wiring inside the NiFi pod"
 assert_nifi_property \
-  "nifi.security.user.oidc.discovery.url=http://keycloak.${NAMESPACE}.svc.cluster.local:8080/realms/nifi/.well-known/openid-configuration" \
-  "OIDC discovery/config failure: NiFi did not render the expected in-cluster Keycloak discovery URL"
+  "nifi.security.user.oidc.discovery.url=${KEYCLOAK_DISCOVERY_URL}" \
+  "OIDC discovery/config failure: NiFi did not render the expected OIDC discovery URL"
 assert_nifi_property \
   "nifi.security.user.oidc.client.id=${OIDC_CLIENT_ID}" \
   "OIDC discovery/config failure: NiFi did not render the expected OIDC client id"
@@ -637,6 +776,10 @@ assert_nifi_file_contains \
   "wrong admin bootstrap: the seeded NiFi application groups do not include nifi-platform-admins"
 assert_nifi_file_contains \
   "/opt/nifi/nifi-current/conf/users.xml" \
+  "nifi-flow-operators" \
+  "wrong claim mapping: the seeded NiFi application groups do not include nifi-flow-operators"
+assert_nifi_file_contains \
+  "/opt/nifi/nifi-current/conf/users.xml" \
   "nifi-flow-observers" \
   "wrong claim mapping: the seeded NiFi application groups do not include nifi-flow-observers"
 if ! nifi_exec test -f /opt/nifi/nifi-current/conf/authorizations.xml; then
@@ -646,16 +789,36 @@ fi
 log_step "verifying OIDC discovery from the NiFi pod"
 wait_for_oidc_discovery_from_nifi_pod
 
-if ! nifi_exec sh -ec 'if grep -q "^nifi.web.proxy.host=" /opt/nifi/nifi-current/conf/nifi.properties; then exit 1; fi'; then
-  fail "wrong proxy-host / external URL assumptions: the focused in-cluster OIDC path should not set nifi.web.proxy.host"
+if [[ "${OIDC_EXTERNAL_INGRESS}" == "true" ]]; then
+  assert_nifi_property \
+    "nifi.web.proxy.host=${NIFI_PUBLIC_HOST}:${INGRESS_HTTP_NODEPORT}" \
+    "wrong proxy-host / external URL assumptions: NiFi did not render the external ingress host into nifi.web.proxy.host"
+  kubectl -n "${NAMESPACE}" get ingress "${HELM_RELEASE}" >/dev/null 2>&1 || fail "expected the NiFi ingress resource to be rendered in external OIDC mode"
+  kubectl -n "${NAMESPACE}" get ingress keycloak >/dev/null 2>&1 || fail "expected the Keycloak ingress resource to exist in external OIDC mode"
+else
+  if ! nifi_exec sh -ec "grep -Eq '^nifi\\.web\\.proxy\\.host=.*\\.svc\\.cluster\\.local' /opt/nifi/nifi-current/conf/nifi.properties"; then
+    fail "wrong proxy-host / external URL assumptions: the focused in-cluster OIDC path should keep NiFi proxy hosts on in-cluster service names"
+  fi
+  internal_proxy_host_line="$(nifi_exec sh -ec "grep '^nifi\\.web\\.proxy\\.host=' /opt/nifi/nifi-current/conf/nifi.properties" || true)"
+  if [[ "${internal_proxy_host_line}" == *"example.com"* ]] || [[ "${internal_proxy_host_line}" == *"nip.io"* ]]; then
+    fail "wrong proxy-host / external URL assumptions: the focused in-cluster OIDC path should not render an external proxy host"
+  fi
 fi
 
-log_step "running in-cluster OIDC login and group-based authorization checks"
+if [[ "${OIDC_EXTERNAL_INGRESS}" == "true" ]]; then
+  log_step "running external-host OIDC login and group-based authorization checks"
+else
+  log_step "running in-cluster OIDC login and group-based authorization checks"
+fi
 run_oidc_probe
 
 echo
 echo "PASS: focused OIDC auth workflow completed successfully in +$(elapsed)s"
-  echo "  Keycloak bootstrap"
+echo "  Keycloak bootstrap"
 echo "  NiFi managed install in oidc + externalClaimGroups mode on ${NIFI_IMAGE}"
-echo "  OIDC discovery and group-claim runtime wiring"
-echo "  Initial Admin Identity bootstrap fallback and non-admin denial checks"
+if [[ "${OIDC_EXTERNAL_INGRESS}" == "true" ]]; then
+  echo "  ingress-backed external host OIDC wiring through ${NIFI_ACCESS_URL}"
+else
+  echo "  OIDC discovery and group-claim runtime wiring"
+fi
+echo "  Initial Admin Identity bootstrap fallback plus observer/operator/admin policy mapping checks"

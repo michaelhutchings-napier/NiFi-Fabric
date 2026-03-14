@@ -138,6 +138,29 @@ tls:
       passwordSecretRef:
         name: ""
         key: ""
+  additionalTrustBundle:
+    # -- Optional extra PEM CA bundle imported into a writable copy of the NiFi truststore.
+    # Use this for outbound trust to LDAP, OIDC, Flow Registry, or other TLS dependencies
+    # when a shared trust bundle is distributed separately from the main NiFi TLS Secret.
+    enabled: false
+    # -- Use the default `<release>-nifi-trust-bundle` ConfigMap name expected by the optional
+    # trust-manager integration in `charts/nifi-platform`.
+    useTrustManagerBundle: false
+    mountPath: /opt/nifi/trust-bundle
+    configMapRef:
+      name: ""
+      key: ca.crt
+    secretRef:
+      name: ""
+      key: ca.crt
+
+# -- Reference settings for the optional platform trust-manager bundle when
+# `*.useTrustManagerBundle=true` is enabled in this chart. Leave `name` empty to use
+# the default platform-generated `<release>-trust-bundle` name.
+trustManagerBundleRef:
+  type: configMap
+  name: ""
+  key: ca.crt
 
 # ------------------------------------------------------------------------------
 # Authentication and Authorization
@@ -227,18 +250,21 @@ serviceMonitor:
 
 # -- First-class metrics subsystem.
 # `nativeApi` is the primary supported mode.
-# `exporter` is experimental.
+# `exporter` is a supported secondary mode for a clean `/metrics` endpoint.
 # `siteToSite` is prepared-only and not runtime-enabled in this release.
 observability:
   metrics:
     mode: disabled
     nativeApi:
       # -- Native secured NiFi API scraping with chart-managed Service and ServiceMonitors.
+      # This is the recommended default metrics path for NiFi-Fabric.
       service:
+        # -- Keep this enabled for the recommended dedicated metrics Service.
         enabled: true
         annotations: {}
         labels: {}
       serviceMonitor:
+        # -- Default Prometheus Operator settings for all named nativeApi scrape profiles.
         defaults:
           interval: 30s
           scrapeTimeout: 10s
@@ -248,7 +274,7 @@ observability:
           annotations: {}
       machineAuth:
         # -- Provider-agnostic machine-auth contract.
-        # Operators still provide the referenced Secret out of band.
+        # Operators still provide the referenced Secret and rotation flow out of band.
         type: none
         secretRef:
           name: ""
@@ -265,10 +291,18 @@ observability:
         serverName: ""
         insecureSkipVerify: false
         ca:
+          # -- Use the default `<release>-nifi-trust-bundle` ConfigMap name expected by the
+          # optional platform trust-manager integration.
+          useTrustManagerBundle: false
+          configMapRef:
+            name: ""
+            key: ca.crt
           secretRef:
             name: ""
             key: ""
       endpoints:
+      # -- Named nativeApi scrape profiles.
+      # Names must stay unique after sanitizing to Kubernetes object names.
       - name: flow
         enabled: true
         path: /nifi-api/flow/metrics/prometheus
@@ -280,8 +314,8 @@ observability:
         labels: {}
         annotations: {}
     exporter:
-      # -- Experimental companion exporter that republishes secured NiFi metrics on `/metrics`.
-      # It can also append a small set of controller-status gauges from `/nifi-api/flow/status`.
+      # -- Optional companion exporter for environments that want a clean `/metrics` scrape endpoint.
+      # It republishes secured flow metrics and can append a small set of controller-status gauges from `/nifi-api/flow/status`.
       image:
         repository: python
         tag: "3.12-alpine"
@@ -321,6 +355,12 @@ observability:
         tlsConfig:
           insecureSkipVerify: false
           ca:
+            # -- Use the default `<release>-nifi-trust-bundle` ConfigMap name expected by the
+            # optional platform trust-manager integration.
+            useTrustManagerBundle: false
+            configMapRef:
+              name: ""
+              key: ca.crt
             secretRef:
               name: ""
               key: ""
@@ -330,20 +370,41 @@ observability:
           path: /nifi-api/flow/status
       resources: {}
     siteToSite:
-      # -- Prepared-only contract for a future SiteToSiteMetricsReportingTask path.
-      # This release does not create or manage reporting tasks or the receiver pipeline.
+      # -- Optional prepared contract for a future SiteToSiteMetricsReportingTask path.
+      # This release still does not create or manage reporting tasks or the receiver pipeline.
       destination:
+        # -- Receiver base URL that would accept the site-to-site metrics feed.
         url: ""
+        # -- Receiver input port name expected to accept the metrics feed.
         inputPortName: ""
+        auth:
+          # -- Provider-agnostic receiver auth contract for a future runtime path.
+          type: none
+          secretRef:
+            name: ""
+          bearerToken:
+            tokenKey: token
+          authorization:
+            type: Bearer
+            credentialsKey: token
+        tls:
+          insecureSkipVerify: false
+          ca:
+            secretRef:
+              name: ""
+              key: ""
       source:
+        # -- Reporting-task source identity hints for a future runtime path.
         applicationId: nifi
         hostname: ""
         instanceUrl: ""
       transport:
+        # -- Supported prepared transport values for the future receiver path.
         protocol: RAW
         communicationsTimeout: 30 secs
         compressEvents: true
       format:
+        # -- Supported prepared output format for the future receiver path.
         type: AmbariFormat
         includeNullValues: false
 

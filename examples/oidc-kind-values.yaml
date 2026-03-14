@@ -21,11 +21,11 @@ web:
 
 authz:
   # Focus the runtime proof on OIDC login plus exact group-name seeding.
-  # Use the documented Initial Admin Identity fallback for the first admin path in this focused gate.
+  # Use the documented Initial Admin Identity fallback for the first admin path in this focused gate
+  # while preserving the richer group-to-policy mappings from examples/oidc-group-claims-values.yaml.
   bootstrap:
     initialAdminGroup: ""
     initialAdminIdentity: alice@example.com
-  policies: []
 
 nifi:
   jvmHeapInit: 512m

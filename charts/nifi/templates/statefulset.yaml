@@ -188,7 +188,42 @@ spec:
           replace_property "nifi.security.keystoreType" "PKCS12"
           replace_property "nifi.security.keystorePasswd" "${KEYSTORE_PASSWORD}"
           replace_property "nifi.security.keyPasswd" "${KEYSTORE_PASSWORD}"
-          replace_property "nifi.security.truststore" "{{ .Values.tls.mountPath }}/{{ .Values.tls.truststoreKey }}"
+          TRUSTSTORE_PATH="{{ .Values.tls.mountPath }}/{{ .Values.tls.truststoreKey }}"
+          {{- if .Values.tls.additionalTrustBundle.enabled }}
+          GENERATED_TRUSTSTORE_PATH="/opt/nifi/nifi-current/conf/truststore-with-extra-cas.p12"
+          EXTRA_TRUST_BUNDLE_FILE="{{ .Values.tls.additionalTrustBundle.mountPath }}/{{ include "nifi.additionalTrustBundleRefKey" . }}"
+          if [ -s "${EXTRA_TRUST_BUNDLE_FILE}" ]; then
+            cp "{{ .Values.tls.mountPath }}/{{ .Values.tls.truststoreKey }}" /work-conf/truststore-with-extra-cas.p12
+            rm -f /tmp/extra-trust-cert-*.pem
+            awk '
+              /-----BEGIN CERTIFICATE-----/ {
+                cert_count++
+                cert_path=sprintf("/tmp/extra-trust-cert-%03d.pem", cert_count)
+              }
+              cert_count > 0 {
+                print >> cert_path
+              }
+              /-----END CERTIFICATE-----/ && cert_count > 0 {
+                close(cert_path)
+              }
+            ' "${EXTRA_TRUST_BUNDLE_FILE}"
+            cert_index=0
+            for cert in /tmp/extra-trust-cert-*.pem; do
+              [ -s "${cert}" ] || continue
+              keytool -importcert -noprompt \
+                -storetype PKCS12 \
+                -keystore /work-conf/truststore-with-extra-cas.p12 \
+                -storepass "${TRUSTSTORE_PASSWORD}" \
+                -alias "extra-ca-${cert_index}" \
+                -file "${cert}" >/dev/null
+              cert_index=$((cert_index + 1))
+            done
+            if [ "${cert_index}" -gt 0 ]; then
+              TRUSTSTORE_PATH="${GENERATED_TRUSTSTORE_PATH}"
+            fi
+          fi
+          {{- end }}
+          replace_property "nifi.security.truststore" "${TRUSTSTORE_PATH}"
           replace_property "nifi.security.truststoreType" "PKCS12"
           replace_property "nifi.security.truststorePasswd" "${TRUSTSTORE_PASSWORD}"
           NODE_IDENTITY="$(openssl pkcs12 -in {{ .Values.tls.mountPath }}/{{ .Values.tls.keystoreKey }} -passin pass:${KEYSTORE_PASSWORD} -clcerts -nokeys | openssl x509 -noout -subject -nameopt RFC2253 | sed 's/^subject=//' | sed 's/,/, /g')"
@@ -253,8 +288,10 @@ spec:
           fi
 
           replace_token /work-conf/authorizers.xml "__KEYSTORE_PASSWORD__" "$(xml_escape "${KEYSTORE_PASSWORD}")"
+          replace_token /work-conf/authorizers.xml "__TRUSTSTORE_PATH__" "$(xml_escape "${TRUSTSTORE_PATH}")"
           replace_token /work-conf/authorizers.xml "__TRUSTSTORE_PASSWORD__" "$(xml_escape "${TRUSTSTORE_PASSWORD}")"
           replace_token /work-conf/login-identity-providers.xml "__KEYSTORE_PASSWORD__" "$(xml_escape "${KEYSTORE_PASSWORD}")"
+          replace_token /work-conf/login-identity-providers.xml "__TRUSTSTORE_PATH__" "$(xml_escape "${TRUSTSTORE_PATH}")"
           replace_token /work-conf/login-identity-providers.xml "__TRUSTSTORE_PASSWORD__" "$(xml_escape "${TRUSTSTORE_PASSWORD}")"
           replace_property "nifi.sensitive.props.key" "${NIFI_SENSITIVE_PROPS_KEY}"
           replace_property "nifi.web.http.host" ""
@@ -294,6 +331,11 @@ spec:
         - name: tls
           mountPath: {{ .Values.tls.mountPath }}
           readOnly: true
+        {{- if .Values.tls.additionalTrustBundle.enabled }}
+        - name: additional-trust-bundle
+          mountPath: {{ .Values.tls.additionalTrustBundle.mountPath }}
+          readOnly: true
+        {{- end }}
       containers:
       - name: nifi
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -385,6 +427,16 @@ spec:
       - name: tls
         secret:
           secretName: {{ include "nifi.tlsSecretName" . }}
+      {{- if and .Values.tls.additionalTrustBundle.enabled (eq (include "nifi.additionalTrustBundleRefType" .) "configMap") }}
+      - name: additional-trust-bundle
+        configMap:
+          name: {{ include "nifi.additionalTrustBundleRefName" . }}
+      {{- end }}
+      {{- if and .Values.tls.additionalTrustBundle.enabled (eq (include "nifi.additionalTrustBundleRefType" .) "secret") }}
+      - name: additional-trust-bundle
+        secret:
+          secretName: {{ include "nifi.additionalTrustBundleRefName" . }}
+      {{- end }}
       {{- if .Values.flowRegistryClients.enabled }}
       - name: flow-registry-clients
         configMap:
