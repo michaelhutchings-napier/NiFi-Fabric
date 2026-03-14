@@ -44,6 +44,7 @@ NiFi-Fabric keeps the product surface small and explicit.
 - optional trust-manager integration distributes shared CA bundles into the NiFi namespace
 - optional trust-manager integration can mirror the workload TLS `ca.crt` into a trust-manager source Secret
 - trust-manager `Bundle` targets can be rendered as either ConfigMaps or Secrets
+- exporter mode now has focused kind proof for trust-manager-distributed upstream TLS trust
 - trust-manager does not replace cert-manager or move TLS orchestration into the controller
 
 ## Authentication
@@ -67,11 +68,15 @@ NiFi-Fabric keeps the product surface small and explicit.
 ## Observability
 
 - native API metrics are the primary supported metrics mode
-- exporter metrics mode is a supported secondary path for clean `/metrics` scraping
+- exporter metrics mode is an optional experimental secondary path for clean `/metrics` scraping
+- exporter live proof stays chart-scoped: a companion `Deployment`, `Service`, and `ServiceMonitor`, secured upstream reachability, and a Prometheus-scrapable `/metrics` endpoint
+- exporter trust-manager live proof now covers Bundle reconciliation, mounted trust presence, and successful secured upstream reachability through the distributed bundle
 - site-to-site metrics are prepared-only
 - machine-auth metrics credentials use a provider-agnostic Secret contract
 - optional trust-manager bundle consumption can simplify CA trust for metrics and outbound NiFi TLS clients
 - optional PKCS12 and JKS trust-manager outputs can be rendered for downstream consumers that need them
+- starter operations assets now include one dashboard, one alert rules file, and concise runbooks for the main platform failure domains
+- those operations assets are intentionally starter-level and must still be adapted to each environment's Prometheus, Grafana, and incident-routing setup
 
 ## Environment Scope
 

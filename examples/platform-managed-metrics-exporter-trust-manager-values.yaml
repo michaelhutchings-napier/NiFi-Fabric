@@ -1,0 +1,29 @@
+# Optional overlay for trust-manager-backed exporter metrics scraping.
+#
+# Layer this on top of:
+# - examples/platform-managed-values.yaml
+# - examples/platform-managed-trust-manager-values.yaml
+# - examples/platform-managed-metrics-exporter-values.yaml
+#
+# Prerequisites:
+# - trust-manager is installed with secret targets enabled
+# - the generated trust bundle Secret name is authorized in that trust-manager install
+
+trustManager:
+  target:
+    type: secret
+
+nifi:
+  trustManagerBundleRef:
+    type: secret
+    key: ca.crt
+  observability:
+    metrics:
+      exporter:
+        source:
+          tlsConfig:
+            ca:
+              secretRef:
+                name: ""
+                key: ca.crt
+              useTrustManagerBundle: true

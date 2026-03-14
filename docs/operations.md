@@ -1,8 +1,35 @@
 # Operations and Troubleshooting
 
-This page is the fast path for common operational checks.
+This is the customer-facing starter operations package for NiFi-Fabric.
 
-## Common Checks
+It stays intentionally small:
+
+- one starter Grafana dashboard
+- one starter Prometheus alert rules file
+- concise runbooks for the most common platform failure modes
+
+What it covers:
+
+- controller lifecycle signals for rollout, TLS drift, hibernation, restore, and autoscaling
+- metrics subsystem checks for the currently supported metrics modes
+- operator-facing troubleshooting steps built around `NiFiCluster` status, controller events, controller metrics, and chart-owned metrics resources
+
+What operators still need to adapt:
+
+- Prometheus scrape job labels, namespaces, and alert routing
+- Grafana datasource names and dashboard folder conventions
+- severity thresholds, notification policies, and maintenance silences
+- any environment-specific dashboards for ingress, storage, cloud load balancers, or external identity systems
+
+## Included Assets
+
+- [Starter dashboards](operations/dashboards.md)
+- [Starter alerts](operations/alerts.md)
+- [Starter runbooks](operations/runbooks.md)
+- [Grafana starter dashboard JSON](../ops/grafana/nifi-fabric-starter-dashboard.json)
+- [Prometheus starter alert rules YAML](../ops/prometheus/nifi-fabric-starter-alerts.yaml)
+
+## Fast Checks
 
 Helm release status:
 
@@ -29,71 +56,12 @@ Controller logs:
 kubectl -n nifi-system logs deployment/nifi-controller-manager --tail=200
 ```
 
-## Common Failure Domains
+Controller metrics quick check:
 
-### Install Prerequisites
-
-Check:
-
-- controller image is reachable from the cluster
-- `Secret/nifi-tls` exists when using external TLS
-- `Secret/nifi-auth` exists
-- cert-manager exists when using cert-manager mode
-
-### Cluster Health
-
-Symptoms:
-
-- pods are running but NiFi is not converged
-- rollout or restore remains in progress
-
-Check:
-
-- pod readiness
-- NiFiCluster conditions
-- recent events in `nifi` and `nifi-system`
-
-### Authentication
-
-Symptoms:
-
-- UI login fails
-- OIDC redirect or LDAP bind fails
-
-Check:
-
-- auth mode values
-- client secret or LDAP manager Secret references
-- `web.proxyHosts` when external browser-facing access is involved
-- for the current kind OIDC browser-flow hardening path, also verify the advertised `loginUri`, Keycloak redirect URIs, and the actual redirected Keycloak host
-
-### Metrics
-
-Symptoms:
-
-- `ServiceMonitor` exists but scraping fails
-- exporter `/metrics` is unhealthy
-
-Check:
-
-- machine-auth Secret contents
-- metrics CA Secret contents
-- selected metrics mode
-- exporter pod logs when exporter mode is enabled
-
-### Autoscaling
-
-Symptoms:
-
-- recommendation exists but scale does not happen
-- scale-down remains blocked
-
-Check:
-
-- `status.autoscaling`
-- lifecycle precedence conditions
-- cooldown and stabilization windows
-- blocked or failure reasons on execution state
+```bash
+kubectl -n nifi-system port-forward deployment/nifi-controller-manager 18080:8080
+curl --silent http://127.0.0.1:18080/metrics | rg '^nifi_platform_'
+```
 
 ## Support Boundary
 
@@ -101,4 +69,7 @@ NiFi-Fabric is intentionally conservative about support claims:
 
 - kind is the runtime proof baseline in this repository
 - AKS and OpenShift guidance is published separately and remains conservative because no real cluster was exercised in this slice
-- experimental features are clearly marked and should be treated differently from the standard platform path
+- `nativeApi` remains the production-ready metrics path
+- `exporter` remains experimental even though focused runtime proof exists
+- `siteToSite` remains prepared-only
+- the starter operations assets are templates, not a production certification pack

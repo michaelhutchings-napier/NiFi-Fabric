@@ -97,8 +97,11 @@ Customer-facing docs should stay aligned with:
 - `helm lint charts/nifi-platform`
 - `helm template` for the standard chart install paths
 - `helm template` for optional trust-manager overlays when trust-manager docs or values change
+- `jq empty` for any added starter Grafana dashboard JSON
 - focused checks for the feature being documented
 - focused auth and exposure render checks for OIDC internal, OIDC external URL, AKS managed, and OpenShift managed overlays when auth docs change
+
+Documentation-only operations packaging does not require a heavier runtime gate unless it also changes shared lifecycle or e2e behavior.
 
 ## Metrics Runtime Proof Matrix
 
@@ -106,6 +109,7 @@ The current focused metrics runtime command is:
 
 - `make kind-metrics-fast-e2e`
 - `make kind-metrics-native-api-trust-manager-fast-e2e`
+- `make kind-metrics-exporter-trust-manager-fast-e2e`
 
 That matrix runs:
 
@@ -125,21 +129,32 @@ What it proves for `nativeApi`:
 What it proves for `exporter`:
 
 - the exporter overlay renders and applies
-- the exporter `Deployment`, metrics `Service`, and `ServiceMonitor` exist
+- the exporter `Deployment`, metrics `Service`, and `ServiceMonitor` exist with the expected ports, selectors, and scrape endpoint wiring
 - the same machine-auth Secret and CA Secret contract is mounted and consumed correctly
+- the exporter pod can directly reach the secured `/nifi-api/flow/metrics/prometheus` source path with the mounted machine-auth and CA material
+- the exporter pod can also reach the already-implemented supplemental `/nifi-api/flow/status` source path
 - Prometheus can scrape the exporter `/metrics` endpoint live end to end
-- the exporter republishes the secured `/nifi-api/flow/metrics/prometheus` endpoint
-- the exporter also appends selected controller-status gauges derived from `/nifi-api/flow/status`
+- the exporter `/metrics` endpoint republishes live NiFi metric families from the secured `/nifi-api/flow/metrics/prometheus` source
+- the exporter `/metrics` endpoint also appends selected controller-status gauges derived from `/nifi-api/flow/status`
 - exporter self-diagnostics report successful refresh for both upstream sources during the scrape
 - the exporter readiness probe tracks upstream secured-scrape health instead of only local process health
 - the exporter recovers after mounted auth Secret rotation without restarting the exporter pod
 - the focused proof uses a freshly minted token written into the referenced Secret; long-lived rotation remains operator-owned
+
+What `make kind-metrics-exporter-trust-manager-fast-e2e` proves in addition:
+
+- the trust-manager `Bundle` and mirrored source Secret render and reconcile through the product-facing platform chart path
+- the exporter consumes the trust-manager-distributed CA bundle from the expected mount path
+- the secured exporter upstream scrape succeeds with that distributed trust material instead of a manually created CA Secret
+- exporter `/metrics`, `Service`, and `ServiceMonitor` stay healthy in the trust-manager-backed configuration
 
 Current honest limit:
 
 - `nativeApi` runtime proof still covers the flow Prometheus endpoint only
 - exporter runtime proof adds a second secured endpoint, `/nifi-api/flow/status`, but not a JVM or system-diagnostics family
 - the second native scrape profile is still a cadence variant of the same flow endpoint
+- exporter remains optional and experimental even with the stronger runtime gate
+- trust-manager-backed exporter proof currently covers PEM bundle distribution only; additional Bundle output formats are still future work for exporter mode
 - `siteToSite` remains prepared-only and is intentionally excluded from the live matrix
 - the site-to-site overlay is only validated at Helm render time for destination URL, input port, auth, TLS, transport, and format compatibility
 

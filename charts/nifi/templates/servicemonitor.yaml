@@ -115,7 +115,11 @@ spec:
 {{- $serviceMonitor := $exporter.serviceMonitor -}}
 {{- $defaults := $exporter.serviceMonitor.defaults -}}
 {{- $service := $exporter.service -}}
-{{- if and (default true $serviceMonitor.enabled) $service.enabled }}
+{{- $serviceMonitorEnabled := true -}}
+{{- if hasKey $serviceMonitor "enabled" }}
+{{- $serviceMonitorEnabled = $serviceMonitor.enabled -}}
+{{- end }}
+{{- if and $serviceMonitorEnabled $service.enabled }}
 {{- $annotations := default (dict) $defaults.annotations }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor

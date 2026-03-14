@@ -89,5 +89,5 @@ Read next:
 
 - [TLS and cert-manager](../manage/tls-and-cert-manager.md)
 - [Authentication](../manage/authentication.md)
-- [Observability and Metrics](../manage/observability.md)
+- [Observability and Metrics](../manage/observability-metrics.md)
 - [Operations and Troubleshooting](../operations.md)

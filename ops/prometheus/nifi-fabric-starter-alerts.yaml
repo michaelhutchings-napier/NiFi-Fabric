@@ -1,0 +1,127 @@
+groups:
+  - name: nifi-fabric-controller-lifecycle
+    rules:
+      - alert: NiFiFabricManagedRolloutFailed
+        expr: increase(nifi_platform_rollouts_total{result="failed"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          scope: platform
+        annotations:
+          summary: "NiFi-Fabric managed rollout failed recently"
+          description: "The controller recorded a failed managed rollout in the last 15 minutes. Check NiFiCluster conditions, status.rollout, recent events, and controller logs."
+          runbook_url: "docs/operations/runbooks.md#managed-rollout-blocked-or-failed"
+
+      - alert: NiFiFabricRolloutNodePreparationTimedOut
+        expr: increase(nifi_platform_node_preparation_outcomes_total{purpose="Restart",result="timed_out"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          scope: platform
+        annotations:
+          summary: "NiFi-Fabric rollout node preparation timed out"
+          description: "A restart-oriented node preparation timed out in the last 15 minutes. Treat this as a blocked rollout signal and inspect status.nodeOperation plus NiFi disconnect/offload behavior."
+          runbook_url: "docs/operations/runbooks.md#managed-rollout-blocked-or-failed"
+
+      - alert: NiFiFabricTLSObservationDegraded
+        expr: increase(nifi_platform_tls_actions_total{action="observe_only",result="degraded"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          scope: platform
+        annotations:
+          summary: "NiFi-Fabric TLS observe-only path degraded"
+          description: "A TLS drift observe-only window degraded instead of resolving cleanly. The controller may need to escalate to restart-required handling."
+          runbook_url: "docs/operations/runbooks.md#tls-drift-escalated-or-failed"
+
+      - alert: NiFiFabricTLSRestartRequired
+        expr: increase(nifi_platform_tls_actions_total{action="restart_required",result="started"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          scope: platform
+        annotations:
+          summary: "NiFi-Fabric TLS drift escalated to restart-required"
+          description: "A TLS drift recently escalated from observe-only or direct policy into the managed restart-required path. This is often operationally important even if it later succeeds."
+          runbook_url: "docs/operations/runbooks.md#tls-drift-escalated-or-failed"
+
+      - alert: NiFiFabricTLSRestartFailed
+        expr: increase(nifi_platform_tls_actions_total{action="restart_required",result="failed"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          scope: platform
+        annotations:
+          summary: "NiFi-Fabric TLS restart-required path failed"
+          description: "A TLS drift escalation required rollout and that restart path failed in the last 15 minutes."
+          runbook_url: "docs/operations/runbooks.md#tls-drift-escalated-or-failed"
+
+      - alert: NiFiFabricHibernationFailed
+        expr: increase(nifi_platform_hibernation_operations_total{operation="hibernate",result="failed"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          scope: platform
+        annotations:
+          summary: "NiFi-Fabric hibernation failed recently"
+          description: "The controller recorded a failed hibernation operation in the last 15 minutes."
+          runbook_url: "docs/operations/runbooks.md#hibernation-or-restore-blocked-or-failed"
+
+      - alert: NiFiFabricHibernationNodePreparationTimedOut
+        expr: increase(nifi_platform_node_preparation_outcomes_total{purpose="Hibernation",result="timed_out"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          scope: platform
+        annotations:
+          summary: "NiFi-Fabric hibernation node preparation timed out"
+          description: "A hibernation-oriented node preparation timed out in the last 15 minutes. Treat this as a blocked hibernation signal."
+          runbook_url: "docs/operations/runbooks.md#hibernation-or-restore-blocked-or-failed"
+
+  - name: nifi-fabric-controller-autoscaling
+    rules:
+      - alert: NiFiFabricAutoscalingExecutionBlocked
+        expr: increase(nifi_platform_autoscaling_execution_transitions_total{state="Blocked"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          scope: platform
+        annotations:
+          summary: "NiFi-Fabric autoscaling execution became blocked"
+          description: "The controller recorded a blocked autoscaling execution transition in the last 15 minutes. Review status.autoscaling.execution and lifecycle-precedence conditions."
+          runbook_url: "docs/operations/runbooks.md#autoscaling-blocked-or-failed"
+
+      - alert: NiFiFabricAutoscalingExecutionFailed
+        expr: increase(nifi_platform_autoscaling_execution_transitions_total{state="Failed"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          scope: platform
+        annotations:
+          summary: "NiFi-Fabric autoscaling execution failed"
+          description: "The controller recorded a failed autoscaling execution transition in the last 15 minutes."
+          runbook_url: "docs/operations/runbooks.md#autoscaling-blocked-or-failed"
+
+      - alert: NiFiFabricAutoscalingRecommendationBlocked
+        expr: increase(nifi_platform_autoscaling_recommendations_total{outcome="blocked"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          scope: platform
+        annotations:
+          summary: "NiFi-Fabric autoscaling recommendation was blocked"
+          description: "The controller could not produce or act on an autoscaling recommendation in the last 15 minutes. Check autoscaling reason, signals, and external intent status."
+          runbook_url: "docs/operations/runbooks.md#autoscaling-blocked-or-failed"
+
+  - name: nifi-fabric-metrics-subsystem
+    rules:
+      - alert: NiFiFabricExporterSourceDown
+        expr: min by (source) (nifi_fabric_exporter_source_up) == 0
+        for: 10m
+        labels:
+          severity: warning
+          scope: metrics
+        annotations:
+          summary: "NiFi-Fabric exporter upstream source is down"
+          description: "An exporter source scrape has been unhealthy for at least 10 minutes. This alert only applies when exporter mode is enabled and scraped."
+          runbook_url: "docs/operations/runbooks.md#metrics-subsystem-failure"

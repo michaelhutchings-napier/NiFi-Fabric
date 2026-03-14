@@ -7,7 +7,7 @@
 # Start here:
 # - Install guide: ../../docs/install/helm.md
 # - Platform chart values reference: ../../docs/reference/nifi-platform-values.md
-# - App chart values reference for `nifi.*`: ../../docs/reference/nifi-values.md
+# - App chart values reference for `nifi.*`: ../../docs/reference/app-chart-values.md
 
 # ------------------------------------------------------------------------------
 # Install Mode
@@ -99,7 +99,7 @@ cluster:
 # ------------------------------------------------------------------------------
 # Optional trust-manager Integration
 # Docs: ../../docs/manage/tls-and-cert-manager.md
-# Docs: ../../docs/manage/observability.md
+# Docs: ../../docs/manage/observability-metrics.md
 # ------------------------------------------------------------------------------
 
 # -- Optional trust-manager integration for distributing a shared CA bundle into the
@@ -174,10 +174,10 @@ keda:
 
 # ------------------------------------------------------------------------------
 # Nested App Chart Values
-# Docs: ../../docs/reference/nifi-values.md
+# Docs: ../../docs/reference/app-chart-values.md
 # Docs: ../../docs/manage/tls-and-cert-manager.md
 # Docs: ../../docs/manage/authentication.md
-# Docs: ../../docs/manage/observability.md
+# Docs: ../../docs/manage/observability-metrics.md
 # ------------------------------------------------------------------------------
 
 # -- Nested `charts/nifi` values passed through by the platform chart.

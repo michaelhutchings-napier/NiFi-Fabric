@@ -5,7 +5,7 @@
 #
 # Start here:
 # - Install guide: ../../docs/install/helm.md
-# - App chart values reference: ../../docs/reference/nifi-values.md
+# - App chart values reference: ../../docs/reference/app-chart-values.md
 # - NiFiCluster reference for managed mode: ../../docs/reference/nificluster.md
 
 # ------------------------------------------------------------------------------
@@ -264,7 +264,7 @@ authz:
 
 # ------------------------------------------------------------------------------
 # Observability and Metrics
-# Docs: ../../docs/manage/observability.md
+# Docs: ../../docs/manage/observability-metrics.md
 # ------------------------------------------------------------------------------
 
 # -- Deprecated compatibility shim for older ServiceMonitor-only values.
@@ -448,7 +448,7 @@ flowRegistryClients:
 
 # ------------------------------------------------------------------------------
 # Availability, Storage, and Resources
-# Docs: ../../docs/reference/nifi-values.md
+# Docs: ../../docs/reference/app-chart-values.md
 # ------------------------------------------------------------------------------
 
 # -- Pod disruption budget settings.
@@ -479,7 +479,7 @@ resources: {}
 
 # ------------------------------------------------------------------------------
 # Scheduling and Security
-# Docs: ../../docs/reference/nifi-values.md
+# Docs: ../../docs/reference/app-chart-values.md
 # ------------------------------------------------------------------------------
 
 # -- Pod scheduling preferences.
@@ -512,7 +512,7 @@ securityContext:
 
 # ------------------------------------------------------------------------------
 # NiFi Runtime and Health Checks
-# Docs: ../../docs/reference/nifi-values.md
+# Docs: ../../docs/reference/app-chart-values.md
 # ------------------------------------------------------------------------------
 
 # -- Core NiFi runtime settings rendered into the workload.

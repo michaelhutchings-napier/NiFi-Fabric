@@ -64,7 +64,7 @@ spec:
         securityContext:
           {{- toYaml .Values.securityContext | nindent 10 }}
         command:
-        - python
+        - python3
         - /exporter/exporter.py
         env:
         - name: EXPORTER_LISTEN_PORT

@@ -95,6 +95,10 @@ Metrics note:
 - the current live proof covers the secured `/nifi-api/flow/metrics/prometheus` endpoint republished on exporter `/metrics`
 - it also enables selected controller-status gauges derived from `/nifi-api/flow/status`
 - the live proof also covers upstream-aware readiness and mounted auth Secret rotation without restarting the exporter pod
+- [platform-managed-metrics-exporter-trust-manager-values.yaml](platform-managed-metrics-exporter-trust-manager-values.yaml) layers trust-manager-backed exporter upstream trust on top of the managed exporter overlay
+- it switches the Bundle target to a Secret and points exporter source TLS trust at the trust-manager bundle instead of a manually created CA Secret
+- use it together with `examples/platform-managed-values.yaml`, `examples/platform-managed-trust-manager-values.yaml`, and `examples/platform-managed-metrics-exporter-values.yaml`
+- the focused runtime proof command is `make kind-metrics-exporter-trust-manager-fast-e2e`
 - [platform-managed-metrics-site-to-site-values.yaml](platform-managed-metrics-site-to-site-values.yaml) is an optional prepared-only overlay for a future site-to-site metrics path
 - it enables `nifi.observability.metrics.mode=siteToSite`
 - it documents the intended destination, auth, TLS, source, transport, and format contract for a future `SiteToSiteMetricsReportingTask` integration

@@ -16,6 +16,7 @@ It provides a product-facing one-release install path through `charts/nifi-platf
 - optional trust-manager integration is available for shared CA bundle distribution
 - Git-based Flow Registry Clients are the supported modern direction
 - observability and metrics are a first-class subsystem instead of an afterthought
+- starter dashboards, alert rules, and runbooks are included for production-oriented operations handoff
 
 ## Standard Install Path
 
@@ -98,7 +99,7 @@ Manage NiFi:
 - [Autoscaling](docs/manage/autoscaling.md)
 - [Flow Registry Clients](docs/manage/flow-registry-clients.md)
 - [Hibernation and Restore](docs/manage/hibernation-and-restore.md)
-- [Observability and Metrics](docs/manage/observability.md)
+- [Observability and Metrics](docs/manage/observability-metrics.md)
 
 Reference and support:
 
@@ -106,7 +107,7 @@ Reference and support:
 - [Verification and Support Levels](docs/testing.md)
 - [NiFiCluster Reference](docs/reference/nificluster.md)
 - [Platform Chart Values Reference](docs/reference/nifi-platform-values.md)
-- [App Chart Values Reference](docs/reference/nifi-values.md)
+- [App Chart Values Reference](docs/reference/app-chart-values.md)
 - [Operations and Troubleshooting](docs/operations.md)
 - [Experimental Features](docs/experimental-features.md)
 - [Roadmap](docs/roadmap.md)
@@ -135,9 +136,10 @@ See [Compatibility](docs/compatibility.md) for the detailed matrix.
 - a user-driven GitHub versioned-flow save-to-registry workflow is focused-runtime-proven on NiFi `2.8.0`
 - Azure DevOps Flow Registry Client remains prepared and render-validated
 - native API metrics are the primary, recommended metrics path and are runtime-proven on kind
-- exporter metrics are a supported secondary path and are runtime-proven on kind
+- exporter metrics are an optional experimental secondary path and are runtime-proven on kind
 - site-to-site metrics are prepared-only, with a validated destination contract but no runtime path
 - optional trust-manager integration distributes shared CA bundles without moving TLS orchestration into the controller
+- the repo now includes a starter operations package for dashboards, alerting, and runbooks; teams still need to adapt it to their Prometheus, Grafana, and incident-routing conventions
 
 ## Experimental Features
 
@@ -160,7 +162,7 @@ The repo now carries a focused metrics runtime proof matrix:
 That matrix proves:
 
 - secured `nativeApi` scraping with a dedicated chart-managed metrics `Service` and named `ServiceMonitor` resources
-- supported `exporter` mode with its companion `Deployment`, `Service`, and `ServiceMonitor`
+- experimental `exporter` mode with its companion `Deployment`, `Service`, and `ServiceMonitor`
 - the documented machine-auth Secret and CA Secret contract used by both modes
 
 Current conservative boundary:
@@ -168,7 +170,9 @@ Current conservative boundary:
 - `nativeApi` is runtime-proven for the secured `/nifi-api/flow/metrics/prometheus` endpoint
 - `nativeApi` is also runtime-proven consuming a trust-manager-distributed CA bundle through the optional platform trust-manager overlay
 - `nativeApi` is the recommended production path unless you have a clear reason to prefer the exporter shape
-- `exporter` is runtime-proven for `/nifi-api/flow/metrics/prometheus` plus selected controller-status gauges derived from `/nifi-api/flow/status`
+- `exporter` is runtime-proven for direct secured reachability to `/nifi-api/flow/metrics/prometheus` and `/nifi-api/flow/status` from the chart-owned exporter pod
+- `exporter` exposes a Prometheus-scrapable `/metrics` endpoint that relays live NiFi metric families from the secured flow source
+- `exporter` is runtime-proven for selected controller-status gauges derived from `/nifi-api/flow/status`
 - `exporter` is runtime-proven for upstream-aware readiness and mounted auth Secret rotation without restarting the exporter pod
 - two named native scrape profiles are proven, but they still scrape the same flow Prometheus endpoint at different cadence
 - JVM or system-diagnostics metrics are not yet runtime-proven
@@ -202,7 +206,7 @@ NiFi-Fabric documentation is intentionally conservative in a few areas:
 - KEDA is documented as experimental even though focused kind proof is green
 - autoscaling scale-down remains intentionally one-step-at-a-time and experimental
 - site-to-site metrics remain prepared-only
-- exporter support remains intentionally bounded to flow metrics plus selected `/flow/status` gauges
+- exporter support remains experimental and intentionally bounded to flow metrics plus selected `/flow/status` gauges
 - versioned-flow workflow proof currently covers a user-driven GitHub save-to-registry path only; it does not add automatic import, deployment, or synchronization
 - trust-manager currently distributes shared CA bundles only; it does not replace cert-manager or move trust orchestration into the controller
 - automatic mirroring of the workload TLS `ca.crt` into a trust-manager source Secret is available as an optional chart-owned helper path

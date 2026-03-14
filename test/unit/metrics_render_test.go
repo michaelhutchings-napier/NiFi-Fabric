@@ -162,6 +162,83 @@ func TestPlatformManagedExporterMetricsExampleRendersExporterResources(t *testin
 	}
 }
 
+func TestExporterMetricsCanDisableServiceMonitorWhileKeepingService(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.metrics.mode=exporter",
+		"--set", "observability.metrics.exporter.machineAuth.secretRef.name=nifi-metrics-auth",
+		"--set", "observability.metrics.exporter.machineAuth.authorization.type=Bearer",
+		"--set", "observability.metrics.exporter.machineAuth.authorization.credentialsKey=token",
+		"--set", "observability.metrics.exporter.serviceMonitor.enabled=false",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+	if strings.Contains(output, "kind: ServiceMonitor") {
+		t.Fatalf("expected exporter ServiceMonitor to be omitted when disabled\n%s", output)
+	}
+	for _, want := range []string{
+		"kind: Deployment",
+		"name: test-nifi-metrics-exporter",
+		"kind: Service",
+		"name: test-nifi-metrics",
+		"targetPort: metrics",
+		"app.kubernetes.io/component: metrics-exporter",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestExporterMetricsValidationFailsWhenServiceMonitorEnabledWithoutService(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.metrics.mode=exporter",
+		"--set", "observability.metrics.exporter.machineAuth.secretRef.name=nifi-metrics-auth",
+		"--set", "observability.metrics.exporter.machineAuth.authorization.type=Bearer",
+		"--set", "observability.metrics.exporter.machineAuth.authorization.credentialsKey=token",
+		"--set", "observability.metrics.exporter.service.enabled=false",
+		"--set", "observability.metrics.exporter.serviceMonitor.enabled=true",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail when exporter ServiceMonitor is enabled without the Service\n%s", output)
+	}
+	if !strings.Contains(output, "observability.metrics.exporter.service.enabled=false cannot be combined with an enabled exporter ServiceMonitor") {
+		t.Fatalf("expected exporter Service/ServiceMonitor validation error\n%s", output)
+	}
+}
+
+func TestExporterMetricsRendersConfigMapCABundleConsumer(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.metrics.mode=exporter",
+		"--set", "observability.metrics.exporter.machineAuth.secretRef.name=nifi-metrics-auth",
+		"--set", "observability.metrics.exporter.machineAuth.authorization.type=Bearer",
+		"--set", "observability.metrics.exporter.machineAuth.authorization.credentialsKey=token",
+		"--set", "observability.metrics.exporter.source.tlsConfig.ca.configMapRef.name=nifi-metrics-ca",
+		"--set", "observability.metrics.exporter.source.tlsConfig.ca.configMapRef.key=ca.crt",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		"name: exporter-ca",
+		"configMap:",
+		"name: nifi-metrics-ca",
+		"mountPath: /var/run/nifi-metrics-ca",
+		"name: EXPORTER_TLS_CA_FILE",
+		"/var/run/nifi-metrics-ca/ca.crt",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
 func TestPlatformManagedTrustManagerExampleRendersBundleAndConsumers(t *testing.T) {
 	output, err := helmTemplate(
 		t,
@@ -258,6 +335,66 @@ func TestPlatformManagedTrustManagerNativeMetricsExampleRendersSecretTarget(t *t
 	}
 }
 
+func TestPlatformManagedTrustManagerExporterExampleRendersSecretTarget(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi-platform",
+		"-f", "examples/platform-managed-values.yaml",
+		"-f", "examples/platform-managed-trust-manager-values.yaml",
+		"-f", "examples/platform-managed-metrics-exporter-values.yaml",
+		"-f", "examples/platform-managed-metrics-exporter-trust-manager-values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		"kind: Bundle",
+		"secret:",
+		"name: test-nifi-trust-bundle",
+		"kind: Deployment",
+		"name: test-nifi-metrics-exporter",
+		"configMap:",
+		"name: test-nifi-metrics-exporter-config",
+		"secretName: test-nifi-trust-bundle",
+		"EXPORTER_TLS_CA_FILE",
+		"/var/run/nifi-metrics-ca/ca.crt",
+		"kind: ServiceMonitor",
+		"name: test-nifi-exporter",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestExporterMetricsTrustManagerBundleRendersSecretCA(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.metrics.mode=exporter",
+		"--set", "trustManagerBundleRef.type=secret",
+		"--set", "observability.metrics.exporter.machineAuth.secretRef.name=nifi-metrics-auth",
+		"--set", "observability.metrics.exporter.machineAuth.authorization.type=Bearer",
+		"--set", "observability.metrics.exporter.machineAuth.authorization.credentialsKey=token",
+		"--set", "observability.metrics.exporter.source.tlsConfig.ca.useTrustManagerBundle=true",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		"kind: Deployment",
+		"name: test-nifi-metrics-exporter",
+		"name: exporter-ca",
+		"secretName: test-nifi-trust-bundle",
+		"EXPORTER_TLS_CA_FILE",
+		"/var/run/nifi-metrics-ca/ca.crt",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
 func TestExporterMetricsValidationFailsForInvalidServiceMonitorScheme(t *testing.T) {
 	output, err := helmTemplate(
 		t,
@@ -273,6 +410,26 @@ func TestExporterMetricsValidationFailsForInvalidServiceMonitorScheme(t *testing
 	}
 	if !strings.Contains(output, "observability.metrics.exporter.serviceMonitor.defaults.scheme must be one of: http, https") {
 		t.Fatalf("expected invalid exporter ServiceMonitor scheme validation error\n%s", output)
+	}
+}
+
+func TestExporterMetricsValidationFailsForConflictingTrustManagerCAInputs(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.metrics.mode=exporter",
+		"--set", "observability.metrics.exporter.machineAuth.secretRef.name=nifi-metrics-auth",
+		"--set", "observability.metrics.exporter.machineAuth.authorization.type=Bearer",
+		"--set", "observability.metrics.exporter.machineAuth.authorization.credentialsKey=token",
+		"--set", "observability.metrics.exporter.source.tlsConfig.ca.useTrustManagerBundle=true",
+		"--set", "observability.metrics.exporter.source.tlsConfig.ca.secretRef.name=nifi-metrics-ca",
+		"--set", "observability.metrics.exporter.source.tlsConfig.ca.secretRef.key=ca.crt",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail for conflicting exporter CA inputs\n%s", output)
+	}
+	if !strings.Contains(output, "observability.metrics.exporter.source.tlsConfig.ca.useTrustManagerBundle cannot be combined") {
+		t.Fatalf("expected conflicting exporter CA validation error\n%s", output)
 	}
 }
 
@@ -342,6 +499,25 @@ func TestPlatformTrustManagerValidationFailsForBundleRefMismatch(t *testing.T) {
 	}
 	if !strings.Contains(output, "nifi.trustManagerBundleRef.type must match trustManager.target.type") {
 		t.Fatalf("expected platform bundle ref mismatch validation error\n%s", output)
+	}
+}
+
+func TestPlatformTrustManagerValidationFailsForExporterBundleRefMismatch(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi-platform",
+		"-f", "examples/platform-managed-values.yaml",
+		"-f", "examples/platform-managed-trust-manager-values.yaml",
+		"-f", "examples/platform-managed-metrics-exporter-values.yaml",
+		"--set", "trustManager.target.type=secret",
+		"--set", "nifi.observability.metrics.exporter.source.tlsConfig.ca.secretRef.name=",
+		"--set", "nifi.observability.metrics.exporter.source.tlsConfig.ca.useTrustManagerBundle=true",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail for mismatched exporter trust-manager bundle ref type\n%s", output)
+	}
+	if !strings.Contains(output, "nifi.trustManagerBundleRef.type must match trustManager.target.type") {
+		t.Fatalf("expected exporter platform bundle ref mismatch validation error\n%s", output)
 	}
 }
 

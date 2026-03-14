@@ -15,3 +15,10 @@ Current trust-manager note:
 - optional workload TLS `ca.crt` mirroring is chart-owned helper automation, not controller-owned trust orchestration
 - Secret bundle targets depend on upstream trust-manager secret-target support and authorization
 - automatic app consumption is still centered on the PEM `ca.crt` bundle key even when PKCS12 or JKS outputs are rendered
+
+Current operations-package note:
+
+- the new dashboard, alert rules, and runbooks are starter assets, not a full production observability pack
+- the starter alert file intentionally avoids hard-coding environment-specific scrape job names and custom-resource export assumptions
+- native API scrape-failure alerts and KEDA external-intent alerts usually need environment-specific adaptation
+- teams should still add their own alerts for ingress, storage, node pressure, and cloud control-plane dependencies

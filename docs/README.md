@@ -21,7 +21,7 @@ Use this documentation set as the customer-facing guide to install, operate, and
 - [Autoscaling](manage/autoscaling.md)
 - [Flow Registry Clients](manage/flow-registry-clients.md)
 - [Hibernation and Restore](manage/hibernation-and-restore.md)
-- [Observability and Metrics](manage/observability.md)
+- [Observability and Metrics](manage/observability-metrics.md)
 
 ## Reference
 
@@ -29,11 +29,14 @@ Use this documentation set as the customer-facing guide to install, operate, and
 - [Verification and Support Levels](testing.md)
 - [NiFiCluster Reference](reference/nificluster.md)
 - [Platform Chart Values Reference](reference/nifi-platform-values.md)
-- [App Chart Values Reference](reference/nifi-values.md)
+- [App Chart Values Reference](reference/app-chart-values.md)
 
 ## Operations
 
 - [Operations and Troubleshooting](operations.md)
+- [Operations Dashboards](operations/dashboards.md)
+- [Operations Alerts](operations/alerts.md)
+- [Operations Runbooks](operations/runbooks.md)
 - [Experimental Features](experimental-features.md)
 - [AKS Readiness Guide](aks.md)
 - [OpenShift Readiness Guide](openshift.md)

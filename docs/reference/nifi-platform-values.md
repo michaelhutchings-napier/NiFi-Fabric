@@ -6,7 +6,7 @@ File of record:
 
 - `charts/nifi-platform/values.yaml`
 
-For install steps, see [Install with Helm](../install/helm.md). For managed lifecycle behavior, see [Hibernation and Restore](../manage/hibernation-and-restore.md), [Autoscaling](../manage/autoscaling.md), and [Observability and Metrics](../manage/observability.md).
+For install steps, see [Install with Helm](../install/helm.md). For managed lifecycle behavior, see [Hibernation and Restore](../manage/hibernation-and-restore.md), [Autoscaling](../manage/autoscaling.md), and [Observability and Metrics](../manage/observability-metrics.md).
 
 ## Install Mode
 
@@ -72,6 +72,12 @@ These values render the managed `NiFiCluster` resource when `mode=managed`.
 
 `trustManager.*` is optional. It renders a trust-manager `Bundle` for the NiFi release namespace. Source objects can be operator-provided in trust-manager's configured trust namespace, or the platform chart can mirror the workload TLS `ca.crt` into a trust-manager source Secret automatically.
 
+The same bundle can be consumed by:
+
+- `nifi.tls.additionalTrustBundle.*`
+- `nifi.observability.metrics.nativeApi.tlsConfig.ca.useTrustManagerBundle=true`
+- `nifi.observability.metrics.exporter.source.tlsConfig.ca.useTrustManagerBundle=true`
+
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
 | `trustManager.enabled` | boolean | Enables trust-manager `Bundle` rendering in managed modes. | No | `false` |
@@ -133,4 +139,4 @@ These values render the managed `NiFiCluster` resource when `mode=managed`.
 | `nifi.persistence.*` | object | Repository storage settings. | No | chart-derived |
 | `nifi.resources.*` | object | NiFi pod resources. | No | chart-derived |
 
-Use [App Chart Values Reference](nifi-values.md) for the detailed app-chart field map.
+Use [App Chart Values Reference](app-chart-values.md) for the detailed app-chart field map.

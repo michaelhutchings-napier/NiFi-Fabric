@@ -93,6 +93,14 @@ Focused proof:
 
 - `make kind-platform-managed-trust-manager-fast-e2e`
 - `make kind-metrics-native-api-trust-manager-fast-e2e`
+- `make kind-metrics-exporter-trust-manager-fast-e2e`
+
+What the exporter-specific trust-manager proof adds:
+
+- a managed install path with `trustManager.enabled=true` and `observability.metrics.mode=exporter`
+- live proof that the trust-manager Bundle target reaches the exporter trust mount path in the NiFi namespace
+- live proof that the exporter can use that trust bundle to reach the secured NiFi metrics source and keep `/metrics` healthy
+- no change to the product architecture: cert-manager remains the TLS lifecycle engine, trust-manager remains an optional CA distribution layer, and the controller still does not orchestrate trust distribution
 
 Current operator-controlled values:
 
