@@ -288,6 +288,10 @@ app.kubernetes.io/component: metrics-exporter
 app.kubernetes.io/component: metrics-exporter
 {{- end -}}
 
+{{- define "nifi.siteToSiteMetricsConfigName" -}}
+{{- printf "%s-site-to-site-metrics" (include "nifi.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "nifi.metricsServiceSelectorLabels" -}}
 {{- $observability := default (dict) .Values.observability -}}
 {{- $metrics := default (dict) $observability.metrics -}}
@@ -340,8 +344,12 @@ app.kubernetes.io/component: metrics
 {{- $observability := default (dict) .Values.observability -}}
 {{- $metrics := default (dict) $observability.metrics -}}
 {{- $configuredMode := default "disabled" $metrics.mode -}}
+{{- $siteToSiteMetrics := default (dict) $metrics.siteToSite -}}
 {{- if and (ne $mode "disabled") (ne $mode "nativeApi") (ne $mode "nativeApiLegacy") (ne $mode "exporter") (ne $mode "siteToSite") -}}
 {{- fail "observability.metrics.mode must be one of: disabled, nativeApi, exporter, siteToSite" -}}
+{{- end -}}
+{{- if and $siteToSiteMetrics.enabled (ne $mode "siteToSite") -}}
+{{- fail "observability.metrics.siteToSite.enabled=true requires observability.metrics.mode=siteToSite" -}}
 {{- end -}}
 {{- if and .Values.serviceMonitor.enabled (ne $configuredMode "disabled") -}}
 {{- fail "serviceMonitor.enabled is deprecated and cannot be combined with observability.metrics.mode; use observability.metrics only" -}}
@@ -448,15 +456,18 @@ app.kubernetes.io/component: metrics
 {{- end -}}
 {{- end -}}
 {{- if eq $mode "siteToSite" -}}
-{{- $siteToSite := default (dict) $metrics.siteToSite -}}
-{{- $destination := default (dict) $siteToSite.destination -}}
-{{- $destinationAuth := default (dict) $destination.auth -}}
-{{- $destinationTLS := default (dict) $destination.tls -}}
-{{- $destinationTLSCA := default (dict) $destinationTLS.ca -}}
-{{- $destinationTLSCASecretRef := default (dict) $destinationTLSCA.secretRef -}}
-{{- $source := default (dict) $siteToSite.source -}}
-{{- $transport := default (dict) $siteToSite.transport -}}
-{{- $format := default (dict) $siteToSite.format -}}
+{{- $destination := default (dict) $siteToSiteMetrics.destination -}}
+{{- $destinationAuth := default (dict) $siteToSiteMetrics.auth -}}
+{{- $destinationAuthSecretRef := default (dict) $destinationAuth.secretRef -}}
+{{- $source := default (dict) $siteToSiteMetrics.source -}}
+{{- $transport := default (dict) $siteToSiteMetrics.transport -}}
+{{- $format := default (dict) $siteToSiteMetrics.format -}}
+{{- if not $siteToSiteMetrics.enabled -}}
+{{- fail "observability.metrics.siteToSite.enabled=true is required when observability.metrics.mode=siteToSite" -}}
+{{- end -}}
+{{- if ne (include "nifi.authMode" .) "singleUser" -}}
+{{- fail "observability.metrics.mode=siteToSite currently requires auth.mode=singleUser because the typed bootstrap reconciles bounded NiFi runtime objects through the local NiFi API and does not introduce a generic management credential API" -}}
+{{- end -}}
 {{- if not $destination.url -}}
 {{- fail "observability.metrics.siteToSite.destination.url is required when observability.metrics.mode=siteToSite" -}}
 {{- end -}}
@@ -466,30 +477,20 @@ app.kubernetes.io/component: metrics
 {{- if not $destination.inputPortName -}}
 {{- fail "observability.metrics.siteToSite.destination.inputPortName is required when observability.metrics.mode=siteToSite" -}}
 {{- end -}}
-{{- if and (ne $destinationAuth.type "") (ne $destinationAuth.type "none") (ne $destinationAuth.type "bearerToken") (ne $destinationAuth.type "authorizationHeader") -}}
-{{- fail "observability.metrics.siteToSite.destination.auth.type must be one of: none, bearerToken, authorizationHeader" -}}
+{{- if and (ne $destinationAuth.type "") (ne $destinationAuth.type "none") (ne $destinationAuth.type "workloadTLS") (ne $destinationAuth.type "secretRef") -}}
+{{- fail "observability.metrics.siteToSite.auth.type must be one of: none, workloadTLS, secretRef" -}}
 {{- end -}}
-{{- if and (ne $destinationAuth.type "") (ne $destinationAuth.type "none") (not $destinationAuth.secretRef.name) -}}
-{{- fail "observability.metrics.siteToSite.destination.auth.secretRef.name is required when destination auth is enabled" -}}
+{{- if and (eq $destinationAuth.type "secretRef") (not $destinationAuthSecretRef.name) -}}
+{{- fail "observability.metrics.siteToSite.auth.secretRef.name is required when auth.type=secretRef" -}}
 {{- end -}}
-{{- if eq $destinationAuth.type "bearerToken" -}}
-{{- if not $destinationAuth.bearerToken.tokenKey -}}
-{{- fail "observability.metrics.siteToSite.destination.auth.bearerToken.tokenKey is required for bearerToken" -}}
+{{- if and (eq $destinationAuth.type "workloadTLS") $destinationAuthSecretRef.name -}}
+{{- fail "observability.metrics.siteToSite.auth.secretRef.* cannot be set when auth.type=workloadTLS" -}}
 {{- end -}}
+{{- if and (hasPrefix "https://" $destination.url) (eq $destinationAuth.type "none") -}}
+{{- fail "observability.metrics.siteToSite.auth.type=none cannot be used with an https:// destination.url; use workloadTLS or secretRef" -}}
 {{- end -}}
-{{- if eq $destinationAuth.type "authorizationHeader" -}}
-{{- if not $destinationAuth.authorization.type -}}
-{{- fail "observability.metrics.siteToSite.destination.auth.authorization.type is required for authorizationHeader" -}}
-{{- end -}}
-{{- if not $destinationAuth.authorization.credentialsKey -}}
-{{- fail "observability.metrics.siteToSite.destination.auth.authorization.credentialsKey is required for authorizationHeader" -}}
-{{- end -}}
-{{- end -}}
-{{- if and $destinationTLSCASecretRef.name (not $destinationTLSCASecretRef.key) -}}
-{{- fail "observability.metrics.siteToSite.destination.tls.ca.secretRef.key is required when a CA Secret reference is configured" -}}
-{{- end -}}
-{{- if and (hasPrefix "http://" $destination.url) (or $destinationTLS.insecureSkipVerify $destinationTLSCASecretRef.name) -}}
-{{- fail "observability.metrics.siteToSite.destination.tls.* cannot be set for an http:// destination.url" -}}
+{{- if and (hasPrefix "http://" $destination.url) (ne $destinationAuth.type "") (ne $destinationAuth.type "none") -}}
+{{- fail "observability.metrics.siteToSite.auth.type must be none for an http:// destination.url" -}}
 {{- end -}}
 {{- if and (ne $transport.protocol "RAW") (ne $transport.protocol "HTTP") -}}
 {{- fail "observability.metrics.siteToSite.transport.protocol must be one of: RAW, HTTP" -}}
@@ -501,9 +502,8 @@ app.kubernetes.io/component: metrics
 {{- fail "observability.metrics.siteToSite.source.instanceUrl must start with http:// or https://" -}}
 {{- end -}}
 {{- if ne $format.type "AmbariFormat" -}}
-{{- fail "observability.metrics.siteToSite.format.type must be AmbariFormat in the current prepared contract" -}}
+{{- fail "observability.metrics.siteToSite.format.type must be AmbariFormat for the typed site-to-site metrics feature; broader Record Writer ownership remains out of scope" -}}
 {{- end -}}
-{{- fail "observability.metrics.mode=siteToSite remains prepared-only. The chart validates the destination, auth, TLS, transport, and format contract, but this repo still does not own NiFi reporting-task lifecycle or the destination receiver/input-port pipeline. Use nativeApi or exporter for runtime support." -}}
 {{- end -}}
 {{- if eq $mode "nativeApi" -}}
 {{- $native := default (dict) $metrics.nativeApi -}}

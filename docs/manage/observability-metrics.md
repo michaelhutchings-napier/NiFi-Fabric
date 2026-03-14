@@ -17,7 +17,7 @@ Supported modes today:
 
 - `nativeApi`
 - `exporter`
-- `siteToSite` (prepared-only)
+- `siteToSite`
 
 ## Primary Metrics Path
 
@@ -73,36 +73,51 @@ Keep the support boundary in mind:
 
 ## Site-to-Site Mode
 
-`siteToSite` is prepared-only.
+`siteToSite` is now a typed, bounded Site-to-Site metrics export capability.
 
-The chart validates a real operator-facing contract for a future site-to-site reporting-task path, but it does not currently manage reporting tasks or the receiver pipeline.
+It is intentionally not a generic Reporting Task, Controller Service, or NiFi runtime-object framework.
 
-Current prepared contract:
+Current typed public contract:
 
 - `destination.url`
 - `destination.inputPortName`
-- `destination.auth.*`
-- `destination.tls.*`
+- `auth.type`
+- `auth.secretRef.*` when `auth.type=secretRef`
 - `source.applicationId`, `source.hostname`, and `source.instanceUrl`
 - `transport.protocol`, `transport.communicationsTimeout`, and `transport.compressEvents`
 - `format.type` and `format.includeNullValues`
 
-Current render-time validation:
+What the app chart owns under the hood:
+
+- one `SiteToSiteMetricsReportingTask`
+- one `StandardRestrictedSSLContextService` when secure transport is used
+
+What the app chart does not own:
+
+- generic Reporting Task APIs
+- generic Controller Service APIs
+- generic NiFi runtime-object management
+- destination receiver topology
+- destination input-port policies
+- proxy-controller-service wiring
+- non-Ambari record-writer ownership
+
+Current validation and runtime boundary:
 
 - destination URL must be present and start with `http://` or `https://`
 - input port name must be present
-- receiver auth references must be internally complete when auth is enabled
-- TLS CA references must be internally complete when configured
-- TLS settings cannot be supplied for a plain `http://` destination
+- `auth.type` must be one of `none`, `workloadTLS`, or `secretRef`
+- `https://` destinations require `workloadTLS` or `secretRef`
+- `http://` destinations require `auth.type=none`
+- `auth.secretRef.name` is required when `auth.type=secretRef`
 - transport protocol must be one of `RAW` or `HTTP`
 - format is currently constrained to `AmbariFormat`
+- the current typed bootstrap requires `auth.mode=singleUser` for local NiFi API management during object reconciliation
 
-Why runtime support is still withheld:
+Ownership rule:
 
-- NiFi reporting tasks are internal NiFi runtime objects, not normal Kubernetes resources
-- a real runtime path would require this repo to own at least one `SiteToSiteMetricsReportingTask`
-- destination TLS would also require bounded ownership of an SSL Context Service reference inside NiFi
-- any future non-Ambari output format would require Record Writer controller-service ownership inside NiFi
+- the platform owns only the specific Site-to-Site metrics export objects it creates by fixed name
+- manual UI edits to those objects are unsupported and will be overwritten on the next pod restart or redeploy
 
 ## Machine-Auth Bootstrap
 
@@ -148,7 +163,7 @@ Focused kind proof can mint a fresh NiFi access token into the referenced Secret
 
 - `nativeApi`: primary production-ready path
 - `exporter`: optional experimental secondary path with focused runtime proof
-- `siteToSite`: prepared-only
+- `siteToSite`: optional experimental typed runtime path
 - trust-manager bundle consumption: optional supported complement to `nativeApi` and `exporter`, not a separate metrics mode
 
 ## Runtime Proof
@@ -159,6 +174,7 @@ Focused live proof is available through:
 - `make kind-metrics-native-api-trust-manager-fast-e2e`
 - `make kind-metrics-exporter-fast-e2e`
 - `make kind-metrics-exporter-trust-manager-fast-e2e`
+- `make kind-metrics-site-to-site-fast-e2e`
 - `make kind-metrics-fast-e2e`
 
 What `make kind-metrics-exporter-fast-e2e` now proves live:
@@ -187,6 +203,19 @@ What `make kind-metrics-exporter-trust-manager-fast-e2e` now proves live:
   `/nifi-api/flow/status`
 - the exporter `/metrics` endpoint remains healthy, Prometheus-scrapable, and populated with relayed NiFi metrics plus the already-implemented supplemental flow-status gauges
 
+What `make kind-metrics-site-to-site-fast-e2e` now proves live:
+
+- the typed Site-to-Site overlay renders and applies through the product-facing `charts/nifi-platform` path
+- the NiFi pod mounts the chart-owned Site-to-Site bootstrap config
+- pod `-0` reconciles exactly one `SiteToSiteMetricsReportingTask`
+- pod `-0` reconciles exactly one `StandardRestrictedSSLContextService` when secure Site-to-Site transport is configured
+- the reporting task reaches `RUNNING` state with the expected destination URL, input port name, transport protocol, and `AmbariFormat`
+- the SSL context service reaches `ENABLED` state with the expected keystore and truststore wiring
+- a focused proof-only receiver NiFi release is bootstrapped on kind with one public input port and one minimal downstream processor
+- secure Site-to-Site peer discovery succeeds against that receiver using the documented typed auth and TLS Secret contract
+- live metrics delivery reaches the real receiver and is observed from receiver-side processor status
+- the feature remains chart-scoped and does not move Site-to-Site orchestration into the controller
+
 What remains experimental or intentionally bounded:
 
 - `nativeApi` remains the recommended production path
@@ -194,6 +223,10 @@ What remains experimental or intentionally bounded:
 - JVM or system-diagnostics metric families are not yet runtime-proven through exporter mode
 - exporter remains optional and experimental even with trust-manager-backed runtime proof
 - trust-manager proof currently focuses on the mirrored workload CA to PEM bundle consumer path; additional trust-manager output formats are still not runtime-proven for exporter mode
+- `siteToSite` remains optional and experimental
+- `siteToSite` runtime proof uses a tightly scoped kind-only receiver harness, not a product-managed destination control plane
+- destination receiver topology and destination-side policy lifecycle remain operator-owned outside that proof harness
+- proxy-controller-service wiring, destination automation beyond the proof harness, and non-Ambari record-writer ownership remain future work for Site-to-Site metrics export
 - no controller-owned metrics orchestration is introduced by this slice
 
 ## Starter Operations Package

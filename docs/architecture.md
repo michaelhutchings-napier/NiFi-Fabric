@@ -79,18 +79,21 @@ Experimental or prepared paths:
 - `exporter` is a supported secondary metrics path for environments that want a clean `/metrics` endpoint
 - the exporter republishes the secured flow Prometheus endpoint and can append selected controller-status gauges from `/nifi-api/flow/status`
 - the exporter keeps local liveness separate from upstream-aware readiness and rereads mounted auth material without requiring a pod restart
-- `siteToSite` stays optional and currently remains a prepared contract with explicit destination, auth, TLS, transport, and format assumptions
-- runtime `siteToSite` support is still intentionally withheld until this repo can own a bounded internal path for:
+- `siteToSite` stays optional and is now a typed metrics-export capability instead of a generic NiFi runtime-object framework
+- the public API remains bounded to one metrics use case under `observability.metrics.siteToSite`
+- the app chart owns only the minimum internal NiFi objects required for that use case:
 - one `SiteToSiteMetricsReportingTask`
-- its SSL Context Service reference when destination TLS is used
-- its optional Record Writer reference if a non-Ambari output format is ever supported
-- any receiver-specific input-port assumptions
-- that ownership line is still beyond the current chart-owned metrics boundary, so `siteToSite` remains prepared-only
+- one `StandardRestrictedSSLContextService` when secure site-to-site transport is enabled
+- no generic Reporting Task, Controller Service, or NiFi runtime-object public API is introduced
+- record-writer ownership for non-Ambari formats and proxy-controller-service ownership remain future work
+- destination receiver topology, input-port policy decisions, and any reverse-proxy routing assumptions remain explicit operator-owned concerns
+- current runtime ownership is intentionally chart-scoped and bootstrap-scoped rather than controller-owned orchestration
 
 Current conservative boundary:
 
 - `nativeApi` runtime proof is still centered on the secured flow Prometheus endpoint
 - exporter runtime proof adds one second secured endpoint, `/nifi-api/flow/status`, through the chart-owned exporter path
+- site-to-site runtime proof is intentionally bounded to typed reporting-task and SSL-context bootstrap; full receiver-pipeline proof remains narrower than the generic site-to-site problem space
 - JVM or system-diagnostics metrics are not yet runtime-proven
 - machine-auth Secret bootstrap is partially automated, but machine principal provisioning and IdP write-back remain out of scope
 

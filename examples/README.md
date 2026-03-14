@@ -99,11 +99,15 @@ Metrics note:
 - it switches the Bundle target to a Secret and points exporter source TLS trust at the trust-manager bundle instead of a manually created CA Secret
 - use it together with `examples/platform-managed-values.yaml`, `examples/platform-managed-trust-manager-values.yaml`, and `examples/platform-managed-metrics-exporter-values.yaml`
 - the focused runtime proof command is `make kind-metrics-exporter-trust-manager-fast-e2e`
-- [platform-managed-metrics-site-to-site-values.yaml](platform-managed-metrics-site-to-site-values.yaml) is an optional prepared-only overlay for a future site-to-site metrics path
+- [platform-managed-metrics-site-to-site-values.yaml](platform-managed-metrics-site-to-site-values.yaml) is an optional overlay for the typed site-to-site metrics export path
 - it enables `nifi.observability.metrics.mode=siteToSite`
-- it documents the intended destination, auth, TLS, source, transport, and format contract for a future `SiteToSiteMetricsReportingTask` integration
-- it validates that contract at Helm render time and then still fails clearly because runtime ownership is not implemented
-- it is intentionally excluded from the live metrics runtime proof matrix
+- it enables `nifi.observability.metrics.siteToSite.enabled=true`
+- it models the bounded destination, auth, source, transport, and format contract for one `SiteToSiteMetricsReportingTask`
+- it keeps destination receiver topology and destination-side policies operator-owned
+- [platform-managed-metrics-site-to-site-kind-values.yaml](platform-managed-metrics-site-to-site-kind-values.yaml) points that typed feature at a cluster-local kind URL for focused runtime proof
+- [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is the proof-only receiver harness used by that focused kind gate
+- the harness bootstraps one public input port, one minimal downstream processor, and the minimum receiver-side auth needed to prove delivery
+- the focused runtime proof command is `make kind-metrics-site-to-site-fast-e2e`
 
 KEDA note:
 

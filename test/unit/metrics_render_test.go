@@ -574,19 +574,58 @@ func TestExporterFlowStatusValidationFailsWithoutPath(t *testing.T) {
 	}
 }
 
-func TestUnsupportedMetricsModeFailsClearly(t *testing.T) {
+func TestSiteToSiteMetricsRendersTypedBootstrap(t *testing.T) {
 	output, err := helmTemplate(
 		t,
 		"charts/nifi",
 		"--set", "observability.metrics.mode=siteToSite",
+		"--set", "observability.metrics.siteToSite.enabled=true",
 		"--set", "observability.metrics.siteToSite.destination.url=https://metrics-receiver.example.com/nifi",
 		"--set", "observability.metrics.siteToSite.destination.inputPortName=nifi-metrics",
+		"--set", "observability.metrics.siteToSite.auth.type=workloadTLS",
 	)
-	if err == nil {
-		t.Fatalf("expected helm template to fail for siteToSite mode\n%s", output)
+	if err != nil {
+		t.Fatalf("expected helm template to succeed for typed siteToSite mode: %v\n%s", err, output)
 	}
-	if !strings.Contains(output, "observability.metrics.mode=siteToSite remains prepared-only") {
-		t.Fatalf("expected siteToSite-mode validation error\n%s", output)
+	for _, want := range []string{
+		"name: test-nifi-site-to-site-metrics",
+		"app.kubernetes.io/component: metrics-site-to-site",
+		"python3 /opt/nifi/fabric/site-to-site-metrics/bootstrap.py",
+		"mountPath: /opt/nifi/fabric/site-to-site-metrics",
+		"fabric-site-to-site-metrics-export",
+		"org.apache.nifi.reporting.SiteToSiteMetricsReportingTask",
+		"org.apache.nifi.ssl.StandardRestrictedSSLContextService",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestSiteToSiteMetricsRendersCustomTLSSecretMount(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.metrics.mode=siteToSite",
+		"--set", "observability.metrics.siteToSite.enabled=true",
+		"--set", "observability.metrics.siteToSite.destination.url=https://metrics-receiver.example.com/nifi",
+		"--set", "observability.metrics.siteToSite.destination.inputPortName=nifi-metrics",
+		"--set", "observability.metrics.siteToSite.auth.type=secretRef",
+		"--set", "observability.metrics.siteToSite.auth.secretRef.name=nifi-site-to-site-tls",
+	)
+	if err != nil {
+		t.Fatalf("expected helm template to succeed for siteToSite secretRef auth: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		"name: site-to-site-metrics-ssl",
+		"secretName: nifi-site-to-site-tls",
+		"name: SITE_TO_SITE_METRICS_KEYSTORE_PASSWORD",
+		"name: SITE_TO_SITE_METRICS_TRUSTSTORE_PASSWORD",
+		"mountPath: /opt/nifi/fabric/site-to-site-metrics-ssl",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
 	}
 }
 
@@ -595,7 +634,9 @@ func TestSiteToSiteValidationFailsWithoutDestinationURL(t *testing.T) {
 		t,
 		"charts/nifi",
 		"--set", "observability.metrics.mode=siteToSite",
+		"--set", "observability.metrics.siteToSite.enabled=true",
 		"--set", "observability.metrics.siteToSite.destination.inputPortName=nifi-metrics",
+		"--set", "observability.metrics.siteToSite.auth.type=workloadTLS",
 	)
 	if err == nil {
 		t.Fatalf("expected helm template to fail without a siteToSite destination url\n%s", output)
@@ -605,21 +646,19 @@ func TestSiteToSiteValidationFailsWithoutDestinationURL(t *testing.T) {
 	}
 }
 
-func TestSiteToSiteValidationFailsForHTTPTLSContradiction(t *testing.T) {
+func TestSiteToSiteValidationFailsWhenDisabledFlagIsMissing(t *testing.T) {
 	output, err := helmTemplate(
 		t,
 		"charts/nifi",
 		"--set", "observability.metrics.mode=siteToSite",
 		"--set", "observability.metrics.siteToSite.destination.url=http://metrics-receiver.example.com/nifi",
 		"--set", "observability.metrics.siteToSite.destination.inputPortName=nifi-metrics",
-		"--set", "observability.metrics.siteToSite.destination.tls.ca.secretRef.name=nifi-metrics-destination-ca",
-		"--set", "observability.metrics.siteToSite.destination.tls.ca.secretRef.key=ca.crt",
 	)
 	if err == nil {
-		t.Fatalf("expected helm template to fail for an http siteToSite destination with TLS config\n%s", output)
+		t.Fatalf("expected helm template to fail when the siteToSite enabled flag is missing\n%s", output)
 	}
-	if !strings.Contains(output, "observability.metrics.siteToSite.destination.tls.* cannot be set for an http:// destination.url") {
-		t.Fatalf("expected http/tls contradiction validation error\n%s", output)
+	if !strings.Contains(output, "observability.metrics.siteToSite.enabled=true is required") {
+		t.Fatalf("expected missing enabled-flag validation error\n%s", output)
 	}
 }
 
@@ -628,8 +667,10 @@ func TestSiteToSiteValidationFailsForUnsupportedTransportProtocol(t *testing.T) 
 		t,
 		"charts/nifi",
 		"--set", "observability.metrics.mode=siteToSite",
+		"--set", "observability.metrics.siteToSite.enabled=true",
 		"--set", "observability.metrics.siteToSite.destination.url=https://metrics-receiver.example.com/nifi",
 		"--set", "observability.metrics.siteToSite.destination.inputPortName=nifi-metrics",
+		"--set", "observability.metrics.siteToSite.auth.type=workloadTLS",
 		"--set", "observability.metrics.siteToSite.transport.protocol=TCP",
 	)
 	if err == nil {
@@ -640,22 +681,82 @@ func TestSiteToSiteValidationFailsForUnsupportedTransportProtocol(t *testing.T) 
 	}
 }
 
+func TestSiteToSiteValidationFailsForHTTPSWithoutTLSAuth(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.metrics.mode=siteToSite",
+		"--set", "observability.metrics.siteToSite.enabled=true",
+		"--set", "observability.metrics.siteToSite.destination.url=https://metrics-receiver.example.com/nifi",
+		"--set", "observability.metrics.siteToSite.destination.inputPortName=nifi-metrics",
+		"--set", "observability.metrics.siteToSite.auth.type=none",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail for https siteToSite auth.type=none\n%s", output)
+	}
+	if !strings.Contains(output, "observability.metrics.siteToSite.auth.type=none cannot be used with an https:// destination.url") {
+		t.Fatalf("expected https auth-type validation error\n%s", output)
+	}
+}
+
+func TestSiteToSiteValidationFailsForHTTPWithTLSAuth(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.metrics.mode=siteToSite",
+		"--set", "observability.metrics.siteToSite.enabled=true",
+		"--set", "observability.metrics.siteToSite.destination.url=http://metrics-receiver.example.com/nifi",
+		"--set", "observability.metrics.siteToSite.destination.inputPortName=nifi-metrics",
+		"--set", "observability.metrics.siteToSite.auth.type=workloadTLS",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail for http siteToSite auth.type=workloadTLS\n%s", output)
+	}
+	if !strings.Contains(output, "observability.metrics.siteToSite.auth.type must be none for an http:// destination.url") {
+		t.Fatalf("expected http auth-type validation error\n%s", output)
+	}
+}
+
 func TestSiteToSiteValidationFailsForMissingAuthSecretRef(t *testing.T) {
 	output, err := helmTemplate(
 		t,
 		"charts/nifi",
 		"--set", "observability.metrics.mode=siteToSite",
+		"--set", "observability.metrics.siteToSite.enabled=true",
 		"--set", "observability.metrics.siteToSite.destination.url=https://metrics-receiver.example.com/nifi",
 		"--set", "observability.metrics.siteToSite.destination.inputPortName=nifi-metrics",
-		"--set", "observability.metrics.siteToSite.destination.auth.type=authorizationHeader",
-		"--set", "observability.metrics.siteToSite.destination.auth.authorization.type=Bearer",
-		"--set", "observability.metrics.siteToSite.destination.auth.authorization.credentialsKey=token",
+		"--set", "observability.metrics.siteToSite.auth.type=secretRef",
 	)
 	if err == nil {
 		t.Fatalf("expected helm template to fail for missing siteToSite auth Secret reference\n%s", output)
 	}
-	if !strings.Contains(output, "observability.metrics.siteToSite.destination.auth.secretRef.name is required when destination auth is enabled") {
+	if !strings.Contains(output, "observability.metrics.siteToSite.auth.secretRef.name is required when auth.type=secretRef") {
 		t.Fatalf("expected missing siteToSite auth Secret validation error\n%s", output)
+	}
+}
+
+func TestSiteToSiteValidationFailsOutsideSingleUserAuth(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "auth.mode=oidc",
+		"--set", "auth.oidc.discoveryUrl=https://issuer.example.com/realms/main/.well-known/openid-configuration",
+		"--set", "auth.oidc.clientId=nifi",
+		"--set", "auth.oidc.clientSecret.existingSecret=nifi-oidc",
+		"--set", "auth.oidc.claims.identifyingUser=email",
+		"--set", "auth.oidc.claims.groups=groups",
+		"--set", "authz.bootstrap.initialAdminGroup=nifi-admins",
+		"--set", "observability.metrics.mode=siteToSite",
+		"--set", "observability.metrics.siteToSite.enabled=true",
+		"--set", "observability.metrics.siteToSite.destination.url=https://metrics-receiver.example.com/nifi",
+		"--set", "observability.metrics.siteToSite.destination.inputPortName=nifi-metrics",
+		"--set", "observability.metrics.siteToSite.auth.type=workloadTLS",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail outside singleUser auth mode\n%s", output)
+	}
+	if !strings.Contains(output, "observability.metrics.mode=siteToSite currently requires auth.mode=singleUser") {
+		t.Fatalf("expected singleUser boundary validation error\n%s", output)
 	}
 }
 
@@ -664,29 +765,82 @@ func TestSiteToSiteValidationFailsForUnsupportedFormatType(t *testing.T) {
 		t,
 		"charts/nifi",
 		"--set", "observability.metrics.mode=siteToSite",
+		"--set", "observability.metrics.siteToSite.enabled=true",
 		"--set", "observability.metrics.siteToSite.destination.url=https://metrics-receiver.example.com/nifi",
 		"--set", "observability.metrics.siteToSite.destination.inputPortName=nifi-metrics",
+		"--set", "observability.metrics.siteToSite.auth.type=workloadTLS",
 		"--set", "observability.metrics.siteToSite.format.type=Record",
 	)
 	if err == nil {
 		t.Fatalf("expected helm template to fail for unsupported siteToSite format type\n%s", output)
 	}
-	if !strings.Contains(output, "observability.metrics.siteToSite.format.type must be AmbariFormat in the current prepared contract") {
+	if !strings.Contains(output, "observability.metrics.siteToSite.format.type must be AmbariFormat for the typed site-to-site metrics feature") {
 		t.Fatalf("expected unsupported siteToSite format validation error\n%s", output)
 	}
 }
 
-func TestPlatformManagedSiteToSiteMetricsExampleFailsClearlyAsPreparedOnly(t *testing.T) {
+func TestPlatformManagedSiteToSiteMetricsExampleRenders(t *testing.T) {
 	output, err := helmTemplate(
 		t,
 		"charts/nifi-platform",
 		"-f", "examples/platform-managed-values.yaml",
 		"-f", "examples/platform-managed-metrics-site-to-site-values.yaml",
 	)
-	if err == nil {
-		t.Fatalf("expected siteToSite example render to fail until runtime wiring exists\n%s", output)
+	if err != nil {
+		t.Fatalf("expected siteToSite example render to succeed: %v\n%s", err, output)
 	}
-	if !strings.Contains(output, "observability.metrics.mode=siteToSite remains prepared-only") {
-		t.Fatalf("expected prepared-only siteToSite validation error\n%s", output)
+	for _, want := range []string{
+		"name: test-nifi-site-to-site-metrics",
+		"fabric-site-to-site-metrics-export",
+		"org.apache.nifi.reporting.SiteToSiteMetricsReportingTask",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered platform output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestPlatformManagedSiteToSiteKindDeliveryExampleRenders(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi-platform",
+		"-f", "examples/platform-managed-values.yaml",
+		"-f", "examples/platform-fast-values.yaml",
+		"-f", "examples/platform-managed-metrics-site-to-site-values.yaml",
+		"-f", "examples/platform-managed-metrics-site-to-site-kind-values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("expected kind siteToSite delivery example render to succeed: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		"secretName: nifi-site-to-site-receiver-client",
+		"https://site-to-site-receiver.site-to-site-receiver.svc.cluster.local:8443/nifi",
+		"mountPath: /opt/nifi/fabric/site-to-site-metrics-ssl",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered platform output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestStandaloneSiteToSiteReceiverHarnessExampleRenders(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"-f", "examples/standalone-site-to-site-receiver-kind-values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("expected standalone site-to-site receiver harness render to succeed: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		"name: site-to-site-receiver",
+		"name: \"site-to-site-receiver-auth\"",
+		"name: \"site-to-site-receiver-tls\"",
+		"secretName: site-to-site-receiver-tls",
+		"platform.nifi.io/controller-managed: \"false\"",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered receiver harness output to contain %q\n%s", want, output)
+		}
 	}
 }

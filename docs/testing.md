@@ -52,7 +52,6 @@ What these focused gates prove:
 
 ## What Is Render-Validated or Prepared
 
-- site-to-site metrics remains prepared-only
 - AKS guidance is published but still conservative
 - OpenShift guidance is published but still conservative
 - Azure DevOps Flow Registry Client definitions are prepared and render-validated
@@ -110,6 +109,7 @@ The current focused metrics runtime command is:
 - `make kind-metrics-fast-e2e`
 - `make kind-metrics-native-api-trust-manager-fast-e2e`
 - `make kind-metrics-exporter-trust-manager-fast-e2e`
+- `make kind-metrics-site-to-site-fast-e2e`
 
 That matrix runs:
 
@@ -148,6 +148,19 @@ What `make kind-metrics-exporter-trust-manager-fast-e2e` proves in addition:
 - the secured exporter upstream scrape succeeds with that distributed trust material instead of a manually created CA Secret
 - exporter `/metrics`, `Service`, and `ServiceMonitor` stay healthy in the trust-manager-backed configuration
 
+What `make kind-metrics-site-to-site-fast-e2e` proves:
+
+- the typed site-to-site metrics overlay renders and applies through `charts/nifi-platform`
+- the app chart mounts the bounded Site-to-Site bootstrap config into the NiFi pod
+- pod `-0` bootstraps exactly one `SiteToSiteMetricsReportingTask`
+- pod `-0` bootstraps exactly one `StandardRestrictedSSLContextService` when secure site-to-site transport is configured
+- the reporting task reaches `RUNNING` state with the expected typed destination, transport, and format properties
+- the SSL context service reaches `ENABLED` state with the expected keystore and truststore wiring
+- a proof-only receiver NiFi harness comes up on kind with the expected public input port and minimal downstream processor
+- the sender authenticates to that receiver over secure Site-to-Site as documented by the typed Secret/TLS contract
+- live metrics delivery is observed on the receiver side through processor status, not just sender-side object state
+- the feature remains chart-scoped and does not add controller-owned Site-to-Site orchestration
+
 Current honest limit:
 
 - `nativeApi` runtime proof still covers the flow Prometheus endpoint only
@@ -155,8 +168,9 @@ Current honest limit:
 - the second native scrape profile is still a cadence variant of the same flow endpoint
 - exporter remains optional and experimental even with the stronger runtime gate
 - trust-manager-backed exporter proof currently covers PEM bundle distribution only; additional Bundle output formats are still future work for exporter mode
-- `siteToSite` remains prepared-only and is intentionally excluded from the live matrix
-- the site-to-site overlay is only validated at Helm render time for destination URL, input port, auth, TLS, transport, and format compatibility
+- `siteToSite` proof is intentionally bounded to the typed sender path plus a proof-only receiver harness on kind
+- destination receiver topology and destination-side policy lifecycle remain operator-owned outside that focused proof harness
+- proxy-controller-service wiring and non-Ambari record-writer ownership remain future work for Site-to-Site metrics export
 
 ## Current Conservative Boundaries
 

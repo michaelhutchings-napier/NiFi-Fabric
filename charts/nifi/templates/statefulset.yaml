@@ -392,12 +392,71 @@ spec:
           /opt/nifi/nifi-current/bin/nifi.sh run &
           nifi_pid="$!"
           tail -F --pid="${nifi_pid}" /opt/nifi/nifi-current/logs/nifi-app.log &
+          {{- if eq (include "nifi.metricsMode" .) "siteToSite" }}
+          python3 /opt/nifi/fabric/site-to-site-metrics/bootstrap.py
+          {{- end }}
           wait "${nifi_pid}"
         securityContext:
           {{- toYaml .Values.securityContext | nindent 10 }}
         env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: NIFI_POD_FQDN
+          value: "$(POD_NAME).{{ include "nifi.fullname" . }}-headless.$(POD_NAMESPACE).svc.cluster.local"
         - name: AUTH_MODE
           value: {{ include "nifi.authMode" . | quote }}
+        {{- if eq (include "nifi.metricsMode" .) "siteToSite" }}
+        - name: KEYSTORE_PASSWORD
+          {{- if eq (include "nifi.tlsMode" .) "certManager" }}
+          {{- if .Values.tls.certManager.pkcs12.password }}
+          value: {{ .Values.tls.certManager.pkcs12.password | quote }}
+          {{- else }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "nifi.certManagerPKCS12PasswordSecretName" . | quote }}
+              key: {{ include "nifi.certManagerPKCS12PasswordSecretKey" . | quote }}
+          {{- end }}
+          {{- else }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "nifi.tlsSecretName" . | quote }}
+              key: {{ .Values.tls.keystorePasswordKey | quote }}
+          {{- end }}
+        - name: TRUSTSTORE_PASSWORD
+          {{- if eq (include "nifi.tlsMode" .) "certManager" }}
+          {{- if .Values.tls.certManager.pkcs12.password }}
+          value: {{ .Values.tls.certManager.pkcs12.password | quote }}
+          {{- else }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "nifi.certManagerPKCS12PasswordSecretName" . | quote }}
+              key: {{ include "nifi.certManagerPKCS12PasswordSecretKey" . | quote }}
+          {{- end }}
+          {{- else }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "nifi.tlsSecretName" . | quote }}
+              key: {{ .Values.tls.truststorePasswordKey | quote }}
+          {{- end }}
+        {{- if eq .Values.observability.metrics.siteToSite.auth.type "secretRef" }}
+        - name: SITE_TO_SITE_METRICS_KEYSTORE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.observability.metrics.siteToSite.auth.secretRef.name | quote }}
+              key: {{ default "keystorePassword" .Values.observability.metrics.siteToSite.auth.secretRef.keystorePasswordKey | quote }}
+        - name: SITE_TO_SITE_METRICS_TRUSTSTORE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.observability.metrics.siteToSite.auth.secretRef.name | quote }}
+              key: {{ default "truststorePassword" .Values.observability.metrics.siteToSite.auth.secretRef.truststorePasswordKey | quote }}
+        {{- end }}
+        {{- end }}
         {{- if eq (include "nifi.authMode" .) "singleUser" }}
         - name: SINGLE_USER_CREDENTIALS_USERNAME
           valueFrom:
@@ -453,6 +512,16 @@ spec:
         - name: tls
           mountPath: {{ .Values.tls.mountPath }}
           readOnly: true
+        {{- if eq (include "nifi.metricsMode" .) "siteToSite" }}
+        - name: site-to-site-metrics-config
+          mountPath: /opt/nifi/fabric/site-to-site-metrics
+          readOnly: true
+        {{- if eq .Values.observability.metrics.siteToSite.auth.type "secretRef" }}
+        - name: site-to-site-metrics-ssl
+          mountPath: /opt/nifi/fabric/site-to-site-metrics-ssl
+          readOnly: true
+        {{- end }}
+        {{- end }}
         {{- if .Values.flowRegistryClients.enabled }}
         - name: flow-registry-clients
           mountPath: {{ .Values.flowRegistryClients.mountPath }}
@@ -469,6 +538,16 @@ spec:
       - name: tls
         secret:
           secretName: {{ include "nifi.tlsSecretName" . }}
+      {{- if eq (include "nifi.metricsMode" .) "siteToSite" }}
+      - name: site-to-site-metrics-config
+        configMap:
+          name: {{ include "nifi.siteToSiteMetricsConfigName" . }}
+      {{- if eq .Values.observability.metrics.siteToSite.auth.type "secretRef" }}
+      - name: site-to-site-metrics-ssl
+        secret:
+          secretName: {{ .Values.observability.metrics.siteToSite.auth.secretRef.name }}
+      {{- end }}
+      {{- end }}
       {{- if and .Values.tls.additionalTrustBundle.enabled (eq (include "nifi.additionalTrustBundleRefType" .) "configMap") }}
       - name: additional-trust-bundle
         configMap:

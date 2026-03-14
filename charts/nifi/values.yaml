@@ -278,7 +278,7 @@ serviceMonitor:
 # -- First-class metrics subsystem.
 # `nativeApi` is the primary supported mode.
 # `exporter` is a supported secondary mode for a clean `/metrics` endpoint.
-# `siteToSite` is prepared-only and not runtime-enabled in this release.
+# `siteToSite` is an optional experimental typed metrics-export path.
 observability:
   metrics:
     mode: disabled
@@ -397,41 +397,41 @@ observability:
           path: /nifi-api/flow/status
       resources: {}
     siteToSite:
-      # -- Optional prepared contract for a future SiteToSiteMetricsReportingTask path.
-      # This release still does not create or manage reporting tasks or the receiver pipeline.
+      # -- Optional typed SiteToSite metrics export path.
+      # This creates only the bounded NiFi runtime objects required for SiteToSite metrics export:
+      # one SiteToSiteMetricsReportingTask and one SSL Context Service when secure transport is used.
+      enabled: false
       destination:
-        # -- Receiver base URL that would accept the site-to-site metrics feed.
+        # -- Receiver base URL that accepts the site-to-site metrics feed.
         url: ""
         # -- Receiver input port name expected to accept the metrics feed.
         inputPortName: ""
-        auth:
-          # -- Provider-agnostic receiver auth contract for a future runtime path.
-          type: none
-          secretRef:
-            name: ""
-          bearerToken:
-            tokenKey: token
-          authorization:
-            type: Bearer
-            credentialsKey: token
-        tls:
-          insecureSkipVerify: false
-          ca:
-            secretRef:
-              name: ""
-              key: ""
+      auth:
+        # -- Typed destination auth shape for SiteToSite metrics export.
+        # `workloadTLS` reuses the main NiFi workload keystore/truststore identity.
+        # `secretRef` uses the referenced Secret's keystore/truststore material instead.
+        # `none` is valid only for plain http:// destination URLs.
+        type: workloadTLS
+        secretRef:
+          name: ""
+          keystoreKey: keystore.p12
+          keystorePasswordKey: keystorePassword
+          truststoreKey: truststore.p12
+          truststorePasswordKey: truststorePassword
       source:
-        # -- Reporting-task source identity hints for a future runtime path.
+        # -- Metrics source identity hints sent by SiteToSiteMetricsReportingTask.
+        # Leave hostname and instanceUrl empty to derive them from the local pod and Service.
         applicationId: nifi
         hostname: ""
         instanceUrl: ""
       transport:
-        # -- Supported prepared transport values for the future receiver path.
-        protocol: RAW
+        # -- Supported transport values for the typed SiteToSite metrics path.
+        protocol: HTTP
         communicationsTimeout: 30 secs
         compressEvents: true
       format:
-        # -- Supported prepared output format for the future receiver path.
+        # -- Supported output format for the typed SiteToSite metrics path.
+        # Record Format is intentionally excluded because it would require broader Record Writer ownership.
         type: AmbariFormat
         includeNullValues: false
 

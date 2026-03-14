@@ -1,0 +1,391 @@
+{{- if eq (include "nifi.metricsMode" .) "siteToSite" }}
+{{- $siteToSite := default (dict) .Values.observability.metrics.siteToSite -}}
+{{- $auth := default (dict) $siteToSite.auth -}}
+{{- $secretRef := default (dict) $auth.secretRef -}}
+{{- $serviceHost := printf "%s.%s.svc.cluster.local" (include "nifi.fullname" .) .Release.Namespace -}}
+{{- $instanceURL := default (printf "https://%s:%v/nifi" $serviceHost .Values.ports.https) $siteToSite.source.instanceUrl -}}
+{{- $sslConfig := dict -}}
+{{- if eq $auth.type "workloadTLS" -}}
+{{- $sslConfig = dict
+  "enabled" true
+  "keystorePath" (printf "%s/%s" .Values.tls.mountPath .Values.tls.keystoreKey)
+  "keystorePasswordEnv" "KEYSTORE_PASSWORD"
+  "truststorePath" (printf "%s/%s" .Values.tls.mountPath .Values.tls.truststoreKey)
+  "truststorePasswordEnv" "TRUSTSTORE_PASSWORD"
+-}}
+{{- else if eq $auth.type "secretRef" -}}
+{{- $sslConfig = dict
+  "enabled" true
+  "keystorePath" (printf "/opt/nifi/fabric/site-to-site-metrics-ssl/%s" (default "keystore.p12" $secretRef.keystoreKey))
+  "keystorePasswordEnv" "SITE_TO_SITE_METRICS_KEYSTORE_PASSWORD"
+  "truststorePath" (printf "/opt/nifi/fabric/site-to-site-metrics-ssl/%s" (default "truststore.p12" $secretRef.truststoreKey))
+  "truststorePasswordEnv" "SITE_TO_SITE_METRICS_TRUSTSTORE_PASSWORD"
+-}}
+{{- else -}}
+{{- $sslConfig = dict "enabled" false -}}
+{{- end -}}
+{{- $config := dict
+  "taskName" "fabric-site-to-site-metrics-export"
+  "taskType" "org.apache.nifi.reporting.SiteToSiteMetricsReportingTask"
+  "sslServiceName" "fabric-site-to-site-metrics-ssl"
+  "sslServiceType" "org.apache.nifi.ssl.StandardRestrictedSSLContextService"
+  "schedule" (dict "strategy" "TIMER_DRIVEN" "period" "1 min")
+  "management" (dict "caCertPath" (printf "%s/%s" .Values.tls.mountPath .Values.tls.caCertKey))
+  "destination" (dict
+    "url" $siteToSite.destination.url
+    "inputPortName" $siteToSite.destination.inputPortName
+  )
+  "source" (dict
+    "applicationId" (default "nifi" $siteToSite.source.applicationId)
+    "hostname" (default "" $siteToSite.source.hostname)
+    "instanceUrl" $instanceURL
+  )
+  "transport" (dict
+    "protocol" (default "HTTP" $siteToSite.transport.protocol)
+    "communicationsTimeout" $siteToSite.transport.communicationsTimeout
+    "compressEvents" (ternary "true" "false" $siteToSite.transport.compressEvents)
+  )
+  "format" (dict
+    "type" (default "AmbariFormat" $siteToSite.format.type)
+    "includeNullValues" (ternary "true" "false" $siteToSite.format.includeNullValues)
+  )
+  "ssl" $sslConfig
+-}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nifi.siteToSiteMetricsConfigName" . }}
+  labels:
+    {{- include "nifi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: metrics-site-to-site
+data:
+  config.json: |
+{{ $config | toPrettyJson | indent 4 }}
+  bootstrap.py: |
+    import json
+    import os
+    import sys
+    import time
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+    import ssl
+
+    CONFIG_PATH = "/opt/nifi/fabric/site-to-site-metrics/config.json"
+
+
+    class NiFiAPIError(RuntimeError):
+        pass
+
+
+    def load_config():
+        with open(CONFIG_PATH, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+
+
+    def build_http_client(ca_cert_path):
+        context = ssl.create_default_context(cafile=ca_cert_path)
+        return urllib.request.build_opener(urllib.request.HTTPSHandler(context=context))
+
+
+    def request(opener, base_url, method, path, token=None, payload=None, expect=(200,)):
+        body = None
+        headers = {}
+        if payload is not None:
+            body = json.dumps(payload).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        if token:
+            headers["Authorization"] = "Bearer " + token
+        req = urllib.request.Request(base_url + path, data=body, headers=headers, method=method)
+        try:
+            with opener.open(req, timeout=15) as response:
+                data = response.read()
+                if response.status not in expect:
+                    raise NiFiAPIError(f"{method} {path} returned unexpected status {response.status}: {data[:4096].decode('utf-8', 'ignore')}")
+                if not data:
+                    return None
+                content_type = response.headers.get("Content-Type", "")
+                if "application/json" in content_type:
+                    return json.loads(data.decode("utf-8"))
+                return data.decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            body_text = exc.read().decode("utf-8", "ignore")
+            raise NiFiAPIError(f"{method} {path} failed with status {exc.code}: {body_text[:4096]}") from exc
+
+
+    def request_token(opener, base_url):
+        username = os.environ.get("SINGLE_USER_CREDENTIALS_USERNAME", "")
+        password = os.environ.get("SINGLE_USER_CREDENTIALS_PASSWORD", "")
+        if not username or not password:
+            raise NiFiAPIError("single-user credentials are required for site-to-site bootstrap")
+        form = urllib.parse.urlencode({"username": username, "password": password}).encode("utf-8")
+        req = urllib.request.Request(
+            base_url + "/access/token",
+            data=form,
+            headers={"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"},
+            method="POST",
+        )
+        try:
+            with opener.open(req, timeout=15) as response:
+                token = response.read().decode("utf-8").strip()
+                if response.status not in (200, 201) or not token:
+                    raise NiFiAPIError(f"token request returned {response.status} with empty token")
+                return token
+        except urllib.error.HTTPError as exc:
+            body_text = exc.read().decode("utf-8", "ignore")
+            raise NiFiAPIError(f"POST /access/token failed with status {exc.code}: {body_text[:4096]}") from exc
+
+
+    def wait_for_token(opener, base_url):
+        last_error = None
+        for _ in range(90):
+            try:
+                return request_token(opener, base_url)
+            except Exception as exc:
+                last_error = exc
+                time.sleep(2)
+        raise last_error or NiFiAPIError("timed out waiting for NiFi API token")
+
+
+    def wait_for_get(opener, base_url, path, token):
+        last_error = None
+        for _ in range(60):
+            try:
+                return request(opener, base_url, "GET", path, token=token)
+            except Exception as exc:
+                last_error = exc
+                time.sleep(2)
+        raise last_error or NiFiAPIError(f"timed out waiting for {path}")
+
+
+    def wait_for_cluster_summary(opener, base_url, token):
+        last_error = None
+        for _ in range(90):
+            try:
+                payload = request(opener, base_url, "GET", "/flow/cluster/summary", token=token)
+                summary = payload.get("clusterSummary", {})
+                if (
+                    summary.get("clustered") is True
+                    and summary.get("connectedToCluster") is True
+                    and int(summary.get("connectedNodeCount", 0)) >= 1
+                    and int(summary.get("totalNodeCount", 0)) >= 1
+                    and int(summary.get("connectedNodeCount", 0)) == int(summary.get("totalNodeCount", 0))
+                ):
+                    return summary
+                last_error = NiFiAPIError(f"cluster summary not yet stable: {summary}")
+            except Exception as exc:
+                last_error = exc
+            time.sleep(2)
+        raise last_error or NiFiAPIError("timed out waiting for stable cluster summary")
+
+
+    def find_bundle(payload, key, type_name):
+        for entry in payload.get(key, []):
+            if entry.get("type") == type_name:
+                return entry["bundle"]
+        raise NiFiAPIError(f"NiFi runtime does not expose {type_name}")
+
+
+    def stop_component(opener, base_url, token, kind, component_id, state):
+        entity = request(opener, base_url, "GET", f"/{kind}/{component_id}", token=token)
+        version = entity["revision"]["version"]
+        request(
+            opener,
+            base_url,
+            "PUT",
+            f"/{kind}/{component_id}/run-status",
+            token=token,
+            payload={
+                "revision": {"version": version},
+                "disconnectedNodeAcknowledged": False,
+                "state": state,
+            },
+        )
+        for _ in range(30):
+            current = request(opener, base_url, "GET", f"/{kind}/{component_id}", token=token)
+            component = current.get("component", {})
+            if component.get("state") == state:
+                return current
+            time.sleep(1)
+        return request(opener, base_url, "GET", f"/{kind}/{component_id}", token=token)
+
+
+    def delete_component(opener, base_url, token, kind, component_id):
+        current = request(opener, base_url, "GET", f"/{kind}/{component_id}", token=token)
+        version = current["revision"]["version"]
+        request(
+            opener,
+            base_url,
+            "DELETE",
+            f"/{kind}/{component_id}?version={version}&disconnectedNodeAcknowledged=false",
+            token=token,
+            expect=(200, 202),
+        )
+
+
+    def enable_component(opener, base_url, token, kind, component_id, state):
+        entity = request(opener, base_url, "GET", f"/{kind}/{component_id}", token=token)
+        version = entity["revision"]["version"]
+        request(
+            opener,
+            base_url,
+            "PUT",
+            f"/{kind}/{component_id}/run-status",
+            token=token,
+            payload={
+                "revision": {"version": version},
+                "disconnectedNodeAcknowledged": False,
+                "state": state,
+            },
+        )
+        for _ in range(30):
+            current = request(opener, base_url, "GET", f"/{kind}/{component_id}", token=token)
+            component = current.get("component", {})
+            if component.get("state") == state:
+                return current
+            time.sleep(1)
+        return request(opener, base_url, "GET", f"/{kind}/{component_id}", token=token)
+
+
+    def existing_controller_service_id(opener, base_url, token, name):
+        payload = request(opener, base_url, "GET", "/flow/controller/controller-services", token=token)
+        for service in payload.get("controllerServices", []):
+            component = service.get("component", {})
+            if component.get("name") == name:
+                return service["id"]
+        return ""
+
+
+    def existing_reporting_task_id(opener, base_url, token, name):
+        payload = request(opener, base_url, "GET", "/flow/reporting-tasks", token=token)
+        for task in payload.get("reportingTasks", []):
+            component = task.get("component", {})
+            if component.get("name") == name:
+                return task["id"]
+        return ""
+
+
+    def ensure_absent(opener, base_url, token, kind, name, running_state, disabled_state, finder):
+        component_id = finder(opener, base_url, token, name)
+        if not component_id:
+            return
+        entity = request(opener, base_url, "GET", f"/{kind}/{component_id}", token=token)
+        state = entity.get("component", {}).get("state", "")
+        if state == running_state:
+            stop_component(opener, base_url, token, kind, component_id, disabled_state)
+        delete_component(opener, base_url, token, kind, component_id)
+
+
+    def require_env(name):
+        value = os.environ.get(name, "")
+        if not value:
+            raise NiFiAPIError(f"required environment variable {name} is empty")
+        return value
+
+
+    def bootstrap():
+        if not os.environ.get("POD_NAME", "").endswith("-0"):
+            print("site-to-site metrics bootstrap is pod-0 only; skipping on", os.environ.get("POD_NAME", "unknown"))
+            return
+
+        config = load_config()
+        base_url = f"https://{require_env('NIFI_POD_FQDN')}:8443/nifi-api"
+        opener = build_http_client(config["management"]["caCertPath"])
+        token = wait_for_token(opener, base_url)
+        wait_for_get(opener, base_url, "/flow/reporting-task-types", token)
+        wait_for_cluster_summary(opener, base_url, token)
+
+        ensure_absent(
+            opener,
+            base_url,
+            token,
+            "reporting-tasks",
+            config["taskName"],
+            "RUNNING",
+            "STOPPED",
+            existing_reporting_task_id,
+        )
+        if config["ssl"]["enabled"]:
+            ensure_absent(
+                opener,
+                base_url,
+                token,
+                "controller-services",
+                config["sslServiceName"],
+                "ENABLED",
+                "DISABLED",
+                existing_controller_service_id,
+            )
+
+        ssl_service_id = ""
+        if config["ssl"]["enabled"]:
+            controller_types = request(opener, base_url, "GET", "/flow/controller-service-types", token=token)
+            ssl_bundle = find_bundle(controller_types, "controllerServiceTypes", config["sslServiceType"])
+            ssl_payload = {
+                "revision": {"version": 0},
+                "disconnectedNodeAcknowledged": False,
+                "component": {
+                    "name": config["sslServiceName"],
+                    "type": config["sslServiceType"],
+                    "bundle": ssl_bundle,
+                    "properties": {
+                        "Keystore Filename": config["ssl"]["keystorePath"],
+                        "Keystore Password": require_env(config["ssl"]["keystorePasswordEnv"]),
+                        "Keystore Type": "PKCS12",
+                        "Truststore Filename": config["ssl"]["truststorePath"],
+                        "Truststore Password": require_env(config["ssl"]["truststorePasswordEnv"]),
+                        "Truststore Type": "PKCS12",
+                    },
+                },
+            }
+            created_ssl = request(opener, base_url, "POST", "/controller/controller-services", token=token, payload=ssl_payload, expect=(200, 201))
+            ssl_service_id = created_ssl["id"]
+            enable_component(opener, base_url, token, "controller-services", ssl_service_id, "ENABLED")
+
+        reporting_types = request(opener, base_url, "GET", "/flow/reporting-task-types", token=token)
+        reporting_bundle = find_bundle(reporting_types, "reportingTaskTypes", config["taskType"])
+        hostname = config["source"]["hostname"] or require_env("NIFI_POD_FQDN")
+        task_properties = {
+            "Destination URL": config["destination"]["url"],
+            "Input Port Name": config["destination"]["inputPortName"],
+            "s2s-transport-protocol": config["transport"]["protocol"],
+            "Communications Timeout": config["transport"]["communicationsTimeout"],
+            "Compress Events": config["transport"]["compressEvents"],
+            "s2s-metrics-format": "ambari-format" if config["format"]["type"] == "AmbariFormat" else config["format"]["type"],
+            "include-null-values": config["format"]["includeNullValues"],
+            "s2s-metrics-application-id": config["source"]["applicationId"],
+            "Instance URL": config["source"]["instanceUrl"],
+            "s2s-metrics-hostname": hostname,
+        }
+        if ssl_service_id:
+            task_properties["SSL Context Service"] = ssl_service_id
+
+        task_payload = {
+            "revision": {"version": 0},
+            "disconnectedNodeAcknowledged": False,
+            "component": {
+                "name": config["taskName"],
+                "type": config["taskType"],
+                "bundle": reporting_bundle,
+                "schedulingStrategy": config["schedule"]["strategy"],
+                "schedulingPeriod": config["schedule"]["period"],
+                "properties": task_properties,
+            },
+        }
+        created_task = request(opener, base_url, "POST", "/controller/reporting-tasks", token=token, payload=task_payload, expect=(200, 201))
+        task_id = created_task["id"]
+        task_entity = enable_component(opener, base_url, token, "reporting-tasks", task_id, "RUNNING")
+        validation_errors = task_entity.get("component", {}).get("validationErrors", []) or []
+        if validation_errors:
+            raise NiFiAPIError("site-to-site metrics reporting task has validation errors: " + "; ".join(validation_errors))
+
+        print(f"site-to-site metrics bootstrap ready: task={task_id} sslService={ssl_service_id or 'none'}")
+
+
+    if __name__ == "__main__":
+        try:
+            bootstrap()
+        except Exception as exc:
+            print(f"site-to-site metrics bootstrap failed: {exc}", file=sys.stderr)
+            sys.exit(1)
+{{- end }}

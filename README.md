@@ -137,7 +137,7 @@ See [Compatibility](docs/compatibility.md) for the detailed matrix.
 - Azure DevOps Flow Registry Client remains prepared and render-validated
 - native API metrics are the primary, recommended metrics path and are runtime-proven on kind
 - exporter metrics are an optional experimental secondary path and are runtime-proven on kind
-- site-to-site metrics are prepared-only, with a validated destination contract but no runtime path
+- site-to-site metrics export is now an optional typed runtime path for one bounded use case, not a generic NiFi runtime-object framework
 - optional trust-manager integration distributes shared CA bundles without moving TLS orchestration into the controller
 - the repo now includes a starter operations package for dashboards, alerting, and runbooks; teams still need to adapt it to their Prometheus, Grafana, and incident-routing conventions
 
@@ -148,9 +148,7 @@ These features are available but intentionally marked experimental:
 - controller-owned enforced autoscaling scale-down
 - KEDA integration
 
-Prepared-only, not runtime-enabled:
-
-- site-to-site metrics mode
+- site-to-site metrics export
 
 ## Metrics Runtime Proof
 
@@ -165,6 +163,11 @@ That matrix proves:
 - experimental `exporter` mode with its companion `Deployment`, `Service`, and `ServiceMonitor`
 - the documented machine-auth Secret and CA Secret contract used by both modes
 
+Focused typed Site-to-Site proof is also available through:
+
+- `make kind-metrics-site-to-site-fast-e2e`
+- `make kind-metrics-site-to-site-fast-e2e-reuse`
+
 Current conservative boundary:
 
 - `nativeApi` is runtime-proven for the secured `/nifi-api/flow/metrics/prometheus` endpoint
@@ -174,11 +177,13 @@ Current conservative boundary:
 - `exporter` exposes a Prometheus-scrapable `/metrics` endpoint that relays live NiFi metric families from the secured flow source
 - `exporter` is runtime-proven for selected controller-status gauges derived from `/nifi-api/flow/status`
 - `exporter` is runtime-proven for upstream-aware readiness and mounted auth Secret rotation without restarting the exporter pod
+- `siteToSite` is now runtime-proven end to end as a typed metrics-export path that creates exactly one `SiteToSiteMetricsReportingTask` and one `StandardRestrictedSSLContextService` when secure transport is enabled
+- `siteToSite` proof now covers typed sender bootstrap, secure receiver peer discovery, and live delivery to a real Site-to-Site receiver on kind through the product-facing chart path
+- `siteToSite` remains bounded to `AmbariFormat`, a proof-only receiver harness, and the current single-user bootstrap path for local NiFi API management
+- `siteToSite` is not a generic Reporting Task, Controller Service, or NiFi runtime-object framework
 - two named native scrape profiles are proven, but they still scrape the same flow Prometheus endpoint at different cadence
 - JVM or system-diagnostics metrics are not yet runtime-proven
-- `siteToSite` remains outside the live proof matrix because this repo still does not own NiFi reporting-task lifecycle or the destination receiver/input-port pipeline
-- `siteToSite` now validates destination URL, input port name, provider-agnostic auth references, TLS references, transport protocol, and output format at render time
-- a clean runtime `siteToSite` path would also require bounded ownership of NiFi internal references such as the reporting task itself, SSL Context Service wiring, and any future Record Writer wiring
+- full destination receiver topology, input-port policies, proxy-controller-service wiring, and non-Ambari record-writer ownership remain future work
 
 Operators still provide, out of band:
 
@@ -205,7 +210,7 @@ NiFi-Fabric documentation is intentionally conservative in a few areas:
 - AKS and OpenShift guidance is published, but real-cluster runtime proof is not yet claimed here
 - KEDA is documented as experimental even though focused kind proof is green
 - autoscaling scale-down remains intentionally one-step-at-a-time and experimental
-- site-to-site metrics remain prepared-only
+- site-to-site metrics export remains optional, experimental, and intentionally bounded to the typed metrics-export path
 - exporter support remains experimental and intentionally bounded to flow metrics plus selected `/flow/status` gauges
 - versioned-flow workflow proof currently covers a user-driven GitHub save-to-registry path only; it does not add automatic import, deployment, or synchronization
 - trust-manager currently distributes shared CA bundles only; it does not replace cert-manager or move trust orchestration into the controller

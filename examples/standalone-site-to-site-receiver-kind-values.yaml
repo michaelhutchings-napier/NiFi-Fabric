@@ -1,0 +1,45 @@
+# Proof-harness receiver for focused Site-to-Site metrics delivery on kind.
+# This is not a product-facing control plane. It exists only to prove that the
+# typed sender-side metrics export can deliver to a real NiFi Site-to-Site receiver.
+fullnameOverride: site-to-site-receiver
+
+replicaCount: 1
+
+controllerManaged:
+  enabled: false
+
+auth:
+  mode: singleUser
+  singleUser:
+    existingSecret: site-to-site-receiver-auth
+
+authz:
+  mode: fileManaged
+  capabilities:
+    mutableFlow:
+      enabled: true
+      includeInitialAdmin: true
+
+tls:
+  mode: externalSecret
+  existingSecret: site-to-site-receiver-tls
+  autoReload:
+    enabled: true
+
+observability:
+  metrics:
+    mode: disabled
+
+nifi:
+  jvmHeapInit: 512m
+  jvmHeapMax: 512m
+
+persistence:
+  databaseRepository:
+    size: 1Gi
+  flowfileRepository:
+    size: 1Gi
+  contentRepository:
+    size: 2Gi
+  provenanceRepository:
+    size: 2Gi

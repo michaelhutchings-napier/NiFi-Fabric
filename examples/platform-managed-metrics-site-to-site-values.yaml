@@ -1,33 +1,24 @@
-# Optional managed-platform overlay for the prepared-only site-to-site metrics contract.
-# This still does not enable a runtime path. It documents the intended operator-facing
-# destination, auth, TLS, transport, and format contract for a future
-# SiteToSiteMetricsReportingTask integration once reporting-task and receiver
-# ownership assumptions are deliberately modeled.
+# Optional managed-platform overlay for the typed site-to-site metrics export path.
+# This enables the bounded SiteToSiteMetricsReportingTask integration. The platform
+# owns only the reporting task and its SSL Context Service when secure transport is
+# used. The destination receiver topology, input port, and destination-side policies
+# remain operator-owned.
 nifi:
   observability:
     metrics:
       mode: siteToSite
       siteToSite:
+        enabled: true
         destination:
           url: https://metrics-receiver.example.com/nifi
           inputPortName: nifi-metrics
-          auth:
-            type: authorizationHeader
-            secretRef:
-              name: nifi-metrics-destination-auth
-            authorization:
-              type: Bearer
-              credentialsKey: token
-          tls:
-            ca:
-              secretRef:
-                name: nifi-metrics-destination-ca
-                key: ca.crt
+        auth:
+          type: workloadTLS
         source:
           applicationId: nifi
           instanceUrl: https://nifi.example.com/nifi
         transport:
-          protocol: RAW
+          protocol: HTTP
           communicationsTimeout: 30 secs
           compressEvents: true
         format:
