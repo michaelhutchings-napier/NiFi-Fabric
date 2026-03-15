@@ -85,9 +85,15 @@ Experimental or prepared paths:
 - the app chart owns only the minimum internal NiFi objects required for that use case:
 - one `SiteToSiteMetricsReportingTask`
 - one `StandardRestrictedSSLContextService` when secure site-to-site transport is enabled
+- `siteToSiteStatus` is the next optional typed Site-to-Site capability and remains separate from `observability.metrics.mode`
+- the public API stays use-case-specific under `observability.siteToSiteStatus` instead of broadening into generic Reporting Task or Controller Service management
+- the typed status contract is intentionally smaller than the metrics contract and is limited to enablement, destination, auth, secure receiver identity, and explicit transport settings plus an optional source instance URL override
+- the app chart owns only the minimum internal NiFi objects required for that use case:
+- one `SiteToSiteStatusReportingTask`
+- one `StandardRestrictedSSLContextService` when secure site-to-site transport is enabled
 - no generic Reporting Task, Controller Service, or NiFi runtime-object public API is introduced
-- record-writer ownership for non-Ambari formats and proxy-controller-service ownership remain future work
-- destination receiver topology, the receiver-side `/site-to-site` and `/controller` read grants, the destination input-port write grant for that identity, and any reverse-proxy routing assumptions remain explicit operator-owned concerns
+- record-writer ownership, proxy-controller-service ownership, and any broader runtime-object lifecycle APIs remain future work
+- destination receiver topology, the receiver-side `/site-to-site` and `/controller` read grants, the destination input-port write grant for that identity, long-lived credential lifecycle, and any reverse-proxy routing assumptions remain explicit operator-owned concerns
 - current runtime ownership is intentionally chart-scoped and bootstrap-scoped rather than controller-owned orchestration
 
 Current conservative boundary:

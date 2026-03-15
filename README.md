@@ -137,7 +137,7 @@ See [Compatibility](docs/compatibility.md) for the detailed matrix.
 - Azure DevOps Flow Registry Client remains prepared and render-validated
 - native API metrics are the primary, recommended metrics path and are runtime-proven on kind
 - exporter metrics are an optional experimental secondary path and are runtime-proven on kind
-- site-to-site metrics export is now an optional typed runtime path for one bounded use case, not a generic NiFi runtime-object framework
+- site-to-site metrics and status export are optional typed runtime paths for bounded sender-side use cases, not a generic NiFi runtime-object framework
 - optional trust-manager integration distributes shared CA bundles without moving TLS orchestration into the controller
 - the repo now includes a starter operations package for dashboards, alerting, and runbooks; teams still need to adapt it to their Prometheus, Grafana, and incident-routing conventions
 
@@ -149,6 +149,7 @@ These features are available but intentionally marked experimental:
 - KEDA integration
 
 - site-to-site metrics export
+- site-to-site status export
 
 ## Metrics Runtime Proof
 
@@ -167,6 +168,8 @@ Focused typed Site-to-Site proof is also available through:
 
 - `make kind-metrics-site-to-site-fast-e2e`
 - `make kind-metrics-site-to-site-fast-e2e-reuse`
+- `make kind-site-to-site-status-fast-e2e`
+- `make kind-site-to-site-status-fast-e2e-reuse`
 
 Current conservative boundary:
 
@@ -180,10 +183,12 @@ Current conservative boundary:
 - `siteToSite` is now runtime-proven end to end as a typed metrics-export path that creates exactly one `SiteToSiteMetricsReportingTask` and one `StandardRestrictedSSLContextService` when secure transport is enabled
 - `siteToSite` proof now covers typed sender bootstrap, explicit receiver-authorized identity wiring, secure receiver peer discovery, receiver-side policy binding checks, and live delivery to a real Site-to-Site receiver on kind through the product-facing chart path
 - `siteToSite` remains bounded to `AmbariFormat`, an explicit secure receiver auth contract, a proof-only receiver harness, and the current single-user bootstrap path for local NiFi API management
+- `siteToSiteStatus` is now a second typed Site-to-Site path that creates exactly one `SiteToSiteStatusReportingTask` and one `StandardRestrictedSSLContextService` when secure transport is enabled
+- `siteToSiteStatus` keeps JSON status payload shape, platform, filters, and batching fixed behind the typed API so we do not add generic Reporting Task or Controller Service ownership
 - `siteToSite` is not a generic Reporting Task, Controller Service, or NiFi runtime-object framework
 - two named native scrape profiles are proven, but they still scrape the same flow Prometheus endpoint at different cadence
 - JVM or system-diagnostics metrics are not yet runtime-proven
-- full destination receiver topology, long-lived destination-side user or policy lifecycle management, proxy-controller-service wiring, and non-Ambari record-writer ownership remain future work
+- full destination receiver topology, long-lived destination-side user or policy lifecycle management, proxy-controller-service wiring, non-Ambari record-writer ownership, and broader Site-to-Site status filtering or formatting controls remain future work
 
 Operators still provide, out of band:
 
@@ -211,6 +216,7 @@ NiFi-Fabric documentation is intentionally conservative in a few areas:
 - KEDA is documented as experimental even though focused kind proof is green
 - autoscaling scale-down remains intentionally one-step-at-a-time and experimental
 - site-to-site metrics export remains optional, experimental, and intentionally bounded to the typed metrics-export path
+- site-to-site status export remains optional, experimental, and intentionally bounded to the typed status-export path
 - exporter support remains experimental and intentionally bounded to flow metrics plus selected `/flow/status` gauges
 - versioned-flow workflow proof currently covers a user-driven GitHub save-to-registry path only; it does not add automatic import, deployment, or synchronization
 - trust-manager currently distributes shared CA bundles only; it does not replace cert-manager or move trust orchestration into the controller

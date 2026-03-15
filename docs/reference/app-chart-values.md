@@ -149,6 +149,11 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | `observability.metrics.siteToSite.source.*` | object | Reporting-task source identity hints. | No | see values file |
 | `observability.metrics.siteToSite.transport.*` | object | Site-to-Site transport settings for the typed metrics-export path. | No | see values file |
 | `observability.metrics.siteToSite.format.*` | object | Site-to-Site output format settings. Current runtime support is bounded to `AmbariFormat`. | No | see values file |
+| `observability.siteToSiteStatus.enabled` | boolean | Enables the typed Site-to-Site status export path. This feature is independent of `observability.metrics.mode`. | No | `false` |
+| `observability.siteToSiteStatus.destination.*` | object | Typed destination URL and input-port contract for Site-to-Site status export. | No | see values file |
+| `observability.siteToSiteStatus.auth.*` | object | Typed Site-to-Site auth contract for status export. Values: `none`, `workloadTLS`, `secretRef`, plus the explicit secure receiver-authorized identity and any referenced Secret material keys. | No | see values file |
+| `observability.siteToSiteStatus.source.*` | object | Optional status-export source URL override. | No | see values file |
+| `observability.siteToSiteStatus.transport.*` | object | Site-to-Site transport settings for the typed status-export path. | No | see values file |
 
 ## Flow Registry Clients
 
@@ -205,3 +210,4 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | `observability.metrics.mode=nativeApi` | support status | Primary production-ready metrics mode. | No |  |
 | `observability.metrics.mode=exporter` | support status | Optional experimental secondary mode with focused runtime proof for render/deploy, secured upstream reachability, Prometheus scraping of `/metrics`, selected `/flow/status` gauges, and auth Secret rotation without exporter pod restart. | No |  |
 | `observability.metrics.mode=siteToSite` | support status | Optional experimental typed Site-to-Site metrics-export path. Runtime support is bounded to one `SiteToSiteMetricsReportingTask`, one `StandardRestrictedSSLContextService` when secure transport is used, `AmbariFormat`, and the current single-user bootstrap path. It is not a generic NiFi runtime-object framework. | No |  |
+| `observability.siteToSiteStatus.enabled=true` | support status | Optional experimental typed Site-to-Site status-export path. Runtime support is bounded to one `SiteToSiteStatusReportingTask`, one `StandardRestrictedSSLContextService` when secure transport is used, fixed JSON status payload defaults, and the current single-user bootstrap path. It is not a generic NiFi runtime-object framework. | No |  |

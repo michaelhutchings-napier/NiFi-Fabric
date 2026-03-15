@@ -292,6 +292,10 @@ app.kubernetes.io/component: metrics-exporter
 {{- printf "%s-site-to-site-metrics" (include "nifi.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "nifi.siteToSiteStatusConfigName" -}}
+{{- printf "%s-site-to-site-status" (include "nifi.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "nifi.metricsServiceSelectorLabels" -}}
 {{- $observability := default (dict) .Values.observability -}}
 {{- $metrics := default (dict) $observability.metrics -}}
@@ -345,6 +349,7 @@ app.kubernetes.io/component: metrics
 {{- $metrics := default (dict) $observability.metrics -}}
 {{- $configuredMode := default "disabled" $metrics.mode -}}
 {{- $siteToSiteMetrics := default (dict) $metrics.siteToSite -}}
+{{- $siteToSiteStatus := default (dict) $observability.siteToSiteStatus -}}
 {{- if and (ne $mode "disabled") (ne $mode "nativeApi") (ne $mode "nativeApiLegacy") (ne $mode "exporter") (ne $mode "siteToSite") -}}
 {{- fail "observability.metrics.mode must be one of: disabled, nativeApi, exporter, siteToSite" -}}
 {{- end -}}
@@ -528,6 +533,74 @@ app.kubernetes.io/component: metrics
 {{- end -}}
 {{- if ne $format.type "AmbariFormat" -}}
 {{- fail "observability.metrics.siteToSite.format.type must be AmbariFormat for the typed site-to-site metrics feature; broader Record Writer ownership remains out of scope" -}}
+{{- end -}}
+{{- end -}}
+{{- if $siteToSiteStatus.enabled -}}
+{{- $destination := default (dict) $siteToSiteStatus.destination -}}
+{{- $destinationAuth := default (dict) $siteToSiteStatus.auth -}}
+{{- $destinationAuthSecretRef := default (dict) $destinationAuth.secretRef -}}
+{{- $authorizedIdentity := trim (default "" $destinationAuth.authorizedIdentity) -}}
+{{- $source := default (dict) $siteToSiteStatus.source -}}
+{{- $transport := default (dict) $siteToSiteStatus.transport -}}
+{{- if ne (include "nifi.authMode" .) "singleUser" -}}
+{{- fail "observability.siteToSiteStatus.enabled=true currently requires auth.mode=singleUser because the typed bootstrap reconciles one fixed SiteToSiteStatusReportingTask through the local NiFi API and does not introduce a generic management credential API" -}}
+{{- end -}}
+{{- if not $destination.url -}}
+{{- fail "observability.siteToSiteStatus.destination.url is required when observability.siteToSiteStatus.enabled=true" -}}
+{{- end -}}
+{{- if not (or (hasPrefix "https://" $destination.url) (hasPrefix "http://" $destination.url)) -}}
+{{- fail "observability.siteToSiteStatus.destination.url must start with http:// or https://" -}}
+{{- end -}}
+{{- if not $destination.inputPortName -}}
+{{- fail "observability.siteToSiteStatus.destination.inputPortName is required when observability.siteToSiteStatus.enabled=true" -}}
+{{- end -}}
+{{- if eq $destinationAuth.type "" -}}
+{{- fail "observability.siteToSiteStatus.auth.type is required when observability.siteToSiteStatus.enabled=true" -}}
+{{- end -}}
+{{- if and (ne $destinationAuth.type "") (ne $destinationAuth.type "none") (ne $destinationAuth.type "workloadTLS") (ne $destinationAuth.type "secretRef") -}}
+{{- fail "observability.siteToSiteStatus.auth.type must be one of: none, workloadTLS, secretRef" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "none") $authorizedIdentity -}}
+{{- fail "observability.siteToSiteStatus.auth.authorizedIdentity must be empty when auth.type=none" -}}
+{{- end -}}
+{{- if and (or (eq $destinationAuth.type "workloadTLS") (eq $destinationAuth.type "secretRef")) (not $authorizedIdentity) -}}
+{{- fail "observability.siteToSiteStatus.auth.authorizedIdentity is required for secure Site-to-Site receiver authorization" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "secretRef") (not $destinationAuthSecretRef.name) -}}
+{{- fail "observability.siteToSiteStatus.auth.secretRef.name is required when auth.type=secretRef" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "secretRef") (not $destinationAuthSecretRef.keystoreKey) -}}
+{{- fail "observability.siteToSiteStatus.auth.secretRef.keystoreKey is required when auth.type=secretRef" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "secretRef") (not $destinationAuthSecretRef.keystorePasswordKey) -}}
+{{- fail "observability.siteToSiteStatus.auth.secretRef.keystorePasswordKey is required when auth.type=secretRef" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "secretRef") (not $destinationAuthSecretRef.truststoreKey) -}}
+{{- fail "observability.siteToSiteStatus.auth.secretRef.truststoreKey is required when auth.type=secretRef" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "secretRef") (not $destinationAuthSecretRef.truststorePasswordKey) -}}
+{{- fail "observability.siteToSiteStatus.auth.secretRef.truststorePasswordKey is required when auth.type=secretRef" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "workloadTLS") $destinationAuthSecretRef.name -}}
+{{- fail "observability.siteToSiteStatus.auth.secretRef.* cannot be set when auth.type=workloadTLS" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "none") $destinationAuthSecretRef.name -}}
+{{- fail "observability.siteToSiteStatus.auth.secretRef.* cannot be set when auth.type=none" -}}
+{{- end -}}
+{{- if and (hasPrefix "https://" $destination.url) (eq $destinationAuth.type "none") -}}
+{{- fail "observability.siteToSiteStatus.auth.type=none cannot be used with an https:// destination.url; use workloadTLS or secretRef" -}}
+{{- end -}}
+{{- if and (hasPrefix "http://" $destination.url) (ne $destinationAuth.type "") (ne $destinationAuth.type "none") -}}
+{{- fail "observability.siteToSiteStatus.auth.type must be none for an http:// destination.url" -}}
+{{- end -}}
+{{- if and (ne $transport.protocol "RAW") (ne $transport.protocol "HTTP") -}}
+{{- fail "observability.siteToSiteStatus.transport.protocol must be one of: RAW, HTTP" -}}
+{{- end -}}
+{{- if not $transport.communicationsTimeout -}}
+{{- fail "observability.siteToSiteStatus.transport.communicationsTimeout is required when observability.siteToSiteStatus.enabled=true" -}}
+{{- end -}}
+{{- if and $source.instanceUrl (not (or (hasPrefix "https://" $source.instanceUrl) (hasPrefix "http://" $source.instanceUrl))) -}}
+{{- fail "observability.siteToSiteStatus.source.instanceUrl must start with http:// or https://" -}}
 {{- end -}}
 {{- end -}}
 {{- if eq $mode "nativeApi" -}}

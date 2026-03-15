@@ -110,6 +110,7 @@ The current focused metrics runtime command is:
 - `make kind-metrics-native-api-trust-manager-fast-e2e`
 - `make kind-metrics-exporter-trust-manager-fast-e2e`
 - `make kind-metrics-site-to-site-fast-e2e`
+- `make kind-site-to-site-status-fast-e2e`
 
 That matrix runs:
 
@@ -161,6 +162,19 @@ What `make kind-metrics-site-to-site-fast-e2e` proves:
 - live metrics delivery is observed on the receiver side through processor status, not just sender-side object state
 - the feature remains chart-scoped and does not add controller-owned Site-to-Site orchestration
 
+What `make kind-site-to-site-status-fast-e2e` proves:
+
+- the typed site-to-site status overlay renders and applies through `charts/nifi-platform`
+- the app chart mounts the bounded Site-to-Site status bootstrap config into the NiFi pod
+- pod `-0` bootstraps exactly one `SiteToSiteStatusReportingTask`
+- pod `-0` bootstraps exactly one `StandardRestrictedSSLContextService` when secure site-to-site transport is configured
+- the reporting task reaches `RUNNING` state with the expected typed destination and transport properties
+- the SSL context service reaches `ENABLED` state with the expected keystore and truststore wiring
+- a proof-only receiver NiFi harness comes up on kind with the expected public input port and minimal downstream processor
+- the sender authenticates to that receiver over secure Site-to-Site as documented by the typed Secret/TLS contract
+- live status delivery is observed on the receiver side through processor status, not just sender-side object state
+- the feature remains chart-scoped and does not add controller-owned Site-to-Site orchestration
+
 Current honest limit:
 
 - `nativeApi` runtime proof still covers the flow Prometheus endpoint only
@@ -170,9 +184,10 @@ Current honest limit:
 - trust-manager-backed exporter proof currently covers PEM bundle distribution only; additional Bundle output formats are still future work for exporter mode
 - `siteToSite` proof is intentionally bounded to the typed sender path plus a proof-only receiver harness on kind
 - that proof now also checks the declared secure receiver identity and the minimum receiver-side policy bindings needed for delivery
+- `siteToSiteStatus` proof is intentionally bounded to the typed sender path plus that same proof-only receiver harness on kind
 - destination receiver topology and destination-side policy lifecycle remain operator-owned outside that focused proof harness
 - the current receiver harness still uses a proof-only local admin path to seed those bindings on kind
-- proxy-controller-service wiring and non-Ambari record-writer ownership remain future work for Site-to-Site metrics export
+- proxy-controller-service wiring, non-Ambari record-writer ownership, and broader status-task tuning remain future work for Site-to-Site typed exports
 
 ## Current Conservative Boundaries
 

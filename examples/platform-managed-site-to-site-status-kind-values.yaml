@@ -1,0 +1,13 @@
+nifi:
+  observability:
+    siteToSiteStatus:
+      auth:
+        type: secretRef
+        authorizedIdentity: O=NiFi-Fabric, CN=nifi-site-to-site-status-client
+        secretRef:
+          name: nifi-site-to-site-receiver-status-client
+      destination:
+        url: https://site-to-site-receiver.site-to-site-receiver.svc.cluster.local:8443/nifi
+        inputPortName: nifi-status
+      source:
+        instanceUrl: https://nifi.nifi.svc.cluster.local:8443/nifi

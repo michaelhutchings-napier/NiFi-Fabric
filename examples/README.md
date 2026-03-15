@@ -108,6 +108,13 @@ Metrics note:
 - [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is the proof-only receiver harness used by that focused kind gate
 - the harness bootstraps one public input port, one minimal downstream processor, and the minimum receiver-side auth needed to trust and authorize the declared sender identity for delivery
 - the focused runtime proof command is `make kind-metrics-site-to-site-fast-e2e`
+- [platform-managed-site-to-site-status-values.yaml](platform-managed-site-to-site-status-values.yaml) is an optional overlay for the typed site-to-site status export path
+- it enables `nifi.observability.siteToSiteStatus.enabled=true`
+- it models the bounded destination, auth, receiver-authorized identity, optional source instance URL override, and transport contract for one `SiteToSiteStatusReportingTask`
+- it keeps destination receiver topology and destination-side user or policy lifecycle operator-owned
+- [platform-managed-site-to-site-status-kind-values.yaml](platform-managed-site-to-site-status-kind-values.yaml) points that typed feature at a cluster-local kind URL for focused runtime proof
+- [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is reused as the proof-only receiver harness for that focused kind gate
+- the focused runtime proof command is `make kind-site-to-site-status-fast-e2e`
 
 KEDA note:
 
