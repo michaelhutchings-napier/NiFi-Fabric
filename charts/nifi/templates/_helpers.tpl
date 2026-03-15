@@ -296,6 +296,10 @@ app.kubernetes.io/component: metrics-exporter
 {{- printf "%s-site-to-site-status" (include "nifi.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "nifi.siteToSiteProvenanceConfigName" -}}
+{{- printf "%s-site-to-site-provenance" (include "nifi.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "nifi.metricsServiceSelectorLabels" -}}
 {{- $observability := default (dict) .Values.observability -}}
 {{- $metrics := default (dict) $observability.metrics -}}
@@ -350,6 +354,7 @@ app.kubernetes.io/component: metrics
 {{- $configuredMode := default "disabled" $metrics.mode -}}
 {{- $siteToSiteMetrics := default (dict) $metrics.siteToSite -}}
 {{- $siteToSiteStatus := default (dict) $observability.siteToSiteStatus -}}
+{{- $siteToSiteProvenance := default (dict) $observability.siteToSiteProvenance -}}
 {{- if and (ne $mode "disabled") (ne $mode "nativeApi") (ne $mode "nativeApiLegacy") (ne $mode "exporter") (ne $mode "siteToSite") -}}
 {{- fail "observability.metrics.mode must be one of: disabled, nativeApi, exporter, siteToSite" -}}
 {{- end -}}
@@ -601,6 +606,78 @@ app.kubernetes.io/component: metrics
 {{- end -}}
 {{- if and $source.instanceUrl (not (or (hasPrefix "https://" $source.instanceUrl) (hasPrefix "http://" $source.instanceUrl))) -}}
 {{- fail "observability.siteToSiteStatus.source.instanceUrl must start with http:// or https://" -}}
+{{- end -}}
+{{- end -}}
+{{- if $siteToSiteProvenance.enabled -}}
+{{- $destination := default (dict) $siteToSiteProvenance.destination -}}
+{{- $destinationAuth := default (dict) $siteToSiteProvenance.auth -}}
+{{- $destinationAuthSecretRef := default (dict) $destinationAuth.secretRef -}}
+{{- $authorizedIdentity := trim (default "" $destinationAuth.authorizedIdentity) -}}
+{{- $source := default (dict) $siteToSiteProvenance.source -}}
+{{- $transport := default (dict) $siteToSiteProvenance.transport -}}
+{{- $provenance := default (dict) $siteToSiteProvenance.provenance -}}
+{{- if ne (include "nifi.authMode" .) "singleUser" -}}
+{{- fail "observability.siteToSiteProvenance.enabled=true currently requires auth.mode=singleUser because the typed bootstrap reconciles one fixed SiteToSiteProvenanceReportingTask through the local NiFi API and does not introduce a generic management credential API" -}}
+{{- end -}}
+{{- if not $destination.url -}}
+{{- fail "observability.siteToSiteProvenance.destination.url is required when observability.siteToSiteProvenance.enabled=true" -}}
+{{- end -}}
+{{- if not (or (hasPrefix "https://" $destination.url) (hasPrefix "http://" $destination.url)) -}}
+{{- fail "observability.siteToSiteProvenance.destination.url must start with http:// or https://" -}}
+{{- end -}}
+{{- if not $destination.inputPortName -}}
+{{- fail "observability.siteToSiteProvenance.destination.inputPortName is required when observability.siteToSiteProvenance.enabled=true" -}}
+{{- end -}}
+{{- if eq $destinationAuth.type "" -}}
+{{- fail "observability.siteToSiteProvenance.auth.type is required when observability.siteToSiteProvenance.enabled=true" -}}
+{{- end -}}
+{{- if and (ne $destinationAuth.type "") (ne $destinationAuth.type "none") (ne $destinationAuth.type "workloadTLS") (ne $destinationAuth.type "secretRef") -}}
+{{- fail "observability.siteToSiteProvenance.auth.type must be one of: none, workloadTLS, secretRef" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "none") $authorizedIdentity -}}
+{{- fail "observability.siteToSiteProvenance.auth.authorizedIdentity must be empty when auth.type=none" -}}
+{{- end -}}
+{{- if and (or (eq $destinationAuth.type "workloadTLS") (eq $destinationAuth.type "secretRef")) (not $authorizedIdentity) -}}
+{{- fail "observability.siteToSiteProvenance.auth.authorizedIdentity is required for secure Site-to-Site receiver authorization" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "secretRef") (not $destinationAuthSecretRef.name) -}}
+{{- fail "observability.siteToSiteProvenance.auth.secretRef.name is required when auth.type=secretRef" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "secretRef") (not $destinationAuthSecretRef.keystoreKey) -}}
+{{- fail "observability.siteToSiteProvenance.auth.secretRef.keystoreKey is required when auth.type=secretRef" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "secretRef") (not $destinationAuthSecretRef.keystorePasswordKey) -}}
+{{- fail "observability.siteToSiteProvenance.auth.secretRef.keystorePasswordKey is required when auth.type=secretRef" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "secretRef") (not $destinationAuthSecretRef.truststoreKey) -}}
+{{- fail "observability.siteToSiteProvenance.auth.secretRef.truststoreKey is required when auth.type=secretRef" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "secretRef") (not $destinationAuthSecretRef.truststorePasswordKey) -}}
+{{- fail "observability.siteToSiteProvenance.auth.secretRef.truststorePasswordKey is required when auth.type=secretRef" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "workloadTLS") $destinationAuthSecretRef.name -}}
+{{- fail "observability.siteToSiteProvenance.auth.secretRef.* cannot be set when auth.type=workloadTLS" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "none") $destinationAuthSecretRef.name -}}
+{{- fail "observability.siteToSiteProvenance.auth.secretRef.* cannot be set when auth.type=none" -}}
+{{- end -}}
+{{- if and (hasPrefix "https://" $destination.url) (eq $destinationAuth.type "none") -}}
+{{- fail "observability.siteToSiteProvenance.auth.type=none cannot be used with an https:// destination.url; use workloadTLS or secretRef" -}}
+{{- end -}}
+{{- if and (hasPrefix "http://" $destination.url) (ne $destinationAuth.type "") (ne $destinationAuth.type "none") -}}
+{{- fail "observability.siteToSiteProvenance.auth.type must be none for an http:// destination.url" -}}
+{{- end -}}
+{{- if and (ne $transport.protocol "RAW") (ne $transport.protocol "HTTP") -}}
+{{- fail "observability.siteToSiteProvenance.transport.protocol must be one of: RAW, HTTP" -}}
+{{- end -}}
+{{- if not $transport.communicationsTimeout -}}
+{{- fail "observability.siteToSiteProvenance.transport.communicationsTimeout is required when observability.siteToSiteProvenance.enabled=true" -}}
+{{- end -}}
+{{- if and $source.instanceUrl (not (or (hasPrefix "https://" $source.instanceUrl) (hasPrefix "http://" $source.instanceUrl))) -}}
+{{- fail "observability.siteToSiteProvenance.source.instanceUrl must start with http:// or https://" -}}
+{{- end -}}
+{{- if and (ne $provenance.startPosition "beginningOfStream") (ne $provenance.startPosition "endOfStream") -}}
+{{- fail "observability.siteToSiteProvenance.provenance.startPosition must be one of: beginningOfStream, endOfStream" -}}
 {{- end -}}
 {{- end -}}
 {{- if eq $mode "nativeApi" -}}

@@ -154,6 +154,12 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | `observability.siteToSiteStatus.auth.*` | object | Typed Site-to-Site auth contract for status export. Values: `none`, `workloadTLS`, `secretRef`, plus the explicit secure receiver-authorized identity and any referenced Secret material keys. | No | see values file |
 | `observability.siteToSiteStatus.source.*` | object | Optional status-export source URL override. | No | see values file |
 | `observability.siteToSiteStatus.transport.*` | object | Site-to-Site transport settings for the typed status-export path. | No | see values file |
+| `observability.siteToSiteProvenance.enabled` | boolean | Enables the typed Site-to-Site provenance export path. This feature is independent of `observability.metrics.mode` and `observability.siteToSiteStatus`. | No | `false` |
+| `observability.siteToSiteProvenance.destination.*` | object | Typed destination URL and input-port contract for Site-to-Site provenance export. | No | see values file |
+| `observability.siteToSiteProvenance.auth.*` | object | Typed Site-to-Site auth contract for provenance export. Values: `none`, `workloadTLS`, `secretRef`, plus the explicit secure receiver-authorized identity and any referenced Secret material keys. | No | see values file |
+| `observability.siteToSiteProvenance.source.*` | object | Optional provenance-export source URL override. | No | see values file |
+| `observability.siteToSiteProvenance.transport.*` | object | Site-to-Site transport settings for the typed provenance-export path. | No | see values file |
+| `observability.siteToSiteProvenance.provenance.startPosition` | enum | Initial provenance cursor. Values: `beginningOfStream`, `endOfStream`. | No | `endOfStream` |
 
 ## Flow Registry Clients
 
@@ -211,3 +217,4 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | `observability.metrics.mode=exporter` | support status | Optional experimental secondary mode with focused runtime proof for render/deploy, secured upstream reachability, Prometheus scraping of `/metrics`, selected `/flow/status` gauges, and auth Secret rotation without exporter pod restart. | No |  |
 | `observability.metrics.mode=siteToSite` | support status | Optional experimental typed Site-to-Site metrics-export path. Runtime support is bounded to one `SiteToSiteMetricsReportingTask`, one `StandardRestrictedSSLContextService` when secure transport is used, `AmbariFormat`, and the current single-user bootstrap path. It is not a generic NiFi runtime-object framework. | No |  |
 | `observability.siteToSiteStatus.enabled=true` | support status | Optional experimental typed Site-to-Site status-export path. Runtime support is bounded to one `SiteToSiteStatusReportingTask`, one `StandardRestrictedSSLContextService` when secure transport is used, fixed JSON status payload defaults, and the current single-user bootstrap path. It is not a generic NiFi runtime-object framework. | No |  |
+| `observability.siteToSiteProvenance.enabled=true` | support status | Optional experimental typed Site-to-Site provenance-export path. Runtime support is bounded to one `SiteToSiteProvenanceReportingTask`, one `StandardRestrictedSSLContextService` when secure transport is used, a small fixed sender contract, one public provenance cursor knob, and the current single-user bootstrap path. It is not a generic NiFi runtime-object framework. | No |  |

@@ -2,7 +2,7 @@
 
 Metrics are a first-class subsystem in NiFi-Fabric.
 
-This page also covers the typed Site-to-Site status export capability because it lives in the same bounded observability family even though it is not a metrics mode.
+This page also covers the typed Site-to-Site status and provenance export capabilities because they live in the same bounded observability family even though they are not metrics modes.
 
 ## What This Feature Does
 
@@ -24,6 +24,7 @@ Supported metrics modes today:
 Additional typed observability export:
 
 - `observability.siteToSiteStatus`
+- `observability.siteToSiteProvenance`
 
 ## Primary Metrics Path
 
@@ -202,6 +203,73 @@ Ownership rule:
 - the platform owns only the specific Site-to-Site status export objects it creates by fixed name
 - manual UI edits to those objects are unsupported and will be overwritten on the next pod restart or redeploy
 
+## Site-to-Site Provenance Export
+
+`observability.siteToSiteProvenance` is a third typed, bounded Site-to-Site capability.
+
+It stays separate from `observability.metrics.mode` and from `observability.siteToSiteStatus` so existing `nativeApi`, `exporter`, `siteToSite` metrics, and status-export behavior stays unchanged unless provenance export is explicitly enabled.
+
+Current typed public contract:
+
+- `enabled`
+- `destination.url`
+- `destination.inputPortName`
+- `auth.type`
+- `auth.authorizedIdentity` for secure Site-to-Site receiver authorization as an RFC2253-style X.509 subject string
+- `auth.secretRef.*` when `auth.type=secretRef`
+- `source.instanceUrl`
+- `transport.protocol`, `transport.communicationsTimeout`, and `transport.compressEvents`
+- `provenance.startPosition`
+
+What the app chart owns under the hood:
+
+- one `SiteToSiteProvenanceReportingTask`
+- one `StandardRestrictedSSLContextService` when secure transport is used
+
+What the app chart does not own:
+
+- generic Reporting Task APIs
+- generic Controller Service APIs
+- generic NiFi runtime-object management
+- destination receiver topology
+- destination receiver-side user and policy lifecycle
+- long-lived destination credential lifecycle
+- downstream provenance processing
+- proxy-controller-service wiring
+
+Current validation and runtime boundary:
+
+- destination URL must be present and start with `http://` or `https://`
+- input port name must be present
+- `auth.type` must be one of `none`, `workloadTLS`, or `secretRef`
+- `auth.authorizedIdentity` is required for secure Site-to-Site modes and must stay empty for `auth.type=none`
+- `https://` destinations require `workloadTLS` or `secretRef`
+- `http://` destinations require `auth.type=none`
+- `auth.secretRef.name` is required when `auth.type=secretRef`
+- `auth.secretRef.keystoreKey`, `auth.secretRef.keystorePasswordKey`, `auth.secretRef.truststoreKey`, and `auth.secretRef.truststorePasswordKey` must stay populated when `auth.type=secretRef`
+- transport protocol must be one of `RAW` or `HTTP`
+- if `source.instanceUrl` is set, it must start with `http://` or `https://`
+- `provenance.startPosition` must be one of `beginningOfStream` or `endOfStream`
+- the current typed bootstrap requires `auth.mode=singleUser` for local NiFi API management during object reconciliation
+
+Fixed internal defaults for this typed feature:
+
+- NiFi `Platform` is fixed to `nifi`
+- batch size is fixed to `1000`
+- the reporting task schedule is fixed to `1 min`
+- only the initial cursor behavior is public; broader provenance event-selection and batching controls stay out of scope
+
+How it differs from the other typed Site-to-Site paths:
+
+- metrics export manages `SiteToSiteMetricsReportingTask` and keeps metrics format and source identity hints explicit
+- status export manages `SiteToSiteStatusReportingTask` and keeps JSON payload shape, filters, and batching internal
+- provenance export manages `SiteToSiteProvenanceReportingTask` and exposes only one provenance-specific knob, `startPosition`, for honest initial cursor control
+
+Ownership rule:
+
+- the platform owns only the specific Site-to-Site provenance export objects it creates by fixed name
+- manual UI edits to those objects are unsupported and will be overwritten on the next pod restart or redeploy
+
 ## Machine-Auth Bootstrap
 
 The metrics auth contract remains provider-agnostic and distinct from human login flows.
@@ -248,6 +316,7 @@ Focused kind proof can mint a fresh NiFi access token into the referenced Secret
 - `exporter`: optional experimental secondary path with focused runtime proof
 - `siteToSite`: optional experimental typed runtime path
 - `siteToSiteStatus`: optional experimental typed status-export path
+- `siteToSiteProvenance`: optional experimental typed provenance-export path
 - trust-manager bundle consumption: optional supported complement to `nativeApi` and `exporter`, not a separate metrics mode
 
 ## Runtime Proof
@@ -258,6 +327,7 @@ Focused live proof is available through:
 - `make kind-metrics-native-api-trust-manager-fast-e2e`
 - `make kind-metrics-exporter-fast-e2e`
 - `make kind-metrics-exporter-trust-manager-fast-e2e`
+- `make kind-site-to-site-provenance-fast-e2e`
 - `make kind-metrics-site-to-site-fast-e2e`
 - `make kind-site-to-site-status-fast-e2e`
 - `make kind-metrics-fast-e2e`

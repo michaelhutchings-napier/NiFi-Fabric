@@ -475,6 +475,47 @@ observability:
       protocol: HTTP
       communicationsTimeout: 30 secs
       compressEvents: true
+  siteToSiteProvenance:
+    # -- Optional typed SiteToSite provenance export path.
+    # This creates only the bounded NiFi runtime objects required for SiteToSite provenance export:
+    # one SiteToSiteProvenanceReportingTask and one SSL Context Service when secure transport is used.
+    enabled: false
+    destination:
+      # -- Receiver base URL that accepts the site-to-site provenance feed.
+      url: ""
+      # -- Receiver input port name expected to accept the provenance feed.
+      inputPortName: ""
+    auth:
+      # -- Typed destination auth shape for SiteToSite provenance export.
+      # `workloadTLS` reuses the main NiFi workload keystore/truststore identity.
+      # `secretRef` uses the referenced Secret's keystore/truststore material instead.
+      # `none` is valid only for plain http:// destination URLs.
+      type: workloadTLS
+      # -- Receiver-side authorized identity for secure Site-to-Site provenance export.
+      # Use the RFC2253-style X.509 subject the destination receiver must trust and bind
+      # to the required `/controller` read, `/site-to-site` read, and destination
+      # input-port write policies. Leave empty only when auth.type=none.
+      authorizedIdentity: ""
+      secretRef:
+        name: ""
+        keystoreKey: keystore.p12
+        keystorePasswordKey: keystorePassword
+        truststoreKey: truststore.p12
+        truststorePasswordKey: truststorePassword
+    source:
+      # -- Optional Instance URL override used in the exported provenance payload.
+      # Leave empty to derive it from the local Service.
+      instanceUrl: ""
+    transport:
+      # -- Supported transport values for the typed SiteToSite provenance path.
+      protocol: HTTP
+      communicationsTimeout: 30 secs
+      compressEvents: true
+    provenance:
+      # -- Initial export cursor for the typed provenance path.
+      # `endOfStream` avoids replaying historical provenance on first start.
+      # `beginningOfStream` allows an explicit one-time historical backfill instead.
+      startPosition: endOfStream
 
 # ------------------------------------------------------------------------------
 # Flow Registry Clients

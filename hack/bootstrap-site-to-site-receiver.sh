@@ -512,7 +512,7 @@ payload = {
             "properties": {
                 "log-level": "info",
                 "log-prefix": sys.argv[2],
-                "log-message": "typed site-to-site metrics export delivered",
+                "log-message": "typed site-to-site delivery proof payload received",
             },
         },
     },

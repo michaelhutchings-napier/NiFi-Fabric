@@ -75,6 +75,8 @@ NiFi-Fabric keeps the product surface small and explicit.
 - the typed site-to-site contract now makes the secure receiver-authorized identity explicit instead of leaving the destination-side auth requirement implicit
 - site-to-site status export is an additional optional typed runtime path built around one SiteToSiteStatusReportingTask use case, not a generic reporting-task framework
 - the status-export API stays separate from `observability.metrics.mode` so current `nativeApi`, `exporter`, and site-to-site metrics behavior are unaffected unless status export is explicitly enabled
+- site-to-site provenance export is a third optional typed runtime path built around one `SiteToSiteProvenanceReportingTask`, not a generic reporting-task framework
+- the provenance-export API stays separate from metrics and status so current `nativeApi`, `exporter`, site-to-site metrics, and site-to-site status behavior are unaffected unless provenance export is explicitly enabled
 - focused kind proof now covers real sender-to-receiver delivery, receiver-side policy binding checks, and bounded proof-harness bootstrap while keeping destination ownership out of the product API
 - machine-auth metrics credentials use a provider-agnostic Secret contract
 - optional trust-manager bundle consumption can simplify CA trust for metrics and outbound NiFi TLS clients

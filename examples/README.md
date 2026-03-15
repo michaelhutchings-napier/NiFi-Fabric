@@ -115,6 +115,13 @@ Metrics note:
 - [platform-managed-site-to-site-status-kind-values.yaml](platform-managed-site-to-site-status-kind-values.yaml) points that typed feature at a cluster-local kind URL for focused runtime proof
 - [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is reused as the proof-only receiver harness for that focused kind gate
 - the focused runtime proof command is `make kind-site-to-site-status-fast-e2e`
+- [platform-managed-site-to-site-provenance-values.yaml](platform-managed-site-to-site-provenance-values.yaml) is an optional overlay for the typed site-to-site provenance export path
+- it enables `nifi.observability.siteToSiteProvenance.enabled=true`
+- it models the bounded destination, auth, receiver-authorized identity, optional source instance URL override, transport contract, and small provenance cursor contract for one `SiteToSiteProvenanceReportingTask`
+- it keeps destination receiver topology, destination-side user or policy lifecycle, long-lived credential lifecycle, and downstream provenance processing operator-owned
+- [platform-managed-site-to-site-provenance-kind-values.yaml](platform-managed-site-to-site-provenance-kind-values.yaml) points that typed feature at a cluster-local kind URL for focused runtime proof
+- [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is reused as the proof-only receiver harness for that focused kind gate
+- the focused runtime proof command is `make kind-site-to-site-provenance-fast-e2e`
 
 KEDA note:
 
