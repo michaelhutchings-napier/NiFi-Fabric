@@ -11,6 +11,9 @@ expected_destination_url=""
 expected_input_port=""
 expected_transport="HTTP"
 expected_format="AmbariFormat"
+expected_auth_type=""
+expected_authorized_identity=""
+expected_auth_secret_ref_name=""
 expect_ssl_service="true"
 
 while [[ $# -gt 0 ]]; do
@@ -49,6 +52,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --expected-format)
       expected_format="$2"
+      shift 2
+      ;;
+    --expected-auth-type)
+      expected_auth_type="$2"
+      shift 2
+      ;;
+    --expected-authorized-identity)
+      expected_authorized_identity="$2"
+      shift 2
+      ;;
+    --expected-auth-secret-ref-name)
+      expected_auth_secret_ref_name="$2"
       shift 2
       ;;
     --expect-ssl-service)
@@ -96,6 +111,11 @@ dump_diagnostics() {
     echo
     echo "controller service entity:"
     cat "${tmpdir}/controller-service.json"
+  fi
+  if [[ -f "${tmpdir}/site-to-site-config.json" ]]; then
+    echo
+    echo "site-to-site config contract:"
+    cat "${tmpdir}/site-to-site-config.json"
   fi
 }
 
@@ -185,6 +205,50 @@ if [[ -z "${nifi_token}" ]]; then
   exit 1
 fi
 
+kubectl -n "${namespace}" get configmap "${release}-site-to-site-metrics" -o jsonpath='{.data.config\.json}' >"${tmpdir}/site-to-site-config.json"
+python3 - "${tmpdir}/site-to-site-config.json" "${expected_destination_url}" "${expected_input_port}" "${expected_transport}" "${expected_format}" "${expected_auth_type}" "${expected_authorized_identity}" "${expected_auth_secret_ref_name}" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1]))
+destination_url, input_port, transport, fmt, auth_type, authorized_identity, auth_secret_ref_name = sys.argv[2:]
+auth = payload.get("auth", {})
+material = auth.get("material", {})
+resolved_input_port = input_port or payload.get("destination", {}).get("inputPortName", "")
+required = {
+    ("/controller", "R"),
+    ("/site-to-site", "R"),
+    ("destination-input-port", "W", resolved_input_port),
+}
+
+if destination_url and payload.get("destination", {}).get("url") != destination_url:
+    raise SystemExit(f"expected config destination url {destination_url!r}, got {payload.get('destination', {}).get('url')!r}")
+if input_port and payload.get("destination", {}).get("inputPortName") != input_port:
+    raise SystemExit(f"expected config input port {input_port!r}, got {payload.get('destination', {}).get('inputPortName')!r}")
+if transport and payload.get("transport", {}).get("protocol") != transport:
+    raise SystemExit(f"expected config transport {transport!r}, got {payload.get('transport', {}).get('protocol')!r}")
+if fmt and payload.get("format", {}).get("type") != fmt:
+    raise SystemExit(f"expected config format {fmt!r}, got {payload.get('format', {}).get('type')!r}")
+if auth_type and auth.get("type") != auth_type:
+    raise SystemExit(f"expected config auth.type {auth_type!r}, got {auth.get('type')!r}")
+if authorized_identity and auth.get("authorizedIdentity") != authorized_identity:
+    raise SystemExit(f"expected config auth.authorizedIdentity {authorized_identity!r}, got {auth.get('authorizedIdentity')!r}")
+if auth_secret_ref_name and material.get("secretName") != auth_secret_ref_name:
+    raise SystemExit(f"expected config auth.material.secretName {auth_secret_ref_name!r}, got {material.get('secretName')!r}")
+
+actual = set()
+for item in payload.get("receiverRequirements", {}).get("requiredPolicies", []):
+    resource = item.get("resource")
+    action = item.get("action")
+    if resource == "destination-input-port":
+        actual.add((resource, action, item.get("inputPortName")))
+    else:
+        actual.add((resource, action))
+if required != actual:
+    raise SystemExit(f"expected receiver requirements {sorted(required)!r}, got {sorted(actual)!r}")
+print("ok")
+PY
+
 nifi_curl_retry GET /flow/reporting-tasks "" 30 2 >"${tmpdir}/reporting-tasks.json"
 task_id="$(
   python3 - "${tmpdir}/reporting-tasks.json" "${task_name}" <<'PY'
@@ -259,12 +323,13 @@ PY
     exit 1
   fi
   nifi_curl_retry GET "/controller-services/${service_id}" "" 20 2 >"${tmpdir}/controller-service.json"
-  python3 - "${tmpdir}/controller-service.json" "${ssl_service_name}" <<'PY'
+  python3 - "${tmpdir}/controller-service.json" "${ssl_service_name}" "${expected_auth_type}" <<'PY'
 import json
 import sys
 
 payload = json.load(open(sys.argv[1]))
 service_name = sys.argv[2]
+expected_auth_type = sys.argv[3]
 component = payload.get("component", {})
 properties = component.get("properties", {})
 if component.get("name") != service_name:
@@ -277,6 +342,16 @@ for key in ("Keystore Filename", "Truststore Filename"):
     value = properties.get(key, "")
     if not value:
         raise SystemExit(f"expected controller service property {key!r} to be populated")
+if expected_auth_type == "secretRef":
+    for key in ("Keystore Filename", "Truststore Filename"):
+        value = properties.get(key, "")
+        if not value.startswith("/opt/nifi/fabric/site-to-site-metrics-ssl/"):
+            raise SystemExit(f"expected {key!r} to use the dedicated site-to-site Secret mount, got {value!r}")
+elif expected_auth_type == "workloadTLS":
+    for key in ("Keystore Filename", "Truststore Filename"):
+        value = properties.get(key, "")
+        if not value.startswith("/opt/nifi/tls/"):
+            raise SystemExit(f"expected {key!r} to use the main workload TLS mount, got {value!r}")
 print("ok")
 PY
 fi

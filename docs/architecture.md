@@ -81,19 +81,20 @@ Experimental or prepared paths:
 - the exporter keeps local liveness separate from upstream-aware readiness and rereads mounted auth material without requiring a pod restart
 - `siteToSite` stays optional and is now a typed metrics-export capability instead of a generic NiFi runtime-object framework
 - the public API remains bounded to one metrics use case under `observability.metrics.siteToSite`
+- the typed contract now includes the receiver-authorized sender identity for secure Site-to-Site modes so the destination-side trust and policy requirement stays explicit and customer-visible
 - the app chart owns only the minimum internal NiFi objects required for that use case:
 - one `SiteToSiteMetricsReportingTask`
 - one `StandardRestrictedSSLContextService` when secure site-to-site transport is enabled
 - no generic Reporting Task, Controller Service, or NiFi runtime-object public API is introduced
 - record-writer ownership for non-Ambari formats and proxy-controller-service ownership remain future work
-- destination receiver topology, input-port policy decisions, and any reverse-proxy routing assumptions remain explicit operator-owned concerns
+- destination receiver topology, the receiver-side `/site-to-site` and `/controller` read grants, the destination input-port write grant for that identity, and any reverse-proxy routing assumptions remain explicit operator-owned concerns
 - current runtime ownership is intentionally chart-scoped and bootstrap-scoped rather than controller-owned orchestration
 
 Current conservative boundary:
 
 - `nativeApi` runtime proof is still centered on the secured flow Prometheus endpoint
 - exporter runtime proof adds one second secured endpoint, `/nifi-api/flow/status`, through the chart-owned exporter path
-- site-to-site runtime proof is intentionally bounded to typed reporting-task and SSL-context bootstrap; full receiver-pipeline proof remains narrower than the generic site-to-site problem space
+- site-to-site runtime proof is intentionally bounded to typed reporting-task and SSL-context bootstrap plus a proof-only receiver harness; full receiver-pipeline ownership remains narrower than the generic site-to-site problem space
 - JVM or system-diagnostics metrics are not yet runtime-proven
 - machine-auth Secret bootstrap is partially automated, but machine principal provisioning and IdP write-back remain out of scope
 

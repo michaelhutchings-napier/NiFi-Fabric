@@ -169,7 +169,9 @@ Current honest limit:
 - exporter remains optional and experimental even with the stronger runtime gate
 - trust-manager-backed exporter proof currently covers PEM bundle distribution only; additional Bundle output formats are still future work for exporter mode
 - `siteToSite` proof is intentionally bounded to the typed sender path plus a proof-only receiver harness on kind
+- that proof now also checks the declared secure receiver identity and the minimum receiver-side policy bindings needed for delivery
 - destination receiver topology and destination-side policy lifecycle remain operator-owned outside that focused proof harness
+- the current receiver harness still uses a proof-only local admin path to seed those bindings on kind
 - proxy-controller-service wiring and non-Ambari record-writer ownership remain future work for Site-to-Site metrics export
 
 ## Current Conservative Boundaries

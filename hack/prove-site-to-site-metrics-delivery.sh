@@ -11,9 +11,13 @@ sender_expected_destination_url=""
 sender_expected_input_port="nifi-metrics"
 sender_expected_transport="HTTP"
 sender_expected_format="AmbariFormat"
+sender_expected_auth_type=""
+sender_expected_authorized_identity=""
+sender_expected_auth_secret_ref_name=""
 receiver_namespace="site-to-site-receiver"
 receiver_release="site-to-site-receiver"
 receiver_auth_secret="site-to-site-receiver-auth"
+receiver_expected_authorized_identity=""
 receiver_input_port_name="nifi-metrics"
 receiver_processor_name="site-to-site-receiver-log"
 receiver_processor_log_prefix="site-to-site-metrics-proof"
@@ -49,6 +53,18 @@ while [[ $# -gt 0 ]]; do
       sender_expected_format="$2"
       shift 2
       ;;
+    --sender-expected-auth-type)
+      sender_expected_auth_type="$2"
+      shift 2
+      ;;
+    --sender-expected-authorized-identity)
+      sender_expected_authorized_identity="$2"
+      shift 2
+      ;;
+    --sender-expected-auth-secret-ref-name)
+      sender_expected_auth_secret_ref_name="$2"
+      shift 2
+      ;;
     --receiver-namespace)
       receiver_namespace="$2"
       shift 2
@@ -59,6 +75,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --receiver-auth-secret)
       receiver_auth_secret="$2"
+      shift 2
+      ;;
+    --receiver-expected-authorized-identity)
+      receiver_expected_authorized_identity="$2"
       shift 2
       ;;
     --receiver-input-port)
@@ -120,6 +140,16 @@ dump_receiver_diagnostics() {
     echo "receiver proof processor status:"
     cat "${tmpdir}/receiver-processor-status.json"
   fi
+  if [[ -f "${tmpdir}/receiver-users.xml" ]]; then
+    echo
+    echo "receiver users.xml:"
+    cat "${tmpdir}/receiver-users.xml"
+  fi
+  if [[ -f "${tmpdir}/receiver-authorizations.xml" ]]; then
+    echo
+    echo "receiver authorizations.xml:"
+    cat "${tmpdir}/receiver-authorizations.xml"
+  fi
 }
 
 trap 'echo "FAIL: typed Site-to-Site metrics delivery proof failed" >&2; dump_receiver_diagnostics; exit 1' ERR
@@ -132,6 +162,9 @@ bash "${ROOT_DIR}/hack/prove-site-to-site-metrics.sh" \
   --expected-input-port "${sender_expected_input_port}" \
   --expected-transport "${sender_expected_transport}" \
   --expected-format "${sender_expected_format}" \
+  --expected-auth-type "${sender_expected_auth_type}" \
+  --expected-authorized-identity "${sender_expected_authorized_identity}" \
+  --expected-auth-secret-ref-name "${sender_expected_auth_secret_ref_name}" \
   --expect-ssl-service true
 
 receiver_pod="${receiver_release}-0"
@@ -289,6 +322,49 @@ if properties.get("log-prefix") != target_prefix:
     raise SystemExit(f"expected receiver processor log-prefix {target_prefix!r}, got {properties.get('log-prefix')!r}")
 print("ok")
 PY
+
+if [[ -n "${receiver_expected_authorized_identity}" ]]; then
+  kubectl -n "${receiver_namespace}" exec -i -c nifi "${receiver_pod}" -- cat /opt/nifi/nifi-current/conf/users.xml >"${tmpdir}/receiver-users.xml"
+  kubectl -n "${receiver_namespace}" exec -i -c nifi "${receiver_pod}" -- cat /opt/nifi/nifi-current/conf/authorizations.xml >"${tmpdir}/receiver-authorizations.xml"
+  python3 - "${tmpdir}/receiver-users.xml" "${tmpdir}/receiver-authorizations.xml" "${receiver_expected_authorized_identity}" "${receiver_port_id}" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+users_root = ET.parse(sys.argv[1]).getroot()
+authz_root = ET.parse(sys.argv[2]).getroot()
+expected_identity = sys.argv[3]
+port_id = sys.argv[4]
+
+user_id = ""
+for user in users_root.findall(".//user"):
+    if user.get("identity") == expected_identity:
+        user_id = user.get("identifier", "")
+        break
+
+if not user_id:
+    raise SystemExit(f"expected receiver users.xml to contain identity {expected_identity!r}")
+
+required_policies = [
+    ("/controller", "R"),
+    ("/site-to-site", "R"),
+    (f"/data-transfer/input-ports/{port_id}", "W"),
+]
+
+for resource, action in required_policies:
+    policy = None
+    for candidate in authz_root.findall(".//policy"):
+        if candidate.get("resource") == resource and candidate.get("action") == action:
+            policy = candidate
+            break
+    if policy is None:
+        raise SystemExit(f"expected receiver authorizations.xml to contain policy {(resource, action)!r}")
+    user_ids = {entry.get("identifier") for entry in policy.findall("./user")}
+    if user_id not in user_ids:
+        raise SystemExit(f"expected receiver policy {(resource, action)!r} to bind identity {expected_identity!r}")
+
+print("ok")
+PY
+fi
 
 deadline=$(( $(date +%s) + delivery_timeout_seconds ))
 delivery_ok=""

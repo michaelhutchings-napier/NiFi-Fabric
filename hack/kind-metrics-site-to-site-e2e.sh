@@ -17,6 +17,7 @@ PLATFORM_VALUES_FILE="${PLATFORM_VALUES_FILE:-examples/platform-managed-values.y
 PLATFORM_FAST_VALUES_FILE="${PLATFORM_FAST_VALUES_FILE:-examples/platform-fast-values.yaml}"
 PLATFORM_METRICS_VALUES_FILE="${PLATFORM_METRICS_VALUES_FILE:-examples/platform-managed-metrics-site-to-site-values.yaml}"
 PLATFORM_KIND_VALUES_FILE="${PLATFORM_KIND_VALUES_FILE:-examples/platform-managed-metrics-site-to-site-kind-values.yaml}"
+SITE_TO_SITE_AUTHORIZED_IDENTITY="${SITE_TO_SITE_AUTHORIZED_IDENTITY:-O=NiFi-Fabric, CN=nifi-site-to-site-metrics-client}"
 SKIP_KIND_BOOTSTRAP="${SKIP_KIND_BOOTSTRAP:-false}"
 FAST_PROFILE="${FAST_PROFILE:-true}"
 START_EPOCH="$(date +%s)"
@@ -123,6 +124,7 @@ bash "${ROOT_DIR}/hack/bootstrap-site-to-site-receiver.sh" \
   --sender-release "${HELM_RELEASE}" \
   --receiver-namespace "${RECEIVER_NAMESPACE}" \
   --receiver-release "${RECEIVER_RELEASE}" \
+  --authorized-identity "${SITE_TO_SITE_AUTHORIZED_IDENTITY}" \
   --input-port "nifi-metrics"
 
 phase "Installing product chart managed release${profile_label}"
@@ -150,9 +152,13 @@ bash "${ROOT_DIR}/hack/prove-site-to-site-metrics-delivery.sh" \
   --sender-expected-input-port "nifi-metrics" \
   --sender-expected-transport "HTTP" \
   --sender-expected-format "AmbariFormat" \
+  --sender-expected-auth-type "secretRef" \
+  --sender-expected-authorized-identity "${SITE_TO_SITE_AUTHORIZED_IDENTITY}" \
+  --sender-expected-auth-secret-ref-name "nifi-site-to-site-receiver-client" \
   --receiver-namespace "${RECEIVER_NAMESPACE}" \
   --receiver-release "${RECEIVER_RELEASE}" \
   --receiver-auth-secret site-to-site-receiver-auth \
+  --receiver-expected-authorized-identity "${SITE_TO_SITE_AUTHORIZED_IDENTITY}" \
   --receiver-input-port "nifi-metrics"
 
 print_success_footer "typed Site-to-Site metrics delivery proof completed" \
@@ -160,4 +166,4 @@ print_success_footer "typed Site-to-Site metrics delivery proof completed" \
   "helm -n ${RECEIVER_NAMESPACE} status ${RECEIVER_RELEASE}" \
   "kubectl -n ${NAMESPACE} logs ${HELM_RELEASE}-0 -c nifi --tail=200" \
   "kubectl -n ${RECEIVER_NAMESPACE} logs ${RECEIVER_RELEASE}-0 -c nifi --tail=200" \
-  "bash hack/prove-site-to-site-metrics-delivery.sh --sender-namespace ${NAMESPACE} --sender-release ${HELM_RELEASE} --sender-expected-destination-url https://${RECEIVER_RELEASE}.${RECEIVER_NAMESPACE}.svc.cluster.local:8443/nifi --receiver-namespace ${RECEIVER_NAMESPACE} --receiver-release ${RECEIVER_RELEASE}"
+  "bash hack/prove-site-to-site-metrics-delivery.sh --sender-namespace ${NAMESPACE} --sender-release ${HELM_RELEASE} --sender-expected-destination-url https://${RECEIVER_RELEASE}.${RECEIVER_NAMESPACE}.svc.cluster.local:8443/nifi --sender-expected-auth-type secretRef --sender-expected-authorized-identity '${SITE_TO_SITE_AUTHORIZED_IDENTITY}' --sender-expected-auth-secret-ref-name nifi-site-to-site-receiver-client --receiver-namespace ${RECEIVER_NAMESPACE} --receiver-release ${RECEIVER_RELEASE} --receiver-expected-authorized-identity '${SITE_TO_SITE_AUTHORIZED_IDENTITY}'"

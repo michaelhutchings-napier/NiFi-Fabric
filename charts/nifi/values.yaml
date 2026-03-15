@@ -412,6 +412,11 @@ observability:
         # `secretRef` uses the referenced Secret's keystore/truststore material instead.
         # `none` is valid only for plain http:// destination URLs.
         type: workloadTLS
+        # -- Receiver-side authorized identity for secure SiteToSite metrics export.
+        # Use the RFC2253-style X.509 subject the destination receiver must trust and bind
+        # to the required `/controller` read, `/site-to-site` read, and destination
+        # input-port write policies. Leave empty only when auth.type=none.
+        authorizedIdentity: ""
         secretRef:
           name: ""
           keystoreKey: keystore.p12

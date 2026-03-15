@@ -145,7 +145,7 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | `observability.metrics.exporter.resources.*` | object | Exporter pod resources. | No | `{}` |
 | `observability.metrics.siteToSite.enabled` | boolean | Enables the typed Site-to-Site metrics export path when `observability.metrics.mode=siteToSite`. | No | `false` |
 | `observability.metrics.siteToSite.destination.*` | object | Typed destination URL and input-port contract for Site-to-Site metrics export. | No | see values file |
-| `observability.metrics.siteToSite.auth.*` | object | Typed Site-to-Site auth contract. Values: `none`, `workloadTLS`, `secretRef`. | No | see values file |
+| `observability.metrics.siteToSite.auth.*` | object | Typed Site-to-Site auth contract. Values: `none`, `workloadTLS`, `secretRef`, plus the explicit secure receiver-authorized identity and any referenced Secret material keys. | No | see values file |
 | `observability.metrics.siteToSite.source.*` | object | Reporting-task source identity hints. | No | see values file |
 | `observability.metrics.siteToSite.transport.*` | object | Site-to-Site transport settings for the typed metrics-export path. | No | see values file |
 | `observability.metrics.siteToSite.format.*` | object | Site-to-Site output format settings. Current runtime support is bounded to `AmbariFormat`. | No | see values file |

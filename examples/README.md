@@ -102,11 +102,11 @@ Metrics note:
 - [platform-managed-metrics-site-to-site-values.yaml](platform-managed-metrics-site-to-site-values.yaml) is an optional overlay for the typed site-to-site metrics export path
 - it enables `nifi.observability.metrics.mode=siteToSite`
 - it enables `nifi.observability.metrics.siteToSite.enabled=true`
-- it models the bounded destination, auth, source, transport, and format contract for one `SiteToSiteMetricsReportingTask`
-- it keeps destination receiver topology and destination-side policies operator-owned
+- it models the bounded destination, auth, receiver-authorized identity, source, transport, and format contract for one `SiteToSiteMetricsReportingTask`
+- it keeps destination receiver topology and destination-side user or policy lifecycle operator-owned
 - [platform-managed-metrics-site-to-site-kind-values.yaml](platform-managed-metrics-site-to-site-kind-values.yaml) points that typed feature at a cluster-local kind URL for focused runtime proof
 - [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is the proof-only receiver harness used by that focused kind gate
-- the harness bootstraps one public input port, one minimal downstream processor, and the minimum receiver-side auth needed to prove delivery
+- the harness bootstraps one public input port, one minimal downstream processor, and the minimum receiver-side auth needed to trust and authorize the declared sender identity for delivery
 - the focused runtime proof command is `make kind-metrics-site-to-site-fast-e2e`
 
 KEDA note:

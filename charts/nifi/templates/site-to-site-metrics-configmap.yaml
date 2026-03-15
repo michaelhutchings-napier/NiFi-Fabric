@@ -4,7 +4,9 @@
 {{- $secretRef := default (dict) $auth.secretRef -}}
 {{- $serviceHost := printf "%s.%s.svc.cluster.local" (include "nifi.fullname" .) .Release.Namespace -}}
 {{- $instanceURL := default (printf "https://%s:%v/nifi" $serviceHost .Values.ports.https) $siteToSite.source.instanceUrl -}}
+{{- $authorizedIdentity := trim (default "" $auth.authorizedIdentity) -}}
 {{- $sslConfig := dict -}}
+{{- $materialContract := dict "mode" $auth.type -}}
 {{- if eq $auth.type "workloadTLS" -}}
 {{- $sslConfig = dict
   "enabled" true
@@ -12,6 +14,12 @@
   "keystorePasswordEnv" "KEYSTORE_PASSWORD"
   "truststorePath" (printf "%s/%s" .Values.tls.mountPath .Values.tls.truststoreKey)
   "truststorePasswordEnv" "TRUSTSTORE_PASSWORD"
+-}}
+{{- $materialContract = dict
+  "mode" "workloadTLS"
+  "keystorePath" (printf "%s/%s" .Values.tls.mountPath .Values.tls.keystoreKey)
+  "truststorePath" (printf "%s/%s" .Values.tls.mountPath .Values.tls.truststoreKey)
+  "authorizedIdentitySource" "main workload certificate subject"
 -}}
 {{- else if eq $auth.type "secretRef" -}}
 {{- $sslConfig = dict
@@ -21,8 +29,22 @@
   "truststorePath" (printf "/opt/nifi/fabric/site-to-site-metrics-ssl/%s" (default "truststore.p12" $secretRef.truststoreKey))
   "truststorePasswordEnv" "SITE_TO_SITE_METRICS_TRUSTSTORE_PASSWORD"
 -}}
+{{- $materialContract = dict
+  "mode" "secretRef"
+  "secretName" $secretRef.name
+  "keystoreKey" (default "keystore.p12" $secretRef.keystoreKey)
+  "keystorePasswordKey" (default "keystorePassword" $secretRef.keystorePasswordKey)
+  "truststoreKey" (default "truststore.p12" $secretRef.truststoreKey)
+  "truststorePasswordKey" (default "truststorePassword" $secretRef.truststorePasswordKey)
+  "mountPath" "/opt/nifi/fabric/site-to-site-metrics-ssl"
+  "authorizedIdentitySource" "client certificate subject in the referenced Secret"
+-}}
 {{- else -}}
 {{- $sslConfig = dict "enabled" false -}}
+{{- $materialContract = dict
+  "mode" "none"
+  "authorizedIdentitySource" "none"
+-}}
 {{- end -}}
 {{- $config := dict
   "taskName" "fabric-site-to-site-metrics-export"
@@ -34,6 +56,11 @@
   "destination" (dict
     "url" $siteToSite.destination.url
     "inputPortName" $siteToSite.destination.inputPortName
+  )
+  "auth" (dict
+    "type" $auth.type
+    "authorizedIdentity" $authorizedIdentity
+    "material" $materialContract
   )
   "source" (dict
     "applicationId" (default "nifi" $siteToSite.source.applicationId)
@@ -48,6 +75,13 @@
   "format" (dict
     "type" (default "AmbariFormat" $siteToSite.format.type)
     "includeNullValues" (ternary "true" "false" $siteToSite.format.includeNullValues)
+  )
+  "receiverRequirements" (dict
+    "requiredPolicies" (list
+      (dict "resource" "/controller" "action" "R")
+      (dict "resource" "/site-to-site" "action" "R")
+      (dict "resource" "destination-input-port" "action" "W" "inputPortName" $siteToSite.destination.inputPortName)
+    )
   )
   "ssl" $sslConfig
 -}}

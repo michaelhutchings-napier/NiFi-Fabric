@@ -178,12 +178,12 @@ Current conservative boundary:
 - `exporter` is runtime-proven for selected controller-status gauges derived from `/nifi-api/flow/status`
 - `exporter` is runtime-proven for upstream-aware readiness and mounted auth Secret rotation without restarting the exporter pod
 - `siteToSite` is now runtime-proven end to end as a typed metrics-export path that creates exactly one `SiteToSiteMetricsReportingTask` and one `StandardRestrictedSSLContextService` when secure transport is enabled
-- `siteToSite` proof now covers typed sender bootstrap, secure receiver peer discovery, and live delivery to a real Site-to-Site receiver on kind through the product-facing chart path
-- `siteToSite` remains bounded to `AmbariFormat`, a proof-only receiver harness, and the current single-user bootstrap path for local NiFi API management
+- `siteToSite` proof now covers typed sender bootstrap, explicit receiver-authorized identity wiring, secure receiver peer discovery, receiver-side policy binding checks, and live delivery to a real Site-to-Site receiver on kind through the product-facing chart path
+- `siteToSite` remains bounded to `AmbariFormat`, an explicit secure receiver auth contract, a proof-only receiver harness, and the current single-user bootstrap path for local NiFi API management
 - `siteToSite` is not a generic Reporting Task, Controller Service, or NiFi runtime-object framework
 - two named native scrape profiles are proven, but they still scrape the same flow Prometheus endpoint at different cadence
 - JVM or system-diagnostics metrics are not yet runtime-proven
-- full destination receiver topology, input-port policies, proxy-controller-service wiring, and non-Ambari record-writer ownership remain future work
+- full destination receiver topology, long-lived destination-side user or policy lifecycle management, proxy-controller-service wiring, and non-Ambari record-writer ownership remain future work
 
 Operators still provide, out of band:
 

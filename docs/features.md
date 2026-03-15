@@ -72,7 +72,8 @@ NiFi-Fabric keeps the product surface small and explicit.
 - exporter live proof stays chart-scoped: a companion `Deployment`, `Service`, and `ServiceMonitor`, secured upstream reachability, and a Prometheus-scrapable `/metrics` endpoint
 - exporter trust-manager live proof now covers Bundle reconciliation, mounted trust presence, and successful secured upstream reachability through the distributed bundle
 - site-to-site metrics export is now an optional typed runtime path built around one SiteToSiteMetricsReportingTask use case, not a generic NiFi runtime-object API
-- focused kind proof now covers real sender-to-receiver delivery to a bounded proof harness, while keeping destination ownership out of the product API
+- the typed site-to-site contract now makes the secure receiver-authorized identity explicit instead of leaving the destination-side auth requirement implicit
+- focused kind proof now covers real sender-to-receiver delivery, receiver-side policy binding checks, and bounded proof-harness bootstrap while keeping destination ownership out of the product API
 - machine-auth metrics credentials use a provider-agnostic Secret contract
 - optional trust-manager bundle consumption can simplify CA trust for metrics and outbound NiFi TLS clients
 - optional PKCS12 and JKS trust-manager outputs can be rendered for downstream consumers that need them

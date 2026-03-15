@@ -82,6 +82,7 @@ Current typed public contract:
 - `destination.url`
 - `destination.inputPortName`
 - `auth.type`
+- `auth.authorizedIdentity` for secure Site-to-Site receiver authorization as an RFC2253-style X.509 subject string
 - `auth.secretRef.*` when `auth.type=secretRef`
 - `source.applicationId`, `source.hostname`, and `source.instanceUrl`
 - `transport.protocol`, `transport.communicationsTimeout`, and `transport.compressEvents`
@@ -98,7 +99,7 @@ What the app chart does not own:
 - generic Controller Service APIs
 - generic NiFi runtime-object management
 - destination receiver topology
-- destination input-port policies
+- destination receiver-side user and policy lifecycle
 - proxy-controller-service wiring
 - non-Ambari record-writer ownership
 
@@ -107,12 +108,22 @@ Current validation and runtime boundary:
 - destination URL must be present and start with `http://` or `https://`
 - input port name must be present
 - `auth.type` must be one of `none`, `workloadTLS`, or `secretRef`
+- `auth.authorizedIdentity` is required for secure Site-to-Site modes and must stay empty for `auth.type=none`
 - `https://` destinations require `workloadTLS` or `secretRef`
 - `http://` destinations require `auth.type=none`
 - `auth.secretRef.name` is required when `auth.type=secretRef`
+- `auth.secretRef.keystoreKey`, `auth.secretRef.keystorePasswordKey`, `auth.secretRef.truststoreKey`, and `auth.secretRef.truststorePasswordKey` must stay populated when `auth.type=secretRef`
 - transport protocol must be one of `RAW` or `HTTP`
 - format is currently constrained to `AmbariFormat`
 - the current typed bootstrap requires `auth.mode=singleUser` for local NiFi API management during object reconciliation
+
+Receiver-side requirement for secure modes:
+
+- the destination receiver must trust the presented client certificate chain
+- the destination receiver must authorize `auth.authorizedIdentity`
+- that identity needs `/controller` read
+- that identity needs `/site-to-site` read
+- that identity needs write on the destination input port selected by `destination.inputPortName`
 
 Ownership rule:
 
@@ -210,9 +221,11 @@ What `make kind-metrics-site-to-site-fast-e2e` now proves live:
 - pod `-0` reconciles exactly one `SiteToSiteMetricsReportingTask`
 - pod `-0` reconciles exactly one `StandardRestrictedSSLContextService` when secure Site-to-Site transport is configured
 - the reporting task reaches `RUNNING` state with the expected destination URL, input port name, transport protocol, and `AmbariFormat`
+- the generated bootstrap config preserves the expected `auth.type`, `auth.authorizedIdentity`, material references, and required receiver-side policy contract
 - the SSL context service reaches `ENABLED` state with the expected keystore and truststore wiring
 - a focused proof-only receiver NiFi release is bootstrapped on kind with one public input port and one minimal downstream processor
 - secure Site-to-Site peer discovery succeeds against that receiver using the documented typed auth and TLS Secret contract
+- the focused proof verifies that the receiver-side authorized identity exists and is bound to `/controller` read, `/site-to-site` read, and destination input-port write
 - live metrics delivery reaches the real receiver and is observed from receiver-side processor status
 - the feature remains chart-scoped and does not move Site-to-Site orchestration into the controller
 
@@ -226,6 +239,7 @@ What remains experimental or intentionally bounded:
 - `siteToSite` remains optional and experimental
 - `siteToSite` runtime proof uses a tightly scoped kind-only receiver harness, not a product-managed destination control plane
 - destination receiver topology and destination-side policy lifecycle remain operator-owned outside that proof harness
+- the current focused proof still uses a proof-only receiver-side local admin path to seed the minimum authz needed for delivery
 - proxy-controller-service wiring, destination automation beyond the proof harness, and non-Ambari record-writer ownership remain future work for Site-to-Site metrics export
 - no controller-owned metrics orchestration is introduced by this slice
 

@@ -459,6 +459,7 @@ app.kubernetes.io/component: metrics
 {{- $destination := default (dict) $siteToSiteMetrics.destination -}}
 {{- $destinationAuth := default (dict) $siteToSiteMetrics.auth -}}
 {{- $destinationAuthSecretRef := default (dict) $destinationAuth.secretRef -}}
+{{- $authorizedIdentity := trim (default "" $destinationAuth.authorizedIdentity) -}}
 {{- $source := default (dict) $siteToSiteMetrics.source -}}
 {{- $transport := default (dict) $siteToSiteMetrics.transport -}}
 {{- $format := default (dict) $siteToSiteMetrics.format -}}
@@ -477,14 +478,38 @@ app.kubernetes.io/component: metrics
 {{- if not $destination.inputPortName -}}
 {{- fail "observability.metrics.siteToSite.destination.inputPortName is required when observability.metrics.mode=siteToSite" -}}
 {{- end -}}
+{{- if eq $destinationAuth.type "" -}}
+{{- fail "observability.metrics.siteToSite.auth.type is required when observability.metrics.mode=siteToSite" -}}
+{{- end -}}
 {{- if and (ne $destinationAuth.type "") (ne $destinationAuth.type "none") (ne $destinationAuth.type "workloadTLS") (ne $destinationAuth.type "secretRef") -}}
 {{- fail "observability.metrics.siteToSite.auth.type must be one of: none, workloadTLS, secretRef" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "none") $authorizedIdentity -}}
+{{- fail "observability.metrics.siteToSite.auth.authorizedIdentity must be empty when auth.type=none" -}}
+{{- end -}}
+{{- if and (or (eq $destinationAuth.type "workloadTLS") (eq $destinationAuth.type "secretRef")) (not $authorizedIdentity) -}}
+{{- fail "observability.metrics.siteToSite.auth.authorizedIdentity is required for secure Site-to-Site receiver authorization" -}}
 {{- end -}}
 {{- if and (eq $destinationAuth.type "secretRef") (not $destinationAuthSecretRef.name) -}}
 {{- fail "observability.metrics.siteToSite.auth.secretRef.name is required when auth.type=secretRef" -}}
 {{- end -}}
+{{- if and (eq $destinationAuth.type "secretRef") (not $destinationAuthSecretRef.keystoreKey) -}}
+{{- fail "observability.metrics.siteToSite.auth.secretRef.keystoreKey is required when auth.type=secretRef" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "secretRef") (not $destinationAuthSecretRef.keystorePasswordKey) -}}
+{{- fail "observability.metrics.siteToSite.auth.secretRef.keystorePasswordKey is required when auth.type=secretRef" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "secretRef") (not $destinationAuthSecretRef.truststoreKey) -}}
+{{- fail "observability.metrics.siteToSite.auth.secretRef.truststoreKey is required when auth.type=secretRef" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "secretRef") (not $destinationAuthSecretRef.truststorePasswordKey) -}}
+{{- fail "observability.metrics.siteToSite.auth.secretRef.truststorePasswordKey is required when auth.type=secretRef" -}}
+{{- end -}}
 {{- if and (eq $destinationAuth.type "workloadTLS") $destinationAuthSecretRef.name -}}
 {{- fail "observability.metrics.siteToSite.auth.secretRef.* cannot be set when auth.type=workloadTLS" -}}
+{{- end -}}
+{{- if and (eq $destinationAuth.type "none") $destinationAuthSecretRef.name -}}
+{{- fail "observability.metrics.siteToSite.auth.secretRef.* cannot be set when auth.type=none" -}}
 {{- end -}}
 {{- if and (hasPrefix "https://" $destination.url) (eq $destinationAuth.type "none") -}}
 {{- fail "observability.metrics.siteToSite.auth.type=none cannot be used with an https:// destination.url; use workloadTLS or secretRef" -}}

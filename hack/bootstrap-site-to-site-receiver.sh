@@ -15,7 +15,7 @@ receiver_values_file="examples/standalone-site-to-site-receiver-kind-values.yaml
 input_port_name="nifi-metrics"
 receiver_processor_name="site-to-site-receiver-log"
 receiver_processor_log_prefix="site-to-site-metrics-proof"
-client_identity=""
+authorized_identity="O=NiFi-Fabric, CN=nifi-site-to-site-metrics-client"
 admin_username="${NIFI_SITE_TO_SITE_RECEIVER_USERNAME:-admin}"
 admin_password="${NIFI_SITE_TO_SITE_RECEIVER_PASSWORD:-ChangeMeChangeMe1!}"
 secret_password="${NIFI_SITE_TO_SITE_RECEIVER_KEYSTORE_PASSWORD:-ChangeMeChangeMe1!}"
@@ -63,8 +63,8 @@ while [[ $# -gt 0 ]]; do
       receiver_processor_name="$2"
       shift 2
       ;;
-    --client-identity)
-      client_identity="$2"
+    --authorized-identity|--client-identity)
+      authorized_identity="$2"
       shift 2
       ;;
     *)
@@ -89,6 +89,22 @@ trap cleanup EXIT
 
 receiver_service_name="${receiver_release}"
 receiver_headless_name="${receiver_release}-headless"
+authorized_identity="$(
+  printf '%s' "${authorized_identity}" \
+    | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
+    | sed 's/,[[:space:]]*/, /g'
+)"
+
+client_subject="$(
+  python3 - "${authorized_identity}" <<'PY'
+import sys
+
+parts = [part.strip() for part in sys.argv[1].split(",") if part.strip()]
+if not parts or any("=" not in part for part in parts):
+    raise SystemExit("authorized identity must be a comma-separated RFC2253-style DN")
+print("".join(f"/{key}={value}" for key, value in reversed([part.split("=", 1) for part in parts])))
+PY
+)"
 
 cat >"${tmpdir}/receiver-openssl.cnf" <<EOF
 [ req ]
@@ -112,15 +128,6 @@ DNS.5 = ${receiver_headless_name}.${receiver_namespace}.svc
 DNS.6 = ${receiver_headless_name}.${receiver_namespace}.svc.cluster.local
 DNS.7 = *.${receiver_headless_name}.${receiver_namespace}.svc
 DNS.8 = *.${receiver_headless_name}.${receiver_namespace}.svc.cluster.local
-EOF
-
-cat >"${tmpdir}/client-openssl.cnf" <<EOF
-[ req ]
-distinguished_name = dn
-prompt = no
-
-[ dn ]
-${client_identity//,/\\n}
 EOF
 
 openssl genrsa -out "${tmpdir}/ca.key" 2048 >/dev/null 2>&1
@@ -151,7 +158,7 @@ openssl genrsa -out "${tmpdir}/client.key" 2048 >/dev/null 2>&1
 openssl req -new \
   -key "${tmpdir}/client.key" \
   -out "${tmpdir}/client.csr" \
-  -subj "/CN=nifi-site-to-site-metrics-client/O=NiFi-Fabric" >/dev/null 2>&1
+  -subj "${client_subject}" >/dev/null 2>&1
 openssl x509 -req \
   -in "${tmpdir}/client.csr" \
   -CA "${tmpdir}/ca.crt" \
@@ -161,12 +168,15 @@ openssl x509 -req \
   -days 365 \
   -sha256 >/dev/null 2>&1
 
-if [[ -z "${client_identity}" ]]; then
-  client_identity="$(
-    openssl x509 -in "${tmpdir}/client.crt" -noout -subject -nameopt RFC2253 \
-      | sed 's/^subject=//' \
-      | sed 's/,/, /g'
-  )"
+actual_client_identity="$(
+  openssl x509 -in "${tmpdir}/client.crt" -noout -subject -nameopt RFC2253 \
+    | sed 's/^subject=//' \
+    | sed 's/,/, /g'
+)"
+
+if [[ "${actual_client_identity}" != "${authorized_identity}" ]]; then
+  echo "generated sender client certificate identity ${actual_client_identity} did not match expected authorized identity ${authorized_identity}" >&2
+  exit 1
 fi
 
 openssl pkcs12 -export \
@@ -572,7 +582,7 @@ PY
 
 receiver_request_retry POST /process-groups/root/connections "$(tr -d '\n' < "${tmpdir}/create-connection.json")" 30 2 >"${tmpdir}/created-connection.json"
 
-python3 - "${client_identity}" >"${tmpdir}/create-user.json" <<'PY'
+python3 - "${authorized_identity}" >"${tmpdir}/create-user.json" <<'PY'
 import json
 import sys
 
@@ -751,4 +761,5 @@ echo "  receiver release: ${receiver_release}"
 echo "  sender client secret: ${sender_namespace}/${sender_client_secret}"
 echo "  receiver input port: ${input_port_name} (${port_id})"
 echo "  receiver proof processor: ${receiver_processor_name} (${processor_id})"
-echo "  sender client identity: ${client_identity}"
+echo "  sender authorized identity: ${authorized_identity}"
+echo "  required receiver policies: /controller (R), /site-to-site (R), destination input port ${input_port_name} (W)"

@@ -4,6 +4,7 @@ nifi:
       siteToSite:
         auth:
           type: secretRef
+          authorizedIdentity: O=NiFi-Fabric, CN=nifi-site-to-site-metrics-client
           secretRef:
             name: nifi-site-to-site-receiver-client
         destination:

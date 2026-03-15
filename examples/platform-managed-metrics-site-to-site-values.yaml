@@ -1,8 +1,8 @@
 # Optional managed-platform overlay for the typed site-to-site metrics export path.
 # This enables the bounded SiteToSiteMetricsReportingTask integration. The platform
 # owns only the reporting task and its SSL Context Service when secure transport is
-# used. The destination receiver topology, input port, and destination-side policies
-# remain operator-owned.
+# used. The destination receiver topology, input port, receiver-authorized identity,
+# and destination-side policies remain operator-owned.
 nifi:
   observability:
     metrics:
@@ -14,6 +14,7 @@ nifi:
           inputPortName: nifi-metrics
         auth:
           type: workloadTLS
+          authorizedIdentity: O=Example, CN=nifi-metrics-sender
         source:
           applicationId: nifi
           instanceUrl: https://nifi.example.com/nifi
