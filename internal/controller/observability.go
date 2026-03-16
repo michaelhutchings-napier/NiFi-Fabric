@@ -509,7 +509,7 @@ func autoscalingSignalFromStatus(original, updated *platformv1alpha1.NiFiCluster
 		event:    autoscalingStatusOutcome(updated.Status.Autoscaling),
 		level:    corev1.EventTypeNormal,
 		reason:   reason,
-		message:  autoscalingStatusMessage(updated.Status.Autoscaling),
+		message:  autoscalingStatusMessageForCluster(updated, updated.Status.Autoscaling),
 	}, true
 }
 
@@ -553,8 +553,35 @@ func autoscalingExecutionSignal(original, updated *platformv1alpha1.NiFiCluster)
 		event:    event,
 		level:    level,
 		reason:   reason,
-		message:  emptyIfUnset(newExecution.Message, "autoscaling execution updated"),
+		message:  autoscalingExecutionSignalMessage(updated),
 	}, true
+}
+
+func autoscalingExecutionSignalMessage(cluster *platformv1alpha1.NiFiCluster) string {
+	execution := cluster.Status.Autoscaling.Execution
+	if execution.Phase == "" || execution.State == "" {
+		return "autoscaling execution updated"
+	}
+	details := []string{
+		fmt.Sprintf("phase=%s", execution.Phase),
+		fmt.Sprintf("state=%s", execution.State),
+	}
+	if execution.TargetReplicas != nil {
+		details = append(details, fmt.Sprintf("target=%d", *execution.TargetReplicas))
+	}
+	if execution.BlockedReason != "" {
+		details = append(details, fmt.Sprintf("blockedReason=%s", execution.BlockedReason))
+	}
+	if execution.FailureReason != "" {
+		details = append(details, fmt.Sprintf("failureReason=%s", execution.FailureReason))
+	}
+	if cluster.Status.NodeOperation.Purpose == platformv1alpha1.NodeOperationPurposeScaleDown && cluster.Status.NodeOperation.PodName != "" {
+		details = append(details, fmt.Sprintf("pod=%s", cluster.Status.NodeOperation.PodName))
+		if cluster.Status.NodeOperation.Stage != "" {
+			details = append(details, fmt.Sprintf("stage=%s", cluster.Status.NodeOperation.Stage))
+		}
+	}
+	return fmt.Sprintf("%s [%s]", emptyIfUnset(execution.Message, "autoscaling execution updated"), strings.Join(details, ", "))
 }
 
 func observeRolloutMetrics(original, updated *platformv1alpha1.NiFiCluster) {

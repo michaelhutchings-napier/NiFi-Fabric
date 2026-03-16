@@ -44,8 +44,8 @@ func (r *NiFiClusterReconciler) preparePodForOperation(ctx context.Context, clus
 		if purpose == platformv1alpha1.NodeOperationPurposeScaleDown {
 			message = autoscalingScaleDownNodePreparationGuidance(cluster.Status.NodeOperation, message, true)
 		}
-		r.markNodePreparationBlocked(cluster, purpose, message)
 		r.updateAutoscalingExecutionForNodePreparation(cluster, purpose, platformv1alpha1.AutoscalingExecutionStateBlocked, autoscalingScaleDownNodePreparationRetryReason(cluster.Status.NodeOperation), "", message)
+		r.markNodePreparationBlocked(cluster, purpose, message)
 		return false, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 	}
 
@@ -60,15 +60,15 @@ func (r *NiFiClusterReconciler) preparePodForOperation(ctx context.Context, clus
 		if purpose == platformv1alpha1.NodeOperationPurposeScaleDown {
 			message = autoscalingScaleDownNodePreparationGuidance(result.Operation, result.Message, false)
 		}
-		r.markNodePreparationTimedOut(cluster, purpose, message)
 		r.updateAutoscalingExecutionForNodePreparation(cluster, purpose, platformv1alpha1.AutoscalingExecutionStateBlocked, autoscalingScaleDownNodePreparationTimeoutReason(result.Operation), "", message)
+		r.markNodePreparationTimedOut(cluster, purpose, message)
 		return false, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 	}
 
 	if purpose == platformv1alpha1.NodeOperationPurposeScaleDown && result.RequeueNow && strings.HasPrefix(strings.ToLower(result.Message), "retrying ") {
 		message := autoscalingScaleDownNodePreparationGuidance(result.Operation, result.Message, true)
-		r.markNodePreparationBlocked(cluster, purpose, message)
 		r.updateAutoscalingExecutionForNodePreparation(cluster, purpose, platformv1alpha1.AutoscalingExecutionStateBlocked, autoscalingScaleDownNodePreparationRetryReason(result.Operation), "", message)
+		r.markNodePreparationBlocked(cluster, purpose, message)
 		return false, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 	}
 
@@ -186,7 +186,7 @@ func (r *NiFiClusterReconciler) markNodePreparationTimedOut(cluster *platformv1a
 	})
 	cluster.Status.LastOperation = runningOperation(string(purpose), message)
 	if purpose == platformv1alpha1.NodeOperationPurposeScaleDown {
-		cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("NoScaleDown: %s", message)
+		cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, cluster.Status.Autoscaling, fmt.Sprintf("NoScaleDown: %s", message))
 	}
 }
 
@@ -215,7 +215,7 @@ func (r *NiFiClusterReconciler) markNodePreparationBlocked(cluster *platformv1al
 	})
 	cluster.Status.LastOperation = runningOperation(string(purpose), message)
 	if purpose == platformv1alpha1.NodeOperationPurposeScaleDown {
-		cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("NoScaleDown: %s", message)
+		cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, cluster.Status.Autoscaling, fmt.Sprintf("NoScaleDown: %s", message))
 	}
 }
 

@@ -67,16 +67,25 @@ curl --silent http://127.0.0.1:18080/metrics | rg '^nifi_platform_'
 Autoscaling blocked-state quick check:
 
 ```bash
-kubectl -n nifi get nificluster nifi -o jsonpath='{.status.autoscaling.execution.phase}{" "}{.status.autoscaling.execution.state}{" "}{.status.autoscaling.execution.blockedReason}{" "}{.status.autoscaling.execution.failureReason}{"\n"}'
-kubectl -n nifi get nificluster nifi -o jsonpath='{.status.autoscaling.lastScalingDecision}{"\n"}'
+kubectl -n nifi get nificluster nifi -o jsonpath='{.spec.autoscaling.mode}{"\n"}{.status.autoscaling.external.requestedReplicas}{"\n"}{.status.autoscaling.recommendedReplicas}{"\n"}{.status.autoscaling.execution.phase}{" "}{.status.autoscaling.execution.state}{" "}{.status.autoscaling.execution.blockedReason}{" "}{.status.autoscaling.execution.failureReason}{"\n"}{.status.autoscaling.lastScalingDecision}{"\n"}'
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.autoscaling.external.reason}{" "}{.status.autoscaling.external.message}{"\n"}{.status.autoscaling.execution.message}{"\n"}{.status.nodeOperation.podName}{" "}{.status.nodeOperation.stage}{"\n"}'
 ```
+
+Reading those fields:
+
+- `spec.autoscaling.mode` is the configured control mode. `Advisory` keeps recommendation-only behavior; `Enforced` allows the controller to execute scale-up and bounded scale-down work.
+- `status.autoscaling.external.requestedReplicas` is the last external request the controller observed, for example from KEDA through `/scale`.
+- `status.autoscaling.recommendedReplicas` is the controller's current bounded recommendation after applying policy limits and signal evaluation.
+- `status.autoscaling.execution.phase`, `state`, `blockedReason`, `failureReason`, and `message` describe the live execution checkpoint when autoscaling is actively settling or blocked.
+- `status.autoscaling.lastScalingDecision` now carries the operator-facing summary for allowed, blocked, deferred, ignored, or failed decisions and appends context for mode, current size, recommendation, request, and active execution when relevant.
+- `status.nodeOperation` shows which pod and destructive preparation stage are active during safe scale-down.
 
 When controller-owned scale-down is stalled, expect:
 
 - `status.autoscaling.execution.state=Blocked`
 - a stage-specific `blockedReason` such as disconnect retrying, offload timed out, drain pending, drain stalled, ready-pod pending, or health-gate timed out
 - precedence pauses now also surface explicitly, for example rollout, restore, or hibernation taking over a previously started scale-down step
-- `lastScalingDecision` to explain why the step is blocked and what to inspect next
+- `lastScalingDecision` and `execution.message` to explain why the step is blocked, whether the controller is waiting or needs operator intervention, and what to inspect next
 
 Operator checks for a stalled autoscaling removal step:
 

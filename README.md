@@ -136,6 +136,7 @@ See [Compatibility](docs/compatibility.md) for the detailed matrix.
 - KEDA is optional, experimental, and secondary as an external intent source
 - enforced scale-down stays one-step-at-a-time and now requires durable low-pressure evidence before the controller removes any node
 - when scale-down disconnect, offload, or post-removal settle work stalls, the controller now keeps the step blocked and restart-safe with stage-specific diagnostics instead of silently retrying risky destructive work
+- autoscaling diagnostics now make the requested, recommended, and executing states explicit through `status.autoscaling.external.*`, `status.autoscaling.recommendedReplicas`, `status.autoscaling.execution.*`, and context-rich `lastScalingDecision`
 - mutable-flow authorization bootstrap stays chart-first and controller-free
 - GitHub, GitLab, and Bitbucket Flow Registry Client paths are runtime-proven on NiFi `2.8.0`
 - a user-driven GitHub versioned-flow save-to-registry workflow is focused-runtime-proven on NiFi `2.8.0`

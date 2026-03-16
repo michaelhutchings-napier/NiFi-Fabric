@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -137,6 +138,7 @@ func TestObserveStatusTransitionRecordsAutoscalingMetrics(t *testing.T) {
 	original.Status.Autoscaling = platformv1alpha1.AutoscalingStatus{
 		Reason: autoscalingReasonProgressing,
 	}
+	original.Status.LastOperation = runningOperation("Rollout", "Config drift rollout is in progress")
 
 	recommended := int32(4)
 	updated := original.DeepCopy()
@@ -153,6 +155,30 @@ func TestObserveStatusTransitionRecordsAutoscalingMetrics(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(autoscalingRecommendedReplicas.WithLabelValues(updated.Namespace, updated.Name)); got != 4 {
 		t.Fatalf("expected recommended replicas gauge to be 4, got %v", got)
+	}
+}
+
+func TestAutoscalingSignalFromStatusIncludesLifecycleContext(t *testing.T) {
+	original := managedCluster()
+	original.Status.Autoscaling = platformv1alpha1.AutoscalingStatus{
+		Reason: autoscalingReasonNoActionableInput,
+	}
+
+	updated := original.DeepCopy()
+	updated.Status.LastOperation = runningOperation("Rollout", "Config drift rollout is in progress")
+	updated.Status.Autoscaling = platformv1alpha1.AutoscalingStatus{
+		Reason: autoscalingReasonProgressing,
+	}
+
+	signal, ok := autoscalingSignalFromStatus(original, updated)
+	if !ok {
+		t.Fatalf("expected autoscaling status signal")
+	}
+	if signal.reason != "AutoscalingRecommendationBlocked" {
+		t.Fatalf("expected blocked autoscaling signal reason, got %q", signal.reason)
+	}
+	if !strings.Contains(signal.message, "Rollout is running: Config drift rollout is in progress") {
+		t.Fatalf("expected lifecycle context in autoscaling signal message, got %q", signal.message)
 	}
 }
 
@@ -183,6 +209,41 @@ func TestObserveStatusTransitionRecordsAutoscalingExecutionTransitionMetrics(t *
 		"NodePreparationTimedOut",
 	)); got != 1 {
 		t.Fatalf("expected one autoscaling execution transition metric, got %v", got)
+	}
+}
+
+func TestAutoscalingExecutionSignalIncludesBlockedReasonAndPhaseContext(t *testing.T) {
+	original := managedCluster()
+	original.Status.Autoscaling.Execution = platformv1alpha1.AutoscalingExecutionStatus{
+		Phase:   platformv1alpha1.AutoscalingExecutionPhaseScaleDownPrepare,
+		State:   platformv1alpha1.AutoscalingExecutionStateRunning,
+		Message: "Preparing pod nifi-2 for safe autoscaling scale-down",
+	}
+
+	updated := original.DeepCopy()
+	updated.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{
+		Purpose: platformv1alpha1.NodeOperationPurposeScaleDown,
+		PodName: "nifi-2",
+		Stage:   platformv1alpha1.NodeOperationStageOffloading,
+	}
+	target := int32(2)
+	updated.Status.Autoscaling.Execution = platformv1alpha1.AutoscalingExecutionStatus{
+		Phase:          platformv1alpha1.AutoscalingExecutionPhaseScaleDownPrepare,
+		State:          platformv1alpha1.AutoscalingExecutionStateBlocked,
+		TargetReplicas: &target,
+		BlockedReason:  "ScaleDownOffloadRetrying",
+		Message:        "Waiting for NiFi node offload",
+	}
+
+	signal, ok := autoscalingExecutionSignal(original, updated)
+	if !ok {
+		t.Fatalf("expected autoscaling execution signal")
+	}
+	if signal.reason != "AutoscalingExecutionBlocked" {
+		t.Fatalf("expected blocked execution signal reason, got %q", signal.reason)
+	}
+	if !strings.Contains(signal.message, "phase=ScaleDownPrepare") || !strings.Contains(signal.message, "blockedReason=ScaleDownOffloadRetrying") || !strings.Contains(signal.message, "pod=nifi-2") {
+		t.Fatalf("expected execution context in signal message, got %q", signal.message)
 	}
 }
 

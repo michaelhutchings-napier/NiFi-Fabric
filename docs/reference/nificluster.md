@@ -184,7 +184,7 @@ The platform chart wires chart-owned config surfaces into `spec.restartTriggers`
 | `status.autoscaling.lastEvaluationTime` | timestamp | Last meaningful autoscaling evaluation time. | No |  |
 | `status.autoscaling.lowPressureSince` | timestamp | Compatibility field for low-pressure tracking. | No |  |
 | `status.autoscaling.lowPressure` | object | Durable low-pressure evidence used for safe scale-down. | No |  |
-| `status.autoscaling.lastScalingDecision` | string | Latest execution, block, or ignore message. | No |  |
+| `status.autoscaling.lastScalingDecision` | string | Latest execution, block, defer, ignore, or failure summary. The message is operator-facing and may append compact mode, request, recommendation, and execution context. | No |  |
 | `status.autoscaling.lastScaleUpTime` | timestamp | Last successful scale-up time. | No |  |
 | `status.autoscaling.lastScaleDownTime` | timestamp | Last successful scale-down time. | No |  |
 | `status.autoscaling.execution` | object | Durable execution phase, blocked reason, or failure reason. | No |  |
@@ -199,7 +199,7 @@ The platform chart wires chart-owned config surfaces into `spec.restartTriggers`
 | `status.autoscaling.execution.startedAt` | timestamp | When the current autoscaling execution started. | No |  |
 | `status.autoscaling.execution.lastTransitionTime` | timestamp | Last state transition time. | No |  |
 | `status.autoscaling.execution.targetReplicas` | integer pointer | Replica target for the current execution. | No |  |
-| `status.autoscaling.execution.message` | string | Human-readable execution summary. | No |  |
+| `status.autoscaling.execution.message` | string | Human-readable execution summary for the current settle or block checkpoint. | No |  |
 | `status.autoscaling.execution.blockedReason` | string | Short blocked reason when execution is blocked. | No |  |
 | `status.autoscaling.execution.failureReason` | string | Short failure reason when execution fails. | No |  |
 
@@ -213,7 +213,7 @@ The platform chart wires chart-owned config surfaces into `spec.restartTriggers`
 | `status.autoscaling.external.actionable` | boolean | Whether the external request is currently actionable. | No |  |
 | `status.autoscaling.external.scaleDownIgnored` | boolean | Whether an external scale-down request was ignored. | No |  |
 | `status.autoscaling.external.reason` | string | Short reason for current external intent handling. | No |  |
-| `status.autoscaling.external.message` | string | Human-readable summary for the external request. | No |  |
+| `status.autoscaling.external.message` | string | Human-readable summary for the external request, including whether it was bounded, ignored, or is still waiting on safe controller checks. | No |  |
 
 ## NodeOperationStatus
 

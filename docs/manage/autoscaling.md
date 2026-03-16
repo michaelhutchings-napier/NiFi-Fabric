@@ -61,6 +61,23 @@ This keeps the policy explainable:
 - scale-down is allowed only after repeated trustworthy low-pressure evidence
 - scale-down is blocked explicitly when zero backlog appears transient or executor activity is still too busy to trust that quiet sample
 
+## Reading Autoscaling State
+
+Operators should read autoscaling from the existing `NiFiCluster` surfaces together:
+
+- `spec.autoscaling.mode` shows whether the cluster is in `Disabled`, `Advisory`, or `Enforced` mode.
+- `status.autoscaling.external.requestedReplicas` shows the latest external request the controller observed.
+- `status.autoscaling.recommendedReplicas` shows the controller's bounded recommendation after policy evaluation.
+- `status.autoscaling.execution.phase`, `state`, `blockedReason`, `failureReason`, and `message` show the live execution checkpoint when a scale action is settling or blocked.
+- `status.autoscaling.lastScalingDecision` is the operator-facing summary for allowed, blocked, deferred, ignored, or failed decisions and now appends compact context for mode, current replicas, recommendation, request, and active execution.
+- `status.nodeOperation` identifies the pod and stage being disconnected or offloaded during safe scale-down.
+
+Typical operator interpretation:
+
+- if `external.requestedReplicas` differs from `recommendedReplicas`, policy or safety checks have bounded or ignored the external request
+- if `recommendedReplicas` differs from the current desired size but `execution` is empty, the controller is still blocked or deferred by cooldown, stabilization, lifecycle precedence, or availability gates
+- if `execution.state=Blocked`, the controller will either resume automatically on the next safe reconcile or the message will tell you what operator action is needed
+
 ## Optional KEDA Integration
 
 KEDA is optional and experimental.

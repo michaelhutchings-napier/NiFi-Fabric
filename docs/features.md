@@ -30,6 +30,7 @@ NiFi-Fabric keeps the product surface small and explicit.
 - one-step safe scale-down is available and intentionally conservative
 - enforced scale-down now requires durable low-pressure evidence: repeated zero-backlog observations, low executor activity when NiFi reports thread counts, extra consecutive samples when queue evidence is incomplete, and stabilization or cooldown windows
 - transient zero-backlog dips are rejected when timer-driven work is still busy, and the controller records that block reason explicitly
+- operator-facing diagnostics now keep mode, external requested replicas, controller recommendation, active execution phase, blocked or failure reason, and next operator action visible in the existing autoscaling status fields
 - direct autoscaler ownership of the NiFi `StatefulSet` is not the supported architecture
 
 ## Optional KEDA Integration

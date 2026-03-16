@@ -132,64 +132,64 @@ func autoscalingNoScaleDecision(cluster *platformv1alpha1.NiFiCluster, status pl
 	policy := cluster.Spec.Autoscaling
 	switch autoscalingMode(policy) {
 	case platformv1alpha1.AutoscalingModeDisabled, platformv1alpha1.AutoscalingModeAdvisory:
-		return "NoScale: autoscaling is not in enforced mode"
+		return autoscalingDecisionWithContext(cluster, status, "NoScale: autoscaling is not in enforced mode")
 	}
 	if status.RecommendedReplicas == nil {
-		return fmt.Sprintf("NoScale: recommendation is unavailable because %s", status.Reason)
+		return autoscalingDecisionWithContext(cluster, status, fmt.Sprintf("NoScale: %s", autoscalingStatusMessageForCluster(cluster, status)))
 	}
 
 	currentReplicas := cluster.Status.Replicas.Desired
 	recommendedReplicas := derefOptionalInt32(status.RecommendedReplicas)
 	if status.External.Observed && status.External.ScaleDownIgnored && status.External.RequestedReplicas != nil {
 		if status.External.Message != "" {
-			return fmt.Sprintf("NoScaleDown: %s", status.External.Message)
+			return autoscalingDecisionWithContext(cluster, status, fmt.Sprintf("NoScaleDown: %s", status.External.Message))
 		}
-		return fmt.Sprintf("NoScaleDown: external %s request for %d replicas is ignored", emptyIfUnset(string(status.External.Source), "external"), *status.External.RequestedReplicas)
+		return autoscalingDecisionWithContext(cluster, status, fmt.Sprintf("NoScaleDown: external %s request for %d replicas is ignored", emptyIfUnset(string(status.External.Source), "external"), *status.External.RequestedReplicas))
 	}
 	switch {
 	case recommendedReplicas > currentReplicas:
 		if !policy.ScaleUp.Enabled {
-			return "NoScaleUp: scale-up is not enabled"
+			return autoscalingDecisionWithContext(cluster, status, "NoScaleUp: scale-up is not enabled")
 		}
 		if status.LastScaleUpTime != nil {
 			nextEligibleTime := status.LastScaleUpTime.Time.Add(autoscalingScaleUpCooldown(policy))
 			if time.Now().UTC().Before(nextEligibleTime) {
-				return fmt.Sprintf("NoScaleUp: cooldown is active until %s", nextEligibleTime.UTC().Format(time.RFC3339))
+				return autoscalingDecisionWithContext(cluster, status, fmt.Sprintf("NoScaleUp: cooldown is active until %s", nextEligibleTime.UTC().Format(time.RFC3339)))
 			}
 		}
-		return "NoScaleUp: waiting for the steady-state autoscaling executor"
+		return autoscalingDecisionWithContext(cluster, status, "NoScaleUp: waiting for the steady-state autoscaling executor")
 	case recommendedReplicas < currentReplicas:
 		if !policy.ScaleDown.Enabled {
-			return "NoScaleDown: scale-down is not enabled"
+			return autoscalingDecisionWithContext(cluster, status, "NoScaleDown: scale-down is not enabled")
 		}
 		if status.LowPressureSince == nil {
-			return "NoScaleDown: low pressure is not currently observed"
+			return autoscalingDecisionWithContext(cluster, status, "NoScaleDown: low pressure is not currently observed")
 		}
 		if !autoscalingLowPressureRequirementMet(status.LowPressure) {
-			return fmt.Sprintf(
+			return autoscalingDecisionWithContext(cluster, status, fmt.Sprintf(
 				"NoScaleDown: low pressure needs %d/%d consecutive zero-backlog evaluations before any scale-down step",
 				status.LowPressure.ConsecutiveSamples,
 				status.LowPressure.RequiredConsecutiveSamples,
-			)
+			))
 		}
 		nextStableTime := status.LowPressureSince.Time.Add(autoscalingScaleDownStabilizationWindow(policy))
 		if time.Now().UTC().Before(nextStableTime) {
-			return fmt.Sprintf("NoScaleDown: low pressure must remain stable until %s", nextStableTime.UTC().Format(time.RFC3339))
+			return autoscalingDecisionWithContext(cluster, status, fmt.Sprintf("NoScaleDown: low pressure must remain stable until %s", nextStableTime.UTC().Format(time.RFC3339)))
 		}
 		if status.LastScaleDownTime != nil {
 			nextEligibleTime := status.LastScaleDownTime.Time.Add(autoscalingScaleDownCooldown(policy))
 			if time.Now().UTC().Before(nextEligibleTime) {
-				return fmt.Sprintf("NoScaleDown: cooldown is active until %s", nextEligibleTime.UTC().Format(time.RFC3339))
+				return autoscalingDecisionWithContext(cluster, status, fmt.Sprintf("NoScaleDown: cooldown is active until %s", nextEligibleTime.UTC().Format(time.RFC3339)))
 			}
 		}
-		return "NoScaleDown: waiting for the steady-state autoscaling executor"
+		return autoscalingDecisionWithContext(cluster, status, "NoScaleDown: waiting for the steady-state autoscaling executor")
 	}
 	if currentReplicas > autoscalingMinReplicas(policy, currentReplicas) && policy.ScaleDown.Enabled {
 		if reason := autoscalingLowPressureBlockedReasonFromSignals(status.Signals); reason != "" {
-			return fmt.Sprintf("NoScaleDown: %s", reason)
+			return autoscalingDecisionWithContext(cluster, status, fmt.Sprintf("NoScaleDown: %s", reason))
 		}
 	}
-	return "NoScale: recommended replicas are already satisfied"
+	return autoscalingDecisionWithContext(cluster, status, "NoScale: recommended replicas are already satisfied")
 }
 
 func (r *NiFiClusterReconciler) buildAutoscalingStatus(ctx context.Context, cluster *platformv1alpha1.NiFiCluster) (platformv1alpha1.AutoscalingStatus, autoscalingSignalCollection) {
@@ -244,16 +244,16 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleUp(ctx context.Conte
 	mode := autoscalingMode(policy)
 	switch mode {
 	case platformv1alpha1.AutoscalingModeDisabled, platformv1alpha1.AutoscalingModeAdvisory:
-		cluster.Status.Autoscaling.LastScalingDecision = "NoScale: autoscaling is not in enforced mode"
+		cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, "NoScale: autoscaling is not in enforced mode")
 		return false, ctrl.Result{}, nil
 	}
 
 	if !policy.ScaleUp.Enabled {
-		cluster.Status.Autoscaling.LastScalingDecision = "NoScaleUp: scale-up is not enabled"
+		cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, "NoScaleUp: scale-up is not enabled")
 		return false, ctrl.Result{}, nil
 	}
 	if status.RecommendedReplicas == nil {
-		cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("NoScaleUp: recommendation is unavailable because %s", status.Reason)
+		cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, fmt.Sprintf("NoScaleUp: %s", autoscalingStatusMessageForCluster(cluster, status)))
 		return false, ctrl.Result{}, nil
 	}
 
@@ -261,10 +261,10 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleUp(ctx context.Conte
 	recommendedReplicas := derefOptionalInt32(status.RecommendedReplicas)
 	switch {
 	case recommendedReplicas < currentReplicas:
-		cluster.Status.Autoscaling.LastScalingDecision = "NoScaleUp: recommended replicas require a smaller cluster"
+		cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, "NoScaleUp: recommended replicas require a smaller cluster")
 		return false, ctrl.Result{}, nil
 	case recommendedReplicas == currentReplicas:
-		cluster.Status.Autoscaling.LastScalingDecision = "NoScale: recommended replicas are already satisfied"
+		cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, "NoScale: recommended replicas are already satisfied")
 		return false, ctrl.Result{}, nil
 	}
 
@@ -272,7 +272,7 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleUp(ctx context.Conte
 	if executionState.lastScaleUpTime != nil && cooldown > 0 {
 		nextEligibleTime := executionState.lastScaleUpTime.Time.Add(cooldown)
 		if time.Now().UTC().Before(nextEligibleTime) {
-			cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("NoScaleUp: cooldown is active until %s", nextEligibleTime.UTC().Format(time.RFC3339))
+			cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, fmt.Sprintf("NoScaleUp: cooldown is active until %s", nextEligibleTime.UTC().Format(time.RFC3339)))
 			return false, ctrl.Result{}, nil
 		}
 	}
@@ -286,7 +286,7 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleUp(ctx context.Conte
 		desiredReplicas = maxReplicas
 	}
 	if desiredReplicas <= currentReplicas {
-		cluster.Status.Autoscaling.LastScalingDecision = "NoScaleUp: bounded recommendation does not allow a larger target size"
+		cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, "NoScaleUp: bounded recommendation does not allow a larger target size")
 		return false, ctrl.Result{}, nil
 	}
 
@@ -298,10 +298,10 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleUp(ctx context.Conte
 
 	now := metav1.NewTime(time.Now().UTC())
 	decision := fmt.Sprintf("ScaleUp: increased target StatefulSet replicas from %d to %d", currentReplicas, desiredReplicas)
-	cluster.Status.Autoscaling.LastScalingDecision = decision
 	cluster.Status.Autoscaling.LastScaleUpTime = &now
 	setAutoscalingExecutionStatus(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleUpSettle, platformv1alpha1.AutoscalingExecutionStateRunning, desiredReplicas, "", "", fmt.Sprintf("Waiting for the autoscaling scale-up step to settle at %d replicas", desiredReplicas))
-	cluster.Status.LastOperation = runningOperation("AutoscalingScaleUp", fmt.Sprintf("%s because %s", decision, autoscalingStatusMessage(status)))
+	cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, decision)
+	cluster.Status.LastOperation = runningOperation("AutoscalingScaleUp", fmt.Sprintf("%s because %s", decision, autoscalingStatusMessageForCluster(cluster, status)))
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionProgressing,
 		Status:             metav1.ConditionTrue,
@@ -740,6 +740,37 @@ func equalOptionalTime(left, right *metav1.Time) bool {
 	}
 }
 
+func autoscalingStatusMessageForCluster(cluster *platformv1alpha1.NiFiCluster, status platformv1alpha1.AutoscalingStatus) string {
+	if cluster != nil {
+		switch status.Reason {
+		case autoscalingReasonTargetNotResolved:
+			if cluster.Spec.TargetRef.Name != "" {
+				return appendAutoscalingExternalMessage(fmt.Sprintf("Autoscaling is waiting for target StatefulSet %q to resolve", cluster.Spec.TargetRef.Name), status)
+			}
+		case autoscalingReasonHibernated:
+			if condition := cluster.GetCondition(platformv1alpha1.ConditionHibernated); conditionIsTrue(condition) && condition.Message != "" {
+				return appendAutoscalingExternalMessage(fmt.Sprintf("Autoscaling is blocked while hibernation or restore has precedence: %s", condition.Message), status)
+			}
+			if cluster.Spec.DesiredState == platformv1alpha1.DesiredStateHibernated {
+				return appendAutoscalingExternalMessage("Autoscaling is blocked because desiredState is Hibernated", status)
+			}
+		case autoscalingReasonProgressing:
+			if message := autoscalingLifecycleProgressMessage(cluster); message != "" {
+				return appendAutoscalingExternalMessage(fmt.Sprintf("Autoscaling is blocked while %s", message), status)
+			}
+		case autoscalingReasonDegraded:
+			if condition := cluster.GetCondition(platformv1alpha1.ConditionDegraded); conditionIsTrue(condition) && condition.Message != "" {
+				return appendAutoscalingExternalMessage(fmt.Sprintf("Autoscaling is blocked while the cluster is degraded: %s", condition.Message), status)
+			}
+		case autoscalingReasonUnavailable:
+			if condition := cluster.GetCondition(platformv1alpha1.ConditionAvailable); condition != nil && condition.Message != "" {
+				return appendAutoscalingExternalMessage(fmt.Sprintf("Autoscaling is blocked until the cluster is available: %s", condition.Message), status)
+			}
+		}
+	}
+	return autoscalingStatusMessage(status)
+}
+
 func autoscalingStatusMessage(status platformv1alpha1.AutoscalingStatus) string {
 	switch status.Reason {
 	case autoscalingReasonDisabled:
@@ -795,6 +826,62 @@ func appendAutoscalingExternalMessage(base string, status platformv1alpha1.Autos
 		return base
 	}
 	return fmt.Sprintf("%s. External intent: %s", base, status.External.Message)
+}
+
+func autoscalingLifecycleProgressMessage(cluster *platformv1alpha1.NiFiCluster) string {
+	if cluster == nil {
+		return ""
+	}
+	if cluster.Status.LastOperation.Phase == platformv1alpha1.OperationPhaseRunning && cluster.Status.LastOperation.Type != "" {
+		return fmt.Sprintf("%s is running: %s", cluster.Status.LastOperation.Type, emptyIfUnset(cluster.Status.LastOperation.Message, "controller-owned lifecycle work is active"))
+	}
+	if cluster.Status.Autoscaling.Execution.Phase != "" && cluster.Status.Autoscaling.Execution.Message != "" {
+		return fmt.Sprintf("autoscaling execution %s/%s is active: %s", cluster.Status.Autoscaling.Execution.Phase, cluster.Status.Autoscaling.Execution.State, cluster.Status.Autoscaling.Execution.Message)
+	}
+	if condition := cluster.GetCondition(platformv1alpha1.ConditionProgressing); conditionIsTrue(condition) && condition.Message != "" {
+		return condition.Message
+	}
+	return ""
+}
+
+func autoscalingDecisionWithContext(cluster *platformv1alpha1.NiFiCluster, status platformv1alpha1.AutoscalingStatus, decision string) string {
+	context := autoscalingDecisionContext(cluster, status)
+	if decision == "" || context == "" {
+		return decision
+	}
+	return fmt.Sprintf("%s [%s]", decision, context)
+}
+
+func autoscalingDecisionContext(cluster *platformv1alpha1.NiFiCluster, status platformv1alpha1.AutoscalingStatus) string {
+	if cluster == nil {
+		return ""
+	}
+	parts := []string{
+		fmt.Sprintf("mode=%s", autoscalingMode(cluster.Spec.Autoscaling)),
+		fmt.Sprintf("current=%d", cluster.Status.Replicas.Desired),
+	}
+	if status.RecommendedReplicas != nil {
+		parts = append(parts, fmt.Sprintf("recommended=%d", *status.RecommendedReplicas))
+	}
+	if status.External.RequestedReplicas != nil {
+		parts = append(parts, fmt.Sprintf("requested=%d", *status.External.RequestedReplicas))
+	}
+	execution := cluster.Status.Autoscaling.Execution
+	if execution.Phase != "" && execution.State != "" {
+		parts = append(parts, fmt.Sprintf("execution=%s/%s", execution.Phase, execution.State))
+		if execution.TargetReplicas != nil {
+			parts = append(parts, fmt.Sprintf("target=%d", *execution.TargetReplicas))
+		}
+	} else {
+		parts = append(parts, "execution=Idle")
+	}
+	if cluster.Status.NodeOperation.Purpose == platformv1alpha1.NodeOperationPurposeScaleDown && cluster.Status.NodeOperation.PodName != "" {
+		parts = append(parts, fmt.Sprintf("pod=%s", cluster.Status.NodeOperation.PodName))
+		if cluster.Status.NodeOperation.Stage != "" {
+			parts = append(parts, fmt.Sprintf("stage=%s", cluster.Status.NodeOperation.Stage))
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 func autoscalingStatusOutcome(status platformv1alpha1.AutoscalingStatus) string {
@@ -940,15 +1027,16 @@ func autoscalingTimedBlockStillActive(decision string) bool {
 	if untilIndex < 0 {
 		return false
 	}
-	value := strings.TrimSpace(decision[untilIndex+len("until "):])
-	if value == "" {
-		return false
+	candidates := strings.Fields(strings.TrimSpace(decision[untilIndex+len("until "):]))
+	for _, candidate := range candidates {
+		candidate = strings.Trim(candidate, "],.;)")
+		timestamp, err := time.Parse(time.RFC3339, candidate)
+		if err != nil {
+			continue
+		}
+		return time.Now().UTC().Before(timestamp)
 	}
-	timestamp, err := time.Parse(time.RFC3339, value)
-	if err != nil {
-		return false
-	}
-	return time.Now().UTC().Before(timestamp)
+	return false
 }
 
 func mergeAutoscalingLowPressureStatus(current, persisted platformv1alpha1.AutoscalingLowPressureStatus) platformv1alpha1.AutoscalingLowPressureStatus {

@@ -224,6 +224,9 @@ func TestBuildAutoscalingStatusIgnoresExternalScaleDownIntent(t *testing.T) {
 	if !strings.Contains(decision, "external scale-down intent is disabled") {
 		t.Fatalf("expected explicit ignored external scale-down decision, got %q", decision)
 	}
+	if !strings.Contains(decision, "mode=Enforced") || !strings.Contains(decision, "requested=2") || !strings.Contains(decision, "execution=Idle") {
+		t.Fatalf("expected ignored external scale-down decision context, got %q", decision)
+	}
 }
 
 func TestBuildAutoscalingStatusDoesNotScaleDownBelowMatchingExternalIntent(t *testing.T) {
@@ -284,6 +287,7 @@ func TestBuildAutoscalingStatusBlocksWhileProgressing(t *testing.T) {
 		Message:            "Rollout is in progress",
 		LastTransitionTime: metav1.Now(),
 	})
+	cluster.Status.LastOperation = runningOperation("Rollout", "Config drift rollout is in progress")
 
 	blocked, reason := blockedAutoscalingStatus(cluster)
 
@@ -457,8 +461,20 @@ func TestMaybeExecuteAutoscalingScaleUpDoesNotActWhenRecommendationIsBlocked(t *
 	if updated := derefOptionalInt32(cluster.Status.Autoscaling.RecommendedReplicas); updated != 0 {
 		t.Fatalf("expected blocked autoscaling not to set a recommendation, got %d", updated)
 	}
-	if cluster.Status.Autoscaling.LastScalingDecision != "NoScaleUp: recommendation is unavailable because Progressing" {
-		t.Fatalf("expected blocked decision, got %q", cluster.Status.Autoscaling.LastScalingDecision)
+	if got := cluster.Status.Autoscaling.LastScalingDecision; !strings.Contains(got, "Autoscaling is blocked while Rollout is in progress") || !strings.Contains(got, "mode=Enforced") || !strings.Contains(got, "execution=Idle") {
+		t.Fatalf("expected blocked decision, got %q", got)
+	}
+}
+
+func TestAutoscalingTimedBlockStillActiveHandlesDecisionContext(t *testing.T) {
+	future := time.Now().UTC().Add(2 * time.Minute).Format(time.RFC3339)
+	past := time.Now().UTC().Add(-2 * time.Minute).Format(time.RFC3339)
+
+	if !autoscalingTimedBlockStillActive("NoScaleDown: cooldown is active until " + future + " [mode=Enforced, current=3, recommended=2, execution=Idle]") {
+		t.Fatalf("expected future cooldown decision with context to remain active")
+	}
+	if autoscalingTimedBlockStillActive("NoScaleDown: cooldown is active until " + past + " [mode=Enforced, current=3, recommended=2, execution=Idle]") {
+		t.Fatalf("expected expired cooldown decision with context to clear")
 	}
 }
 
@@ -1042,8 +1058,8 @@ func TestReconcileEnforcedAutoscalingNeverScalesDown(t *testing.T) {
 	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
 		t.Fatalf("get updated cluster: %v", err)
 	}
-	if updatedCluster.Status.Autoscaling.LastScalingDecision != "NoScaleDown: scale-down is not enabled" {
-		t.Fatalf("expected scale-down-disabled decision, got %q", updatedCluster.Status.Autoscaling.LastScalingDecision)
+	if got := updatedCluster.Status.Autoscaling.LastScalingDecision; !strings.Contains(got, "NoScaleDown: scale-down is not enabled") || !strings.Contains(got, "mode=Enforced") || !strings.Contains(got, "recommended=2") {
+		t.Fatalf("expected scale-down-disabled decision, got %q", got)
 	}
 
 	updatedStatefulSet := &appsv1.StatefulSet{}
@@ -1310,8 +1326,8 @@ func TestReconcileAdvisoryAutoscalingNeverScalesDown(t *testing.T) {
 	if got := derefOptionalInt32(updatedCluster.Status.Autoscaling.RecommendedReplicas); got != 2 {
 		t.Fatalf("expected advisory low pressure to recommend 2 replicas, got %d", got)
 	}
-	if updatedCluster.Status.Autoscaling.LastScalingDecision != "NoScale: autoscaling is not in enforced mode" {
-		t.Fatalf("expected advisory status-only decision, got %q", updatedCluster.Status.Autoscaling.LastScalingDecision)
+	if got := updatedCluster.Status.Autoscaling.LastScalingDecision; !strings.Contains(got, "NoScale: autoscaling is not in enforced mode") || !strings.Contains(got, "mode=Advisory") || !strings.Contains(got, "recommended=2") {
+		t.Fatalf("expected advisory status-only decision, got %q", got)
 	}
 
 	updatedStatefulSet := &appsv1.StatefulSet{}
@@ -1526,8 +1542,8 @@ func TestReconcileEnforcedAutoscalingBlocksExternalScaleDownWithoutLowPressure(t
 	if updatedCluster.Status.Autoscaling.Reason != autoscalingReasonExternalScaleDown {
 		t.Fatalf("expected external scale-down reason, got %q", updatedCluster.Status.Autoscaling.Reason)
 	}
-	if updatedCluster.Status.Autoscaling.LastScalingDecision != "NoScaleDown: low pressure is not currently observed" {
-		t.Fatalf("expected low-pressure block for external scale-down, got %q", updatedCluster.Status.Autoscaling.LastScalingDecision)
+	if got := updatedCluster.Status.Autoscaling.LastScalingDecision; !strings.Contains(got, "NoScaleDown: low pressure is not currently observed") || !strings.Contains(got, "requested=2") {
+		t.Fatalf("expected low-pressure block for external scale-down, got %q", got)
 	}
 
 	updatedStatefulSet := &appsv1.StatefulSet{}
@@ -1592,8 +1608,8 @@ func TestReconcileEnforcedAutoscalingDoesNotScaleDownBelowMatchingExternalIntent
 	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
 		t.Fatalf("get updated cluster: %v", err)
 	}
-	if updatedCluster.Status.Autoscaling.LastScalingDecision != "NoScale: recommended replicas are already satisfied" {
-		t.Fatalf("expected matching external intent to block scale-down, got %q", updatedCluster.Status.Autoscaling.LastScalingDecision)
+	if got := updatedCluster.Status.Autoscaling.LastScalingDecision; !strings.Contains(got, "NoScale: recommended replicas are already satisfied") || !strings.Contains(got, "requested=3") || !strings.Contains(got, "recommended=3") {
+		t.Fatalf("expected matching external intent to block scale-down, got %q", got)
 	}
 
 	updatedStatefulSet := &appsv1.StatefulSet{}

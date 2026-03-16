@@ -2753,7 +2753,7 @@ func TestReconcilePersistsRolloutFailureStatusAndAutoscalingWhenPodDeleteFails(t
 	if updatedCluster.Status.Autoscaling.RecommendedReplicas != nil {
 		t.Fatalf("expected no autoscaling recommendation when degraded, got %#v", updatedCluster.Status.Autoscaling)
 	}
-	if !strings.Contains(updatedCluster.Status.Autoscaling.LastScalingDecision, "recommendation is unavailable because Degraded") {
+	if !strings.Contains(updatedCluster.Status.Autoscaling.LastScalingDecision, "Autoscaling is blocked while the cluster is degraded") {
 		t.Fatalf("expected degraded autoscaling decision, got %#v", updatedCluster.Status.Autoscaling)
 	}
 	if updatedCluster.Status.LastOperation.Phase != platformv1alpha1.OperationPhaseFailed {

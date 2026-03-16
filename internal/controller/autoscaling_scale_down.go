@@ -65,16 +65,16 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleDown(ctx context.Con
 	mode := autoscalingMode(policy)
 	switch mode {
 	case platformv1alpha1.AutoscalingModeDisabled, platformv1alpha1.AutoscalingModeAdvisory:
-		cluster.Status.Autoscaling.LastScalingDecision = "NoScale: autoscaling is not in enforced mode"
+		cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, "NoScale: autoscaling is not in enforced mode")
 		return false, ctrl.Result{}, nil
 	}
 
 	if !policy.ScaleDown.Enabled {
-		cluster.Status.Autoscaling.LastScalingDecision = "NoScaleDown: scale-down is not enabled"
+		cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, "NoScaleDown: scale-down is not enabled")
 		return false, ctrl.Result{}, nil
 	}
 	if status.RecommendedReplicas == nil {
-		cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("NoScaleDown: recommendation is unavailable because %s", status.Reason)
+		cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, fmt.Sprintf("NoScaleDown: %s", autoscalingStatusMessageForCluster(cluster, status)))
 		return false, ctrl.Result{}, nil
 	}
 
@@ -89,23 +89,23 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleDown(ctx context.Con
 
 	minReplicas := autoscalingMinReplicas(policy, currentReplicas)
 	if currentReplicas <= minReplicas {
-		cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("NoScaleDown: minimum replicas %d are already satisfied", minReplicas)
+		cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, fmt.Sprintf("NoScaleDown: minimum replicas %d are already satisfied", minReplicas))
 		return false, ctrl.Result{}, nil
 	}
 	if status.LowPressureSince == nil {
 		if reason := autoscalingLowPressureBlockedReason(samples); reason != "" {
-			cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("NoScaleDown: %s", reason)
+			cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, fmt.Sprintf("NoScaleDown: %s", reason))
 		} else {
-			cluster.Status.Autoscaling.LastScalingDecision = "NoScaleDown: low pressure is not currently observed"
+			cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, "NoScaleDown: low pressure is not currently observed")
 		}
 		return false, ctrl.Result{}, nil
 	}
 	if !autoscalingLowPressureRequirementMet(status.LowPressure) {
-		cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf(
+		cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, fmt.Sprintf(
 			"NoScaleDown: low pressure needs %d/%d consecutive zero-backlog evaluations before any scale-down step",
 			status.LowPressure.ConsecutiveSamples,
 			status.LowPressure.RequiredConsecutiveSamples,
-		)
+		))
 		return false, ctrl.Result{}, nil
 	}
 
@@ -113,7 +113,7 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleDown(ctx context.Con
 	if stabilizationWindow > 0 {
 		nextEligibleTime := status.LowPressureSince.Time.Add(stabilizationWindow)
 		if time.Now().UTC().Before(nextEligibleTime) {
-			cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("NoScaleDown: low pressure must remain stable until %s", nextEligibleTime.UTC().Format(time.RFC3339))
+			cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, fmt.Sprintf("NoScaleDown: low pressure must remain stable until %s", nextEligibleTime.UTC().Format(time.RFC3339)))
 			return false, ctrl.Result{}, nil
 		}
 	}
@@ -122,7 +122,7 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleDown(ctx context.Con
 	if executionState.lastScaleDownTime != nil && cooldown > 0 {
 		nextEligibleTime := executionState.lastScaleDownTime.Time.Add(cooldown)
 		if time.Now().UTC().Before(nextEligibleTime) {
-			cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("NoScaleDown: cooldown is active until %s", nextEligibleTime.UTC().Format(time.RFC3339))
+			cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, fmt.Sprintf("NoScaleDown: cooldown is active until %s", nextEligibleTime.UTC().Format(time.RFC3339)))
 			return false, ctrl.Result{}, nil
 		}
 	}
@@ -131,7 +131,7 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleDown(ctx context.Con
 	if !ok {
 		message := "Waiting for the highest ordinal pod to appear before autoscaling scale-down can continue"
 		setAutoscalingExecutionStatus(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleDownPrepare, platformv1alpha1.AutoscalingExecutionStateBlocked, currentReplicas-1, "WaitingForHighestOrdinalPod", "", message)
-		cluster.Status.Autoscaling.LastScalingDecision = "NoScaleDown: waiting for the highest ordinal pod to appear"
+		cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, "NoScaleDown: waiting for the highest ordinal pod to appear")
 		cluster.Status.LastOperation = runningOperation("AutoscalingScaleDown", message)
 		r.setAutoscalingScaleDownProgressConditions(cluster, "WaitingForAutoscalingScaleDown", message)
 		return true, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
@@ -186,7 +186,7 @@ func (r *NiFiClusterReconciler) reconcileAutoscalingScaleDown(ctx context.Contex
 		if !ok {
 			message := "Waiting for the highest ordinal pod to appear before autoscaling scale-down can continue"
 			setAutoscalingExecutionStatus(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleDownPrepare, platformv1alpha1.AutoscalingExecutionStateBlocked, currentReplicas-1, "WaitingForHighestOrdinalPod", "", message)
-			cluster.Status.Autoscaling.LastScalingDecision = "NoScaleDown: waiting for the highest ordinal pod to appear"
+			cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, cluster.Status.Autoscaling, "NoScaleDown: waiting for the highest ordinal pod to appear")
 			cluster.Status.LastOperation = runningOperation("AutoscalingScaleDown", message)
 			r.setAutoscalingScaleDownProgressConditions(cluster, "WaitingForAutoscalingScaleDown", message)
 			return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
@@ -268,7 +268,7 @@ func autoscalingScaleDownPreparationDecision(cluster *platformv1alpha1.NiFiClust
 		cluster.Status.Autoscaling.LastScalingDecision != "" {
 		return cluster.Status.Autoscaling.LastScalingDecision
 	}
-	return fmt.Sprintf("ScaleDown: preparing pod %s for safe removal", podName)
+	return autoscalingDecisionWithContext(cluster, cluster.Status.Autoscaling, fmt.Sprintf("ScaleDown: preparing pod %s for safe removal", podName))
 }
 
 func pauseAutoscalingScaleDownForLifecycle(cluster *platformv1alpha1.NiFiCluster, blockedReason, message string) {
@@ -285,7 +285,7 @@ func pauseAutoscalingScaleDownForLifecycle(cluster *platformv1alpha1.NiFiCluster
 	}
 
 	setAutoscalingExecutionStatus(cluster, phase, platformv1alpha1.AutoscalingExecutionStateBlocked, targetReplicas, blockedReason, "", message)
-	cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("NoScaleDown: %s", message)
+	cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, cluster.Status.Autoscaling, fmt.Sprintf("NoScaleDown: %s", message))
 }
 
 func (r *NiFiClusterReconciler) executeAutoscalingScaleDownStep(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, pod corev1.Pod, currentReplicas int32) (bool, ctrl.Result, error) {
@@ -299,9 +299,9 @@ func (r *NiFiClusterReconciler) executeAutoscalingScaleDownStep(ctx context.Cont
 	decision := fmt.Sprintf("ScaleDown: reduced target StatefulSet replicas from %d to %d after preparing pod %s", currentReplicas, nextReplicas, pod.Name)
 	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
 	cluster.Status.Replicas.Desired = nextReplicas
-	cluster.Status.Autoscaling.LastScalingDecision = decision
 	cluster.Status.Autoscaling.LastScaleDownTime = &now
 	setAutoscalingExecutionStatus(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle, platformv1alpha1.AutoscalingExecutionStateRunning, nextReplicas, "", "", fmt.Sprintf("Waiting for the autoscaling scale-down step to settle at %d replicas", nextReplicas))
+	cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, cluster.Status.Autoscaling, decision)
 	cluster.Status.LastOperation = runningOperation("AutoscalingScaleDown", fmt.Sprintf("%s because sustained low pressure made the higher ordinal removable", decision))
 	r.setAutoscalingScaleDownProgressConditions(cluster, "AutoscalingScaleDown", fmt.Sprintf("Prepared pod %s for autoscaling scale-down and reduced StatefulSet replicas to %d", pod.Name, nextReplicas))
 	recordAutoscalingScaleAction("scaled_down")
@@ -519,7 +519,7 @@ func (r *NiFiClusterReconciler) markAutoscalingScaleDownBlocked(cluster *platfor
 			LastTransitionTime: metav1.Now(),
 		})
 	}
-	cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("NoScaleDown: %s", message)
+	cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, cluster.Status.Autoscaling, fmt.Sprintf("NoScaleDown: %s", message))
 	cluster.Status.LastOperation = runningOperation("AutoscalingScaleDown", message)
 }
 
