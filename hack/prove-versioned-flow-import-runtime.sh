@@ -296,6 +296,7 @@ python3 - \
   "${flow_name}" \
   "${selected_version}" \
   "${parameter_context_name}" \
+  "${selected_import_name}" \
   "${status_process_group_id}" \
   "${status_resolved_version}" \
   "${status_actual_version}" \
@@ -316,12 +317,13 @@ expected_bucket = sys.argv[7]
 expected_flow_name = sys.argv[8]
 selected_version = sys.argv[9]
 expected_parameter_context_name = sys.argv[10]
-status_process_group_id = sys.argv[11]
-status_resolved_version = sys.argv[12]
-status_actual_version = sys.argv[13]
-status_registry_id = sys.argv[14]
-status_flow_id = sys.argv[15]
-status_parameter_context_id = sys.argv[16]
+expected_import_name = sys.argv[11]
+status_process_group_id = sys.argv[12]
+status_resolved_version = sys.argv[13]
+status_actual_version = sys.argv[14]
+status_registry_id = sys.argv[15]
+status_flow_id = sys.argv[16]
+status_parameter_context_id = sys.argv[17]
 
 component = process_group.get("component", {})
 actual_name = component.get("name")
@@ -395,6 +397,21 @@ else:
         )
 
 actual_parameter_context_id = component.get("parameterContext", {}).get("id", "")
+comments = component.get("comments", "") or ""
+marker = "Managed by NiFi-Fabric versionedFlowImports: "
+if marker not in comments:
+    raise SystemExit("imported process group did not contain the bounded versioned-flow ownership marker in comments")
+marker_payload = comments.split(marker, 1)[1]
+ownership = json.loads(marker_payload)
+if ownership.get("importName") != expected_import_name:
+    raise SystemExit(
+        f"ownership marker importName {ownership.get('importName')!r} did not match expected {expected_import_name!r}"
+    )
+if ownership.get("resolvedVersion") and status_resolved_version and ownership.get("resolvedVersion") != status_resolved_version:
+    raise SystemExit(
+        f"ownership marker resolvedVersion {ownership.get('resolvedVersion')!r} did not match status {status_resolved_version!r}"
+    )
+
 if expected_parameter_context_name:
     expected_parameter_context_id = ""
     for entry in parameter_contexts.get("parameterContexts", []):
@@ -432,6 +449,7 @@ print(
             "processGroupId": actual_process_group_id,
             "registryClientId": registry_id,
             "registryClientName": expected_registry_name,
+            "ownershipImportName": ownership.get("importName", ""),
             "targetRootProcessGroupName": expected_name,
             "version": actual_version,
         },

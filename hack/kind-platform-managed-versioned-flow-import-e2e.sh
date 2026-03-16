@@ -23,6 +23,145 @@ run_make() {
   make -C "${ROOT_DIR}" "$@"
 }
 
+retry_proof() {
+  local description="$1"
+  shift
+
+  local deadline=$(( $(date +%s) + 240 ))
+  while true; do
+    if "$@"; then
+      return 0
+    fi
+    if (( $(date +%s) >= deadline )); then
+      echo "timed out waiting for ${description}" >&2
+      return 1
+    fi
+    sleep 5
+  done
+}
+
+resolve_flow_versions() {
+  local bucket_name="$1"
+  local flow_name="$2"
+  local username password pod host base_url token registries_json registry_id flows_json flow_id versions_json
+
+  username="$(kubectl -n "${NAMESPACE}" get secret nifi-auth -o jsonpath='{.data.username}' | base64 -d)"
+  password="$(kubectl -n "${NAMESPACE}" get secret nifi-auth -o jsonpath='{.data.password}' | base64 -d)"
+  pod="${HELM_RELEASE}-0"
+  host="nifi-0.${HELM_RELEASE}-headless.${NAMESPACE}.svc.cluster.local"
+  base_url="https://${host}:8443/nifi-api"
+
+  token="$(
+    kubectl -n "${NAMESPACE}" exec -i -c nifi "${pod}" -- env \
+      NIFI_USERNAME="${username}" \
+      NIFI_PASSWORD="${password}" \
+      NIFI_BASE_URL="${base_url}" \
+      sh -ec '
+        curl --silent --show-error --fail \
+          --cacert /opt/nifi/tls/ca.crt \
+          -H "Content-Type: application/x-www-form-urlencoded; charset=UTF-8" \
+          --data-urlencode "username=${NIFI_USERNAME}" \
+          --data-urlencode "password=${NIFI_PASSWORD}" \
+          "${NIFI_BASE_URL}/access/token"
+      '
+  )"
+
+  nifi_request() {
+    local method="$1"
+    local path="$2"
+    kubectl -n "${NAMESPACE}" exec -i -c nifi "${pod}" -- env \
+      NIFI_BASE_URL="${base_url}" \
+      NIFI_TOKEN="${token}" \
+      REQUEST_METHOD="${method}" \
+      REQUEST_PATH="${path}" \
+      sh -ec '
+        curl --silent --show-error --fail \
+          --cacert /opt/nifi/tls/ca.crt \
+          -H "Authorization: Bearer ${NIFI_TOKEN}" \
+          -X "${REQUEST_METHOD}" \
+          "${NIFI_BASE_URL}${REQUEST_PATH}"
+      '
+  }
+
+  registries_json="$(nifi_request GET /flow/registries)"
+  registry_id="$(
+    python3 - "${bucket_name}" "${flow_name}" <<'PY' <<<"${registries_json}"
+import json
+import sys
+
+payload = json.load(sys.stdin)
+for entry in payload.get("registries", []):
+    component = entry.get("component", {})
+    if component.get("name") == "github-flows":
+        print(entry.get("id") or component.get("id") or "")
+        break
+PY
+  )"
+  if [[ -z "${registry_id}" ]]; then
+    echo "failed to resolve registry id for github-flows" >&2
+    return 1
+  fi
+
+  flows_json="$(nifi_request GET "/flow/registries/${registry_id}/buckets/${bucket_name}/flows")"
+  flow_id="$(
+    python3 - "${flow_name}" <<'PY' <<<"${flows_json}"
+import json
+import sys
+
+payload = json.load(sys.stdin)
+target = sys.argv[1]
+flows = payload.get("bucketFlowResults") or payload.get("versionedFlows") or payload.get("flows") or []
+for entry in flows:
+    candidate = entry.get("flow") or entry.get("versionedFlow") or entry
+    if (candidate.get("name") or candidate.get("flowName") or "") == target:
+        print(candidate.get("identifier") or candidate.get("flowId") or candidate.get("id") or "")
+        break
+PY
+  )"
+  if [[ -z "${flow_id}" ]]; then
+    echo "failed to resolve flow id for ${flow_name}" >&2
+    return 1
+  fi
+
+  versions_json="$(nifi_request GET "/flow/registries/${registry_id}/buckets/${bucket_name}/flows/${flow_id}/versions")"
+  python3 - <<'PY' <<<"${versions_json}"
+import json
+import sys
+
+payload = json.load(sys.stdin)
+entries = []
+sources = []
+if isinstance(payload.get("versionedFlowSnapshotMetadataSet"), list):
+    sources.append({"items": payload["versionedFlowSnapshotMetadataSet"]})
+if isinstance(payload.get("versionedFlowSnapshotMetadataSet"), dict):
+    sources.append(payload["versionedFlowSnapshotMetadataSet"])
+if isinstance(payload.get("versionedFlowSnapshotMetadata"), list):
+    sources.append({"items": payload["versionedFlowSnapshotMetadata"]})
+if isinstance(payload.get("versionedFlowSnapshots"), list):
+    sources.append({"items": payload["versionedFlowSnapshots"]})
+if isinstance(payload.get("versionedFlowSnapshot"), dict):
+    sources.append({"items": [payload["versionedFlowSnapshot"]]})
+
+for source in sources:
+    items = source.get("versionedFlowSnapshotMetadata") or source.get("items") or []
+    for index, item in enumerate(items):
+        candidate = item.get("versionedFlowSnapshotMetadata") or item.get("snapshotMetadata") or item
+        version = candidate.get("version")
+        if version is None:
+            continue
+        timestamp = candidate.get("timestamp")
+        if not isinstance(timestamp, int):
+            timestamp = -1
+        entries.append((str(version), timestamp, index))
+
+ordered = sorted({entry[0]: entry for entry in entries}.values(), key=lambda entry: (entry[1], entry[2], entry[0]))
+if not ordered:
+    raise SystemExit("no flow versions discovered")
+print(ordered[0][0])
+print(ordered[-1][0])
+PY
+}
+
 configure_kind_kubeconfig() {
   local kubeconfig_path="${TMPDIR:-/tmp}/${KIND_CLUSTER_NAME}.kubeconfig"
   kind get kubeconfig --name "${KIND_CLUSTER_NAME}" >"${kubeconfig_path}"
@@ -126,7 +265,7 @@ bash "${ROOT_DIR}/hack/prove-parameter-contexts-runtime.sh" \
   --expected-sensitive-parameter "" \
   --expected-action "${parameter_context_expected_action}"
 
-phase "Creating the live Flow Registry Client and seeding the selected versioned flow"
+phase "Creating the live Flow Registry Client and seeding the first selected versioned flow"
 bash "${ROOT_DIR}/hack/prove-github-flow-registry-workflow.sh" \
   --namespace "${NAMESPACE}" \
   --release "${HELM_RELEASE}" \
@@ -136,19 +275,34 @@ bash "${ROOT_DIR}/hack/prove-github-flow-registry-workflow.sh" \
   --workflow-flow-name payments-api \
   --workflow-process-group-name "flow-import-seed-$(date +%s)"
 
-phase "Enabling bounded runtime-managed versioned flow import"
+phase "Saving a second version of the selected flow"
+bash "${ROOT_DIR}/hack/prove-github-flow-registry-workflow.sh" \
+  --namespace "${NAMESPACE}" \
+  --release "${HELM_RELEASE}" \
+  --auth-secret nifi-auth \
+  --client-name github-flows \
+  --workflow-bucket team-a \
+  --workflow-flow-name payments-api \
+  --workflow-process-group-name "flow-import-seed-update-$(date +%s)"
+
+phase "Resolving the seeded explicit and latest flow versions"
+mapfile -t flow_versions < <(resolve_flow_versions team-a payments-api)
+initial_flow_version="${flow_versions[0]:-}"
+latest_flow_version="${flow_versions[1]:-}"
+if [[ -z "${initial_flow_version}" || -z "${latest_flow_version}" ]]; then
+  echo "failed to resolve seeded flow versions for payments-api" >&2
+  exit 1
+fi
+
+phase "Enabling bounded runtime-managed versioned flow import at explicit version ${initial_flow_version}"
 helm upgrade --install "${HELM_RELEASE}" "${ROOT_DIR}/charts/nifi-platform" \
   --namespace "${NAMESPACE}" \
   --create-namespace \
-  "${helm_values_args[@]}"
-
-github_pat="$(kubectl -n "${NAMESPACE}" get secret "${FLOW_REGISTRY_SECRET_NAME}" -o jsonpath='{.data.token}' | base64 -d)"
-
-phase "Restarting pod ${HELM_RELEASE}-0 so the upgraded bounded import bundle is mounted"
-kubectl -n "${NAMESPACE}" delete pod "${HELM_RELEASE}-0" --wait=true
+  "${helm_values_args[@]}" \
+  --set "nifi.versionedFlowImports.imports[0].version=${initial_flow_version}"
 run_make kind-health KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NAMESPACE="${NAMESPACE}" HELM_RELEASE="${HELM_RELEASE}"
 
-phase "Recreating the operator-owned live Flow Registry Client after pod restart"
+phase "Recreating the operator-owned live Flow Registry Client after the feature-enabling rollout"
 bash "${ROOT_DIR}/hack/prove-github-flow-registry-client.sh" \
   --namespace "${NAMESPACE}" \
   --release "${HELM_RELEASE}" \
@@ -161,22 +315,37 @@ phase "Verifying bounded import bundle is mounted on pod ${HELM_RELEASE}-0"
 kubectl -n "${NAMESPACE}" exec "${HELM_RELEASE}-0" -c nifi -- test -f /opt/nifi/fabric/versioned-flow-imports/config.json
 kubectl -n "${NAMESPACE}" exec "${HELM_RELEASE}-0" -c nifi -- test -f /opt/nifi/fabric/versioned-flow-imports/bootstrap.py
 
-phase "Running the bounded import bootstrap directly on pod ${HELM_RELEASE}-0"
-kubectl -n "${NAMESPACE}" exec "${HELM_RELEASE}-0" -c nifi -- env \
-  FLOW_REGISTRY_CLIENT_GITHUB_PAT_0="${github_pat}" \
-  python3 /opt/nifi/fabric/versioned-flow-imports/bootstrap.py
+phase "Proving runtime-managed bounded versioned flow import at explicit version ${initial_flow_version}"
+retry_proof "runtime-managed bounded versioned flow import creation" \
+  bash "${ROOT_DIR}/hack/prove-versioned-flow-import-runtime.sh" \
+    --namespace "${NAMESPACE}" \
+    --release "${HELM_RELEASE}" \
+    --auth-secret nifi-auth \
+    --import-name payments-api \
+    --expected-action created,updated,unchanged
 
-phase "Proving runtime-managed bounded versioned flow import"
-import_expected_action="created"
-if [[ "${SKIP_KIND_BOOTSTRAP}" == "true" ]]; then
-  import_expected_action="created,unchanged,updated"
-fi
-bash "${ROOT_DIR}/hack/prove-versioned-flow-import-runtime.sh" \
+phase "Updating the declared versioned flow import back to latest (${latest_flow_version}) without replacing pod ${HELM_RELEASE}-0"
+previous_pod_uid="$(kubectl -n "${NAMESPACE}" get pod "${HELM_RELEASE}-0" -o jsonpath='{.metadata.uid}')"
+helm upgrade --install "${HELM_RELEASE}" "${ROOT_DIR}/charts/nifi-platform" \
   --namespace "${NAMESPACE}" \
-  --release "${HELM_RELEASE}" \
-  --auth-secret nifi-auth \
-  --import-name payments-api \
-  --expected-action "${import_expected_action}"
+  --create-namespace \
+  "${helm_values_args[@]}"
+run_make kind-health KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NAMESPACE="${NAMESPACE}" HELM_RELEASE="${HELM_RELEASE}"
+
+current_pod_uid="$(kubectl -n "${NAMESPACE}" get pod "${HELM_RELEASE}-0" -o jsonpath='{.metadata.uid}')"
+if [[ "${current_pod_uid}" != "${previous_pod_uid}" ]]; then
+  echo "expected live versioned flow import update to reconcile without replacing pod ${HELM_RELEASE}-0" >&2
+  exit 1
+fi
+
+phase "Proving live bounded version update to latest ${latest_flow_version}"
+retry_proof "runtime-managed bounded versioned flow import live update" \
+  bash "${ROOT_DIR}/hack/prove-versioned-flow-import-runtime.sh" \
+    --namespace "${NAMESPACE}" \
+    --release "${HELM_RELEASE}" \
+    --auth-secret nifi-auth \
+    --import-name payments-api \
+    --expected-action updated,unchanged
 
 print_success_footer "platform chart runtime-managed versioned flow import proof completed" \
   "helm -n ${NAMESPACE} status ${HELM_RELEASE}" \

@@ -19,9 +19,6 @@ spec:
       {{- end }}
       {{- else }}
       - name: {{ printf "%s-config" (include "nifi-platform.nifiFullname" .) | quote }}
-      {{- if dig "versionedFlowImports" "enabled" false .Values.nifi }}
-      - name: {{ printf "%s-versioned-flow-imports" (include "nifi-platform.nifiFullname" .) | quote }}
-      {{- end }}
       {{- if and .Values.trustManager.enabled (eq (include "nifi-platform.trustManagerTargetType" .) "configMap") (dig "tls" "additionalTrustBundle" "enabled" false .Values.nifi) (dig "tls" "additionalTrustBundle" "useTrustManagerBundle" false .Values.nifi) }}
       - name: {{ include "nifi-platform.trustManagerBundleName" . | quote }}
       {{- end }}

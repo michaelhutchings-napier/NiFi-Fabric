@@ -181,12 +181,12 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 
 ## Versioned Flow Imports
 
-`versionedFlowImports.*` is a bounded runtime-managed feature. It creates only the declared root-child imported process groups owned by the product, attaches or updates them to the selected registry-backed version without provider write-back, currently requires `auth.mode=singleUser` plus the bounded mutable-flow or flow-version-manager bootstrap access path, reuses an already live Flow Registry Client by name, and supports at most one direct Parameter Context attachment per import.
+`versionedFlowImports.*` is a bounded runtime-managed feature. It creates only the declared root-child imported process groups owned by the product, reconciles their selected registry-backed version live on pod `-0` without provider write-back, reuses an already live Flow Registry Client by name, records explicit ownership in the imported process-group comments, and supports at most one direct Parameter Context attachment per import. `singleUser` requires the bounded mutable-flow or flow-version-manager bootstrap access path. `oidc` and `ldap` require `authz.bootstrap.initialAdminIdentity` for the trusted-proxy management identity.
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
 | `versionedFlowImports.enabled` | boolean | Enables bounded runtime-managed versioned-flow import reconciliation. | No | `false` |
-| `versionedFlowImports.mountPath` | string | Mount path for the rendered runtime bundle and bootstrap status files. | No | `/opt/nifi/fabric/versioned-flow-imports` |
+| `versionedFlowImports.mountPath` | string | Mount path for the rendered runtime bundle and status files consumed by the live in-pod reconciler. | No | `/opt/nifi/fabric/versioned-flow-imports` |
 | `versionedFlowImports.imports[]` | object list | Declared versioned-flow imports with a selected registry client name, bucket, flow name, selected version identifier or `latest`, one intended root-child target name, and optional direct Parameter Context reference. | No | `[]` |
 
 ## Availability, Storage, and Resources

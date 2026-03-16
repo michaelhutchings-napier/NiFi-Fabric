@@ -80,10 +80,11 @@ NiFi-Fabric keeps the product surface small and explicit.
 
 - bounded versioned-flow import is available as an optional typed runtime-managed feature under `versionedFlowImports.*`
 - the public surface is intentionally small and limited to registry client selection, bucket, flow name, one selected version identifier or `latest`, one intended root-child import target name, and optional direct Parameter Context attachment
-- the chart imports only the declared root-child process group instances it owns and only on restart-scoped reconciliation
-- the chart attaches or updates only the selected registry-backed version for those owned process groups and does not write new versions back to the registry
+- the chart imports only the declared root-child process group instances it owns and reconciles them live on pod `-0`
+- the chart attaches or updates only the selected registry-backed version for those owned process groups, records explicit ownership in the imported process-group comments, and does not write new versions back to the registry
 - the selected live Flow Registry Client must already exist in NiFi; the feature reuses that client instead of broadening into generic registry-client management
-- focused kind proof now covers real import of a selected registry-backed flow, resulting process-group creation, version-control state, and bounded Parameter Context attachment on the platform install path
+- focused kind proof now covers real import of a selected registry-backed flow, resulting process-group creation, version-control state, live declared version change without pod replacement, and bounded Parameter Context attachment on the platform install path
+- `latest` stays bounded: it is resolved during creation or declared-change reconcile and then pinned to the owned import until the declaration changes again
 - arbitrary process-group mutation, controller-managed ongoing sync, and flow CRDs remain out of scope
 
 ## Observability

@@ -793,9 +793,11 @@ app.kubernetes.io/component: metrics
 {{- if $versionedFlowImports.enabled -}}
 {{- $flowRegistryClients := default (dict) .Values.flowRegistryClients -}}
 {{- $authz := default (dict) .Values.authz -}}
+{{- $bootstrap := default (dict) $authz.bootstrap -}}
 {{- $authzBundles := default (dict) $authz.bundles -}}
 {{- $authzCapabilities := default (dict) $authz.capabilities -}}
 {{- $mutableFlow := default (dict) $authzCapabilities.mutableFlow -}}
+{{- $authMode := include "nifi.authMode" . -}}
 {{- if not $flowRegistryClients.enabled -}}
 {{- fail "versionedFlowImports.enabled=true currently requires flowRegistryClients.enabled=true so the selected prepared client definition can be resolved for bounded import reconciliation" -}}
 {{- end -}}
@@ -810,11 +812,11 @@ app.kubernetes.io/component: metrics
 {{- if not $versionedFlowImports.mountPath -}}
 {{- fail "versionedFlowImports.mountPath is required when versionedFlowImports.enabled=true" -}}
 {{- end -}}
-{{- if ne (include "nifi.authMode" .) "singleUser" -}}
-{{- fail "versionedFlowImports.enabled=true currently requires auth.mode=singleUser for bounded NiFi API import reconciliation" -}}
+{{- if and (or (eq $authMode "oidc") (eq $authMode "ldap")) (not $bootstrap.initialAdminIdentity) -}}
+{{- fail "versionedFlowImports.enabled=true with auth.mode=oidc or auth.mode=ldap requires authz.bootstrap.initialAdminIdentity so the bounded trusted-proxy management identity is explicit" -}}
 {{- end -}}
-{{- if not (or (and $mutableFlow.enabled $mutableFlow.includeInitialAdmin) $authzBundles.flowVersionManager.includeInitialAdmin) -}}
-{{- fail "versionedFlowImports.enabled=true currently requires authz.capabilities.mutableFlow.enabled=true with includeInitialAdmin=true or authz.bundles.flowVersionManager.includeInitialAdmin=true" -}}
+{{- if and (eq $authMode "singleUser") (not (or (and $mutableFlow.enabled $mutableFlow.includeInitialAdmin) $authzBundles.flowVersionManager.includeInitialAdmin)) -}}
+{{- fail "versionedFlowImports.enabled=true with auth.mode=singleUser requires authz.capabilities.mutableFlow.enabled=true with includeInitialAdmin=true or authz.bundles.flowVersionManager.includeInitialAdmin=true" -}}
 {{- end -}}
 {{- if eq (len $versionedFlowImports.imports) 0 -}}
 {{- fail "versionedFlowImports.enabled=true requires versionedFlowImports.imports to contain at least one import definition" -}}

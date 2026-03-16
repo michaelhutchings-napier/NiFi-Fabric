@@ -120,22 +120,25 @@ The current focused bounded versioned-flow import runtime commands are:
 What they prove:
 
 - `charts/nifi-platform` installs the bounded `versionedFlowImports.*` config through the standard product path
-- the selected live Flow Registry Client is created through the existing GitHub workflow helper path as an operator-owned prerequisite and reused by the import bootstrap
-- the focused proof uses a single-node managed platform install, upgrades the release with `versionedFlowImports.*` enabled, hydrates the chart-rendered bounded import bundle into pod `-0`, and executes the bounded bootstrap directly against the running NiFi node
+- the selected live Flow Registry Client is created through the existing GitHub workflow helper path as an operator-owned prerequisite and reused by the live import reconciler
+- the focused proof uses a single-node managed platform install, upgrades the release with `versionedFlowImports.*` enabled, and relies on the chart-mounted live reconcile loop in pod `-0`
 - pod `-0` imports the selected registry-backed flow into the declared root child process group and then attaches or updates the selected version through the NiFi versions API without provider write-back
 - the resulting process group exists in NiFi with version-control state for the selected registry, bucket, flow, and resolved version
 - the imported process group includes the seeded bounded flow contents from the registry-backed snapshot
 - the declared direct Parameter Context attachment is present on the imported process group
-- the feature remains bounded to one declared root-child import target per entry and restart-scoped reconciliation
+- the imported process group carries the explicit `versionedFlowImports` ownership marker
+- a later declared version change is reconciled live without replacing pod `-0`
+- the feature remains bounded to one declared root-child import target per entry and does not widen into ongoing synchronization
 
 What they do not prove:
 
 - automatic creation of Flow Registry Clients by the product
-- automatic preservation of an operator-owned live Flow Registry Client across single-node pod replacement
+- automatic preservation of an operator-owned live Flow Registry Client across the one rollout needed to enable the feature in the first place
 - arbitrary mutation inside the imported process group
 - automatic upgrade to newer registry versions on an ongoing basis
 - provider write-back or registry-side commits from the product
 - deletion of removed imports
+- enterprise-auth runtime proof; `oidc` and `ldap` are render-validated and supported with explicit `authz.bootstrap.initialAdminIdentity`, but the focused kind runtime proof remains on the standard `singleUser` path
 
 ## Parameter Context Runtime Proof
 

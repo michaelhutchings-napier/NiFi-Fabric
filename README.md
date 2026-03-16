@@ -141,7 +141,7 @@ See [Compatibility](docs/compatibility.md) for the detailed matrix.
 - a user-driven GitHub versioned-flow save-to-registry workflow is focused-runtime-proven on NiFi `2.8.0`
 - Azure DevOps Flow Registry Client remains prepared and render-validated
 - Parameter Context support is available as an optional typed runtime-managed feature for bounded Parameter Context creation, live update, deletion, and direct root-child attachment, not as generic flow-runtime management
-- bounded versioned flow import and version selection are available as an optional typed runtime-managed feature for one declared root-child import target, including selected-version attachment without provider write-back, not as generic flow-runtime management
+- bounded versioned flow import and version selection are available as an optional typed runtime-managed feature for declared root-child import targets, including live version reconcile, explicit ownership markers, and selected-version attachment without provider write-back, not as generic flow-runtime management
 - a bounded restore workflow is now focused-runtime-proven on the platform chart path for control-plane reinstall plus registry-client reconnect, runtime-managed Parameter Context recovery, and selected-flow import from registry-backed content
 - native API metrics are the primary, recommended metrics path and are runtime-proven on kind
 - exporter metrics are an optional experimental secondary path and are runtime-proven on kind

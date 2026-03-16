@@ -25,9 +25,6 @@ spec:
         {{- if .Values.observability.siteToSiteProvenance.enabled }}
         checksum/site-to-site-provenance-config: {{ include (print $.Template.BasePath "/site-to-site-provenance-configmap.yaml") . | sha256sum }}
         {{- end }}
-        {{- if .Values.versionedFlowImports.enabled }}
-        checksum/versioned-flow-imports-config: {{ include (print $.Template.BasePath "/versioned-flow-imports-configmap.yaml") . | sha256sum }}
-        {{- end }}
         platform.nifi.io/controller-managed: {{ ternary "true" "false" .Values.controllerManaged.enabled | quote }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -415,7 +412,8 @@ spec:
           python3 /opt/nifi/fabric/parameter-contexts/bootstrap.py >>/opt/nifi/nifi-current/logs/parameter-contexts-bootstrap.log 2>&1 &
           {{- end }}
           {{- if .Values.versionedFlowImports.enabled }}
-          python3 /opt/nifi/fabric/versioned-flow-imports/bootstrap.py
+          python3 /opt/nifi/fabric/versioned-flow-imports/bootstrap.py --once >>/opt/nifi/nifi-current/logs/versioned-flow-imports-bootstrap.log 2>&1 || true
+          python3 /opt/nifi/fabric/versioned-flow-imports/bootstrap.py >>/opt/nifi/nifi-current/logs/versioned-flow-imports-bootstrap.log 2>&1 &
           {{- end }}
           wait "${nifi_pid}"
         securityContext:
@@ -433,7 +431,7 @@ spec:
           value: "$(POD_NAME).{{ include "nifi.fullname" . }}-headless.$(POD_NAMESPACE).svc.cluster.local"
         - name: AUTH_MODE
           value: {{ include "nifi.authMode" . | quote }}
-        {{- if or (eq (include "nifi.metricsMode" .) "siteToSite") .Values.observability.siteToSiteStatus.enabled .Values.observability.siteToSiteProvenance.enabled .Values.parameterContexts.enabled }}
+        {{- if or (eq (include "nifi.metricsMode" .) "siteToSite") .Values.observability.siteToSiteStatus.enabled .Values.observability.siteToSiteProvenance.enabled .Values.parameterContexts.enabled .Values.versionedFlowImports.enabled }}
         - name: KEYSTORE_PASSWORD
           {{- if eq (include "nifi.tlsMode" .) "certManager" }}
           {{- if .Values.tls.certManager.pkcs12.password }}

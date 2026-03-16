@@ -120,11 +120,17 @@ func TestVersionedFlowImportsValidationFailsForUnknownPreparedParameterContextRe
 	}
 }
 
-func TestVersionedFlowImportsValidationFailsWithoutSingleUserAuth(t *testing.T) {
+func TestVersionedFlowImportsValidationFailsForOIDCWithoutInitialAdminIdentity(t *testing.T) {
 	args := append(
 		preparedGitHubFlowRegistryClientArgs(),
 		"--set", "auth.mode=oidc",
-		"--set", "authz.bundles.flowVersionManager.includeInitialAdmin=true",
+		"--set", "auth.oidc.discoveryUrl=https://idp.example.com/.well-known/openid-configuration",
+		"--set", "auth.oidc.clientId=nifi-fabric",
+		"--set", "auth.oidc.clientSecret.existingSecret=nifi-oidc",
+		"--set", "auth.oidc.claims.identifyingUser=email",
+		"--set", "auth.oidc.claims.groups=groups",
+		"--set", "authz.mode=externalClaimGroups",
+		"--set", "authz.applicationGroups[0]=nifi-platform-admins",
 		"--set", "versionedFlowImports.enabled=true",
 		"--set", "versionedFlowImports.imports[0].name=payments",
 		"--set", "versionedFlowImports.imports[0].registryClientName=github-flows",
@@ -139,10 +145,88 @@ func TestVersionedFlowImportsValidationFailsWithoutSingleUserAuth(t *testing.T) 
 		args...,
 	)
 	if err == nil {
-		t.Fatalf("expected helm template to fail without single-user auth for versionedFlowImports\n%s", output)
+		t.Fatalf("expected helm template to fail for oidc versionedFlowImports without an explicit proxied admin identity\n%s", output)
 	}
-	if !strings.Contains(output, "versionedFlowImports.enabled=true currently requires auth.mode=singleUser for bounded NiFi API import reconciliation") {
-		t.Fatalf("expected single-user validation error\n%s", output)
+	if !strings.Contains(output, "versionedFlowImports.enabled=true with auth.mode=oidc or auth.mode=ldap requires authz.bootstrap.initialAdminIdentity so the bounded trusted-proxy management identity is explicit") {
+		t.Fatalf("expected enterprise-auth validation error\n%s", output)
+	}
+}
+
+func TestVersionedFlowImportsAllowsOIDCWithExplicitInitialAdminIdentity(t *testing.T) {
+	args := append(
+		preparedGitHubFlowRegistryClientArgs(),
+		"--set", "auth.mode=oidc",
+		"--set", "auth.oidc.discoveryUrl=https://idp.example.com/.well-known/openid-configuration",
+		"--set", "auth.oidc.clientId=nifi-fabric",
+		"--set", "auth.oidc.clientSecret.existingSecret=nifi-oidc",
+		"--set", "auth.oidc.claims.identifyingUser=email",
+		"--set", "auth.oidc.claims.groups=groups",
+		"--set", "authz.mode=externalClaimGroups",
+		"--set", "authz.applicationGroups[0]=nifi-platform-admins",
+		"--set", "authz.bootstrap.initialAdminIdentity=alice@example.com",
+		"--set", "versionedFlowImports.enabled=true",
+		"--set", "versionedFlowImports.imports[0].name=payments",
+		"--set", "versionedFlowImports.imports[0].registryClientName=github-flows",
+		"--set", "versionedFlowImports.imports[0].bucket=team-a",
+		"--set", "versionedFlowImports.imports[0].flowName=payments-api",
+		"--set", "versionedFlowImports.imports[0].version=latest",
+		"--set", "versionedFlowImports.imports[0].target.rootProcessGroupName=payments-root",
+	)
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		args...,
+	)
+	if err != nil {
+		t.Fatalf("expected helm template to allow oidc versionedFlowImports with explicit proxied admin identity: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		`"authMode": "oidc"`,
+		`"proxiedIdentity": "alice@example.com"`,
+		`"latestVersionPolicy": "resolve-on-create-or-declared-change-then-pin"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestVersionedFlowImportsAllowsLDAPWithExplicitInitialAdminIdentity(t *testing.T) {
+	args := append(
+		preparedGitHubFlowRegistryClientArgs(),
+		"--set", "auth.mode=ldap",
+		"--set", "auth.ldap.url=ldaps://ldap.example.com:636",
+		"--set", "auth.ldap.managerSecret.name=nifi-ldap-bind",
+		"--set", "auth.ldap.userSearch.base=ou=People,dc=example,dc=com",
+		"--set", "auth.ldap.userSearch.filter=(uid={0})",
+		"--set", "auth.ldap.groupSearch.base=ou=Groups,dc=example,dc=com",
+		"--set", "auth.ldap.groupSearch.nameAttribute=cn",
+		"--set", "auth.ldap.groupSearch.memberAttribute=member",
+		"--set", "authz.mode=ldapSync",
+		"--set", "authz.bootstrap.initialAdminIdentity=alice",
+		"--set", "versionedFlowImports.enabled=true",
+		"--set", "versionedFlowImports.imports[0].name=payments",
+		"--set", "versionedFlowImports.imports[0].registryClientName=github-flows",
+		"--set", "versionedFlowImports.imports[0].bucket=team-a",
+		"--set", "versionedFlowImports.imports[0].flowName=payments-api",
+		"--set", "versionedFlowImports.imports[0].version=latest",
+		"--set", "versionedFlowImports.imports[0].target.rootProcessGroupName=payments-root",
+	)
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		args...,
+	)
+	if err != nil {
+		t.Fatalf("expected helm template to allow ldap versionedFlowImports with explicit proxied admin identity: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		`"authMode": "ldap"`,
+		`"proxiedIdentity": "alice"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
 	}
 }
 
@@ -263,9 +347,8 @@ func TestPlatformManagedVersionedFlowImportExampleRenders(t *testing.T) {
 		`"version": "latest"`,
 		`"rootProcessGroupName": "payments-api-root"`,
 		`"name": "payments-runtime"`,
-		`checksum/versioned-flow-imports-config`,
-		`python3 /opt/nifi/fabric/versioned-flow-imports/bootstrap.py`,
-		`- name: "test-nifi-versioned-flow-imports"`,
+		`versioned-flow-imports-bootstrap.log`,
+		`python3 /opt/nifi/fabric/versioned-flow-imports/bootstrap.py --once`,
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected rendered platform output to contain %q\n%s", want, output)

@@ -112,14 +112,17 @@ Experimental or prepared paths:
 - `providerRefs` remain bounded and honest: they stay reference-only in this slice and do not create or refresh NiFi Parameter Providers
 - `versionedFlowImports` is the next optional typed runtime-managed config feature for bounded flow import and version selection
 - the public API stays use-case-specific under `versionedFlowImports` and is intentionally limited to one selected registry client reference, bucket, flow name, one selected version identifier or `latest`, one intended root-child import target name, and optional direct Parameter Context references
-- the app chart owns only the declared root-child imported process-group instances it creates from that config, plus the rendered import bundle and status files used for restart-scoped reconciliation
-- the chart resolves a live registry client, imports the selected versioned flow into the named root child process group, and can attach one declared Parameter Context reference when present
-- in the current bounded slice, runtime-managed import also requires a prepared GitHub Flow Registry Client definition so the bootstrap can fetch the selected saved-flow snapshot when NiFi only returns version metadata; this does not make the product a generic registry-client or flow-runtime manager
+- the app chart owns only the declared root-child imported process-group instances it creates from that config, plus the rendered import bundle and status files used for bounded live reconciliation on pod `-0`
+- the chart resolves a live registry client, bucket, flow, and selected version through the NiFi API, imports the declared versioned flow into the named root child process group, and can attach one declared Parameter Context reference when present
+- live reconcile stays bounded and does not become controller-managed ongoing sync: explicit version declarations are enforced directly, while `latest` is resolved during creation or declared-change reconcile and then pinned through the product ownership marker until the declaration changes again
+- ownership is explicit and narrow: the product only manages root-child process groups it created and marked for a declared `versionedFlowImports[]` entry, does not auto-adopt same-name operator-owned targets, and may overwrite or block unsupported manual edits inside that bounded owned scope
+- runtime-managed import supports the current single-user path plus enterprise auth modes when an explicit bootstrap admin identity is available for the local trusted-proxy management path, and it reuses the existing bounded flow-version-manager or mutable-flow authz bundle work instead of introducing a broader runtime-object permission model
+- runtime-managed import reuses live Flow Registry Client support and selected-version content exposed through NiFi, while still keeping live registry-client lifecycle and provider write-back out of scope
 - the chart does not become a generic flow-runtime API, does not perform arbitrary process-group mutation, does not add controller-managed ongoing synchronization, and does not add flow CRDs
 - no generic Reporting Task, Controller Service, or NiFi runtime-object public API is introduced
 - record-writer ownership, proxy-controller-service ownership, and any broader runtime-object lifecycle APIs remain future work
 - destination receiver topology, the receiver-side `/site-to-site` and `/controller` read grants, the destination input-port write grant for that identity, long-lived credential lifecycle, any reverse-proxy routing assumptions, NiFi-side Parameter Provider creation, live Flow Registry Client lifecycle beyond the selected reference, broader process-group Parameter Context assignment, and any arbitrary NiFi-side flow edits remain explicit operator-owned concerns
-- current runtime ownership is intentionally chart-scoped and bootstrap-scoped rather than controller-owned orchestration
+- current runtime ownership is intentionally chart-scoped and in-pod rather than controller-owned orchestration
 
 Current conservative boundary:
 
@@ -127,7 +130,7 @@ Current conservative boundary:
 - exporter runtime proof adds one second secured endpoint, `/nifi-api/flow/status`, through the chart-owned exporter path
 - site-to-site runtime proof is intentionally bounded to typed reporting-task and SSL-context bootstrap plus a proof-only receiver harness; full receiver-pipeline ownership remains narrower than the generic site-to-site problem space
 - parameter context support is intentionally bounded to declared create, update, delete, and direct-root-child attachment reconciliation; it still does not claim arbitrary graph editing or Parameter Provider creation
-- versioned flow import support is intentionally bounded to restart-scoped import and selected-version enforcement for declared root-child process groups backed by the prepared GitHub client path; broader drift enforcement, arbitrary process-group edits, and ongoing synchronization remain out of scope
+- versioned flow import support is intentionally bounded to live import, selected-version enforcement, explicit ownership markers, and direct Parameter Context attachment for declared root-child process groups; arbitrary process-group edits, provider write-back, and ongoing synchronization remain out of scope
 - JVM or system-diagnostics metrics are not yet runtime-proven
 - machine-auth Secret bootstrap is partially automated, but machine principal provisioning and IdP write-back remain out of scope
 

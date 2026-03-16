@@ -562,8 +562,10 @@ parameterContexts:
 # - removed imports are not deleted from NiFi in this slice
 # - ongoing version synchronization and arbitrary process-group mutation remain
 #   out of scope
-# In managed mode, changes are applied through the existing restart-trigger and
-# rollout safety path.
+# - live reconcile on pod `-0` applies declared version changes without relying
+#   on restart-trigger wiring once the feature is enabled
+# Enterprise auth modes use the explicit bootstrap admin identity as the bounded
+# trusted-proxy management identity for this feature.
 versionedFlowImports:
   enabled: false
   mountPath: /opt/nifi/fabric/versioned-flow-imports

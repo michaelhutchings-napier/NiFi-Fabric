@@ -256,13 +256,13 @@ There are also bounded versioned-flow import overlays:
 - [platform-managed-versioned-flow-import-values.yaml](platform-managed-versioned-flow-import-values.yaml)
   - Runtime-managed bounded versioned-flow import for the standard `charts/nifi-platform` path.
   - It models one selected live registry client reference, bucket, flow name, version, intended root-child target name, and one direct Parameter Context reference.
-  - It imports only that declared root-child process group, attaches or updates only the selected registry-backed version without provider write-back, and does not add ongoing synchronization or generic graph editing.
+  - It imports only that declared root-child process group, attaches or updates only the selected registry-backed version without provider write-back, records explicit ownership in the imported process-group comments, and does not add ongoing synchronization or generic graph editing.
 
 - [platform-managed-versioned-flow-import-kind-values.yaml](platform-managed-versioned-flow-import-kind-values.yaml)
   - Focused kind overlay for the platform-chart runtime-managed versioned-flow import proof.
   - Uses a focused single-node managed topology for the proof harness.
-  - The focused proof upgrades the platform release, hydrates the chart-rendered bounded import bundle into pod `-0`, and executes the bounded bootstrap directly so the live operator-owned Flow Registry Client can be reused without pretending single-node pod replacement preserves it.
-  - The proof verifies bounded import, selected-version attachment, and one seeded flow-content element on the imported process group.
+  - The focused proof upgrades the platform release, waits for the live in-pod reconciler on pod `-0`, and then proves a later declared version change is applied without replacing the pod.
+  - The proof verifies bounded import, selected-version attachment, explicit ownership marking, and one seeded flow-content element on the imported process group.
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml), [platform-fast-values.yaml](platform-fast-values.yaml), and [platform-managed-versioned-flow-import-values.yaml](platform-managed-versioned-flow-import-values.yaml).
   - The focused runtime commands are `make kind-platform-managed-versioned-flow-import-fast-e2e` and `make kind-platform-managed-versioned-flow-import-fast-e2e-reuse`.
 

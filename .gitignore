@@ -3,4 +3,4 @@ dist/
 .cache/
 .tmp/
 coverage.out
-
+charts/nifi-platform/charts/*.tgz

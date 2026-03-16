@@ -1,36 +1,51 @@
 {{- if .Values.versionedFlowImports.enabled }}
 {{- $statusFile := "/opt/nifi/nifi-current/logs/versioned-flow-imports-bootstrap-status.json" -}}
+{{- $descriptionMarker := "Managed by NiFi-Fabric versionedFlowImports" -}}
+{{- $authMode := include "nifi.authMode" . -}}
+{{- $proxiedIdentity := .Values.authz.bootstrap.initialAdminIdentity -}}
+{{- if eq $authMode "singleUser" -}}
+{{- $proxiedIdentity = "__SINGLE_USER_IDENTITY__" -}}
+{{- end -}}
 {{- $ownership := dict
   "createsImportedProcessGroupsInNiFi" true
   "reconcilesDeclaredImportsInNiFi" true
   "deletesRemovedImportedProcessGroupsInNiFi" false
   "createsFlowRegistryClientsInNiFi" false
   "attachesDirectParameterContexts" true
-  "manualNiFiDrift" "unsupported-outside-bounded-import-scope"
+  "commentsMarker" $descriptionMarker
+  "manualNiFiDrift" "bounded-live-reconcile-or-blocked"
   "undeclaredProcessGroups" "operator-owned"
 -}}
 {{- $catalog := dict
   "catalogMode" "runtime-managed"
   "ownership" $ownership
   "runtimeContract" (dict
-    "requiresAuthMode" "singleUser"
+    "authMode" $authMode
+    "proxiedIdentity" $proxiedIdentity
     "requiresLiveRegistryClient" true
-    "requiresPreparedGithubClient" true
+    "requiresPreparedGithubClientForSnapshotFallback" true
     "reconcilePodOrdinal" 0
     "statusFile" $statusFile
+    "pollIntervalSeconds" 10
     "parameterContextRefs" "0-or-1 direct attachment"
-    "versionSync" "no-ongoing-sync"
+    "versionSync" "declared-version-only-no-ongoing-sync"
+    "latestVersionPolicy" "resolve-on-create-or-declared-change-then-pin"
+    "ownershipMarker" "root-child-process-group-comments"
     "snapshotSource" "nifi-flow-registry-api-with-prepared-github-fallback"
   )
   "imports" (list)
 -}}
 {{- $runtimeConfig := dict
   "management" (dict
+    "authMode" $authMode
     "caCertPath" (printf "%s/%s" .Values.tls.mountPath .Values.tls.caCertKey)
+    "keystorePath" (printf "%s/%s" .Values.tls.mountPath .Values.tls.keystoreKey)
+    "keystorePasswordEnv" "KEYSTORE_PASSWORD"
     "statusFile" $statusFile
+    "pollIntervalSeconds" 10
     "reconcilePodOrdinal" 0
-    "clientId" "fabric-versioned-flow-import-bootstrap"
-    "rootProcessGroupId" "root"
+    "proxiedIdentity" $proxiedIdentity
+    "clientId" "fabric-versioned-flow-import-reconciler"
   )
   "ownership" $ownership
   "preparedRegistryClients" (list)
@@ -70,7 +85,7 @@
     "createdByProduct" true
     "reconciledByProduct" true
     "deletedWhenRemovedFromValues" false
-    "manualNiFiDrift" "unsupported-outside-bounded-import-scope"
+    "manualNiFiDrift" "bounded-live-reconcile-or-blocked"
   )
   "registryClientRef" (dict "name" $import.registryClientName)
   "source" (dict
@@ -105,10 +120,13 @@ data:
 {{ $catalog | toPrettyJson | indent 4 }}
   bootstrap.py: |
     import base64
+    import hashlib
     import json
     import os
     import ssl
+    import subprocess
     import sys
+    import tempfile
     import time
     import urllib.error
     import urllib.parse
@@ -126,11 +144,23 @@ data:
             return json.load(handle)
 
 
+    def load_previous_status(config):
+        path = config["management"]["statusFile"]
+        if not os.path.exists(path):
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except Exception:
+            return {}
+
+
     def write_status(config, payload):
         path = config["management"]["statusFile"]
         directory = os.path.dirname(path)
         if directory:
             os.makedirs(directory, exist_ok=True)
+        payload["timestamp"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
             handle.write("\n")
@@ -139,25 +169,95 @@ data:
     def base_status(config):
         return {
             "podName": os.environ.get("POD_NAME", ""),
-            "authMode": os.environ.get("AUTH_MODE", ""),
+            "authMode": config["management"].get("authMode", ""),
             "status": "running",
             "imports": [],
+            "retainedOwnedImports": [],
         }
 
 
-    def build_http_client(ca_cert_path):
+    def should_manage(config, status):
+        pod_name = status["podName"]
+        suffix = f"-{config['management']['reconcilePodOrdinal']}"
+        return not pod_name or pod_name.endswith(suffix)
+
+
+    def resolve_proxied_identity(config):
+        identity = config["management"].get("proxiedIdentity", "")
+        if identity == "__SINGLE_USER_IDENTITY__":
+            identity = os.environ.get("SINGLE_USER_CREDENTIALS_USERNAME", "")
+        identity = identity.strip()
+        if not identity:
+            raise NiFiAPIError("bounded versioned flow import reconciliation requires a proxied management identity")
+        return identity
+
+
+    def ensure_client_certificate_files(config):
+        keystore_path = config["management"]["keystorePath"]
+        password_env = config["management"].get("keystorePasswordEnv", "KEYSTORE_PASSWORD")
+        keystore_password = os.environ.get(password_env, "")
+        if not keystore_password:
+            raise NiFiAPIError(f"missing workload keystore password in environment variable {password_env!r}")
+        if not os.path.exists(keystore_path):
+            raise NiFiAPIError(f"workload keystore path {keystore_path!r} does not exist")
+
+        workdir = tempfile.mkdtemp(prefix="nifi-fabric-versioned-flow-imports-")
+        cert_path = os.path.join(workdir, "client.crt.pem")
+        key_path = os.path.join(workdir, "client.key.pem")
+
+        subprocess.run(
+            [
+                "openssl",
+                "pkcs12",
+                "-in",
+                keystore_path,
+                "-clcerts",
+                "-nokeys",
+                "-passin",
+                f"pass:{keystore_password}",
+                "-out",
+                cert_path,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            [
+                "openssl",
+                "pkcs12",
+                "-in",
+                keystore_path,
+                "-nocerts",
+                "-nodes",
+                "-passin",
+                f"pass:{keystore_password}",
+                "-out",
+                key_path,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return cert_path, key_path
+
+
+    def build_http_client(config):
+        ca_cert_path = config["management"]["caCertPath"]
+        cert_path, key_path = ensure_client_certificate_files(config)
         context = ssl.create_default_context(cafile=ca_cert_path)
+        context.load_cert_chain(certfile=cert_path, keyfile=key_path)
         return urllib.request.build_opener(urllib.request.HTTPSHandler(context=context))
 
 
-    def request(opener, base_url, method, path, token=None, payload=None, expect=(200,)):
+    def request(opener, base_url, method, path, proxied_identity, payload=None, expect=(200,)):
         body = None
-        headers = {}
+        headers = {
+            "X-ProxiedEntitiesChain": f"<{proxied_identity}>",
+        }
         if payload is not None:
             body = json.dumps(payload).encode("utf-8")
             headers["Content-Type"] = "application/json"
-        if token:
-            headers["Authorization"] = "Bearer " + token
         req = urllib.request.Request(base_url + path, data=body, headers=headers, method=method)
         try:
             with opener.open(req, timeout=20) as response:
@@ -177,45 +277,11 @@ data:
             raise NiFiAPIError(f"{method} {path} failed with status {exc.code}: {body_text[:4096]}") from exc
 
 
-    def request_token(opener, base_url):
-        username = os.environ.get("SINGLE_USER_CREDENTIALS_USERNAME", "")
-        password = os.environ.get("SINGLE_USER_CREDENTIALS_PASSWORD", "")
-        if not username or not password:
-            raise NiFiAPIError("single-user credentials are required for versioned flow import bootstrap")
-        form = urllib.parse.urlencode({"username": username, "password": password}).encode("utf-8")
-        req = urllib.request.Request(
-            base_url + "/access/token",
-            data=form,
-            headers={"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"},
-            method="POST",
-        )
-        try:
-            with opener.open(req, timeout=15) as response:
-                token = response.read().decode("utf-8").strip()
-                if response.status not in (200, 201) or not token:
-                    raise NiFiAPIError(f"token request returned {response.status} with empty token")
-                return token
-        except urllib.error.HTTPError as exc:
-            body_text = exc.read().decode("utf-8", "ignore")
-            raise NiFiAPIError(f"POST /access/token failed with status {exc.code}: {body_text[:4096]}") from exc
-
-
-    def wait_for_token(opener, base_url):
+    def wait_for_cluster_summary(opener, base_url, proxied_identity):
         last_error = None
         for _ in range(90):
             try:
-                return request_token(opener, base_url)
-            except Exception as exc:
-                last_error = exc
-                time.sleep(2)
-        raise last_error or NiFiAPIError("timed out waiting for NiFi API token")
-
-
-    def wait_for_cluster_summary(opener, base_url, token):
-        last_error = None
-        for _ in range(90):
-            try:
-                payload = request(opener, base_url, "GET", "/flow/cluster/summary", token=token)
+                payload = request(opener, base_url, "GET", "/flow/cluster/summary", proxied_identity)
                 summary = payload.get("clusterSummary", {})
                 if (
                     summary.get("clustered") is True
@@ -293,7 +359,7 @@ data:
 
         headers = {
             "Accept": "application/vnd.github+json",
-            "User-Agent": "nifi-fabric-versioned-flow-import-bootstrap",
+            "User-Agent": "nifi-fabric-versioned-flow-import-reconciler",
         }
         auth_type = github.get("authType") or "personalAccessToken"
         if auth_type == "personalAccessToken":
@@ -398,8 +464,69 @@ data:
         )
 
 
-    def flow_registry_ids_by_name(opener, base_url, token):
-        payload = request(opener, base_url, "GET", "/flow/registries", token=token)
+    def ownership_metadata_from_comments(config, comments):
+        comments = comments or ""
+        prefix = config["ownership"]["commentsMarker"] + ": "
+        start = comments.rfind("\n\n" + prefix)
+        if start != -1:
+            payload = comments[start + len("\n\n" + prefix) :]
+        elif comments.startswith(prefix):
+            payload = comments[len(prefix) :]
+        else:
+            return {}
+        try:
+            metadata = json.loads(payload)
+        except Exception:
+            return {}
+        return metadata if isinstance(metadata, dict) else {}
+
+
+    def strip_ownership_marker(config, comments):
+        comments = comments or ""
+        prefix = config["ownership"]["commentsMarker"] + ": "
+        start = comments.rfind("\n\n" + prefix)
+        if start != -1:
+            return comments[:start]
+        if comments.startswith(prefix):
+            return ""
+        return comments
+
+
+    def import_observed_hash(import_entry):
+        payload = {
+            "name": import_entry["name"],
+            "registryClientName": import_entry["registryClientRef"]["name"],
+            "bucket": import_entry["source"]["bucket"],
+            "flowName": import_entry["source"]["flowName"],
+            "version": import_entry["source"]["version"],
+            "targetRootProcessGroupName": import_entry["target"]["rootProcessGroupName"],
+            "parameterContextRefs": [
+                ref.get("name", "")
+                for ref in import_entry.get("parameterContextRefs", [])
+                if isinstance(ref, dict) and ref.get("name")
+            ],
+        }
+        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+    def managed_comments(config, current_comments, import_entry, resolved_version, observed_hash):
+        metadata = {
+            "importName": import_entry["name"],
+            "registryClientName": import_entry["registryClientRef"]["name"],
+            "bucket": import_entry["source"]["bucket"],
+            "flowName": import_entry["source"]["flowName"],
+            "selectedVersion": str(import_entry["source"]["version"]),
+            "resolvedVersion": str(resolved_version),
+            "targetRootProcessGroupName": import_entry["target"]["rootProcessGroupName"],
+            "observedHash": observed_hash,
+        }
+        base = strip_ownership_marker(config, current_comments)
+        marker = f"{config['ownership']['commentsMarker']}: {json.dumps(metadata, sort_keys=True)}"
+        return marker if not base else base + "\n\n" + marker
+
+
+    def flow_registry_ids_by_name(opener, base_url, proxied_identity):
+        payload = request(opener, base_url, "GET", "/flow/registries", proxied_identity)
         mapping = {}
         for entry in payload.get("registries", []):
             component = entry.get("component", {})
@@ -410,8 +537,8 @@ data:
         return mapping
 
 
-    def parameter_context_ids_by_name(opener, base_url, token):
-        payload = request(opener, base_url, "GET", "/flow/parameter-contexts", token=token)
+    def parameter_context_ids_by_name(opener, base_url, proxied_identity):
+        payload = request(opener, base_url, "GET", "/flow/parameter-contexts", proxied_identity)
         mapping = {}
         for entry in payload.get("parameterContexts", []):
             component = entry.get("component", {})
@@ -422,35 +549,39 @@ data:
         return mapping
 
 
-    def root_child_process_groups_by_name(opener, base_url, token):
-        payload = request(opener, base_url, "GET", "/flow/process-groups/root", token=token)
-        process_group_flow = payload.get("processGroupFlow", {})
-        flow = process_group_flow.get("flow", {})
-        mapping = {}
-        for entry in flow.get("processGroups", []):
+    def root_child_process_groups(opener, base_url, proxied_identity):
+        payload = request(opener, base_url, "GET", "/flow/process-groups/root", proxied_identity)
+        entries = []
+        for entry in payload.get("processGroupFlow", {}).get("flow", {}).get("processGroups", []):
             component = entry.get("component", {})
-            name = component.get("name")
             identifier = entry.get("id") or component.get("id")
-            if name and identifier:
-                mapping[name] = identifier
-        return mapping
+            if not identifier:
+                continue
+            entries.append(
+                {
+                    "id": identifier,
+                    "name": component.get("name", ""),
+                    "comments": component.get("comments", "") or "",
+                }
+            )
+        return entries
 
 
-    def get_process_group_component(opener, base_url, token, process_group_id):
-        payload = request(opener, base_url, "GET", f"/process-groups/{process_group_id}", token=token)
+    def get_process_group_component(opener, base_url, proxied_identity, process_group_id):
+        payload = request(opener, base_url, "GET", f"/process-groups/{process_group_id}", proxied_identity)
         component = payload.get("component", {})
         revision = payload.get("revision", {}) or payload.get("revisionDTO", {})
         return payload, component, revision
 
 
-    def get_process_group_flow(opener, base_url, token, process_group_id):
-        payload = request(opener, base_url, "GET", f"/flow/process-groups/{process_group_id}", token=token)
+    def get_process_group_flow(opener, base_url, proxied_identity, process_group_id):
+        payload = request(opener, base_url, "GET", f"/flow/process-groups/{process_group_id}", proxied_identity)
         process_group_flow = payload.get("processGroupFlow", {})
         return payload, process_group_flow, process_group_flow.get("flow", {})
 
 
-    def resolve_flow_id(opener, base_url, token, registry_id, bucket_name, flow_name):
-        payload = request(opener, base_url, "GET", f"/flow/registries/{registry_id}/buckets/{bucket_name}/flows", token=token)
+    def resolve_flow_id(opener, base_url, proxied_identity, registry_id, bucket_name, flow_name):
+        payload = request(opener, base_url, "GET", f"/flow/registries/{registry_id}/buckets/{bucket_name}/flows", proxied_identity)
         flows = payload.get("bucketFlowResults") or payload.get("versionedFlows") or payload.get("flows") or []
         for entry in flows:
             candidate = entry.get("flow") or entry.get("versionedFlow") or entry
@@ -527,13 +658,13 @@ data:
         return list(unique.values())
 
 
-    def resolve_version_entry(opener, base_url, token, registry_id, bucket_name, flow_id, selected_version):
+    def resolve_version_entry(opener, base_url, proxied_identity, registry_id, bucket_name, flow_id, selected_version):
         payload = request(
             opener,
             base_url,
             "GET",
             f"/flow/registries/{registry_id}/buckets/{bucket_name}/flows/{flow_id}/versions",
-            token=token,
+            proxied_identity,
         )
         entries = version_entries(payload)
         if not entries:
@@ -552,7 +683,7 @@ data:
         )
 
 
-    def import_process_group(opener, base_url, token, client_id, target_name, snapshot):
+    def import_process_group(opener, base_url, proxied_identity, client_id, target_name, snapshot):
         payload = {
             "revisionDTO": {
                 "clientId": client_id,
@@ -570,7 +701,7 @@ data:
             base_url,
             "POST",
             "/process-groups/root/process-groups/import",
-            token=token,
+            proxied_identity,
             payload=payload,
             expect=(200, 201),
         )
@@ -584,7 +715,7 @@ data:
     def update_imported_process_group_version(
         opener,
         base_url,
-        token,
+        proxied_identity,
         client_id,
         process_group_id,
         revision_version,
@@ -605,7 +736,7 @@ data:
             base_url,
             "PUT",
             f"/versions/process-groups/{process_group_id}",
-            token=token,
+            proxied_identity,
             payload=payload,
             expect=(200, 201),
         )
@@ -614,10 +745,10 @@ data:
         return version_control, revision
 
 
-    def bind_parameter_context(opener, base_url, token, client_id, process_group_id, revision_version, parameter_context_id):
+    def bind_parameter_context(opener, base_url, proxied_identity, config, process_group_id, revision_version, parameter_context_id):
         payload = {
             "revision": {
-                "clientId": client_id,
+                "clientId": config["management"]["clientId"],
                 "version": int(revision_version),
             },
             "component": {
@@ -632,7 +763,52 @@ data:
             base_url,
             "PUT",
             f"/process-groups/{process_group_id}",
-            token=token,
+            proxied_identity,
+            payload=payload,
+            expect=(200, 201),
+        )
+
+
+    def clear_parameter_context(opener, base_url, proxied_identity, config, process_group_id, revision_version):
+        payload = {
+            "revision": {
+                "clientId": config["management"]["clientId"],
+                "version": int(revision_version),
+            },
+            "component": {
+                "id": process_group_id,
+                "parameterContext": None,
+            },
+        }
+        request(
+            opener,
+            base_url,
+            "PUT",
+            f"/process-groups/{process_group_id}",
+            proxied_identity,
+            payload=payload,
+            expect=(200, 201),
+        )
+
+
+    def update_process_group_comments(opener, base_url, proxied_identity, config, process_group_id, revision_version, name, comments):
+        payload = {
+            "revision": {
+                "clientId": config["management"]["clientId"],
+                "version": int(revision_version),
+            },
+            "component": {
+                "id": process_group_id,
+                "name": name,
+                "comments": comments,
+            },
+        }
+        request(
+            opener,
+            base_url,
+            "PUT",
+            f"/process-groups/{process_group_id}",
+            proxied_identity,
             payload=payload,
             expect=(200, 201),
         )
@@ -652,18 +828,127 @@ data:
         return {}
 
 
-    def ensure_import(config, opener, base_url, token, import_entry):
+    def refresh_process_group_state(opener, base_url, proxied_identity, process_group_id):
+        component_payload, component, revision = get_process_group_component(opener, base_url, proxied_identity, process_group_id)
+        _, process_group_flow, flow_payload = get_process_group_flow(opener, base_url, proxied_identity, process_group_id)
+        version_control = version_control_information(component_payload, process_group_flow, flow_payload)
+        return component_payload, component, revision, process_group_flow, flow_payload, version_control
+
+
+    def resolved_version_for_import(opener, base_url, proxied_identity, import_entry, registry_id, flow_id, ownership_metadata, previous_entry, import_status):
+        selected_version = str(import_entry["source"]["version"])
+        bucket_name = import_entry["source"]["bucket"]
+        flow_name = import_entry["source"]["flowName"]
+        observed_hash = import_status["observedHash"]
+
+        if selected_version != "latest":
+            version_entry = resolve_version_entry(
+                opener,
+                base_url,
+                proxied_identity,
+                registry_id,
+                bucket_name,
+                flow_id,
+                selected_version,
+            )
+            import_status["resolvedVersion"] = version_entry["version"]
+            import_status["resolvedVersionSource"] = "declared"
+            return version_entry
+
+        latest_entry = resolve_version_entry(
+            opener,
+            base_url,
+            proxied_identity,
+            registry_id,
+            bucket_name,
+            flow_id,
+            "latest",
+        )
+        import_status["latestResolvedVersion"] = latest_entry["version"]
+
+        pinned_version = ""
+        for source in (ownership_metadata, previous_entry):
+            if not isinstance(source, dict):
+                continue
+            if source.get("selectedVersion") != "latest":
+                continue
+            if source.get("observedHash") != observed_hash:
+                continue
+            pinned_version = str(source.get("resolvedVersion") or "").strip()
+            if pinned_version:
+                break
+
+        if pinned_version:
+            version_entry = resolve_version_entry(
+                opener,
+                base_url,
+                proxied_identity,
+                registry_id,
+                bucket_name,
+                flow_id,
+                pinned_version,
+            )
+            import_status["resolvedVersion"] = version_entry["version"]
+            import_status["resolvedVersionSource"] = "ownership-marker"
+            if version_entry["version"] != latest_entry["version"]:
+                import_status["latestAvailableVersion"] = latest_entry["version"]
+            return version_entry
+
+        import_status["resolvedVersion"] = latest_entry["version"]
+        import_status["resolvedVersionSource"] = "latest"
+        return latest_entry
+
+
+    def validate_owned_target(import_entry, ownership_metadata):
+        if ownership_metadata.get("importName") != import_entry["name"]:
+            raise NiFiAPIError(
+                f"declared target {import_entry['target']['rootProcessGroupName']!r} is already owned by import {ownership_metadata.get('importName')!r}, not {import_entry['name']!r}"
+            )
+        for field, expected in (
+            ("registryClientName", import_entry["registryClientRef"]["name"]),
+            ("bucket", import_entry["source"]["bucket"]),
+            ("flowName", import_entry["source"]["flowName"]),
+            ("targetRootProcessGroupName", import_entry["target"]["rootProcessGroupName"]),
+        ):
+            actual = ownership_metadata.get(field)
+            if actual and actual != expected:
+                raise NiFiAPIError(
+                    f"owned target {import_entry['target']['rootProcessGroupName']!r} was created for {field}={actual!r}, not {expected!r}; delete or rename the owned target before changing the declared source or target"
+                )
+
+
+    def ensure_import(config, previous_entry, opener, base_url, proxied_identity, import_entry):
         client_id = config["management"]["clientId"]
         import_status = {
             "name": import_entry["name"],
-            "selectedVersion": import_entry["source"]["version"],
+            "selectedVersion": str(import_entry["source"]["version"]),
             "targetRootProcessGroupName": import_entry["target"]["rootProcessGroupName"],
+            "observedHash": import_observed_hash(import_entry),
             "status": "running",
         }
 
+        target_name = import_entry["target"]["rootProcessGroupName"]
+        root_children = root_child_process_groups(opener, base_url, proxied_identity)
+        target_matches = [entry for entry in root_children if entry["name"] == target_name]
+        if len(target_matches) > 1:
+            raise NiFiAPIError(
+                f"declared root child process group name {target_name!r} is ambiguous in NiFi; rename the targets so the bounded ownership scope stays unique"
+            )
+
+        process_group_id = target_matches[0]["id"] if target_matches else ""
+        ownership_metadata = ownership_metadata_from_comments(config, target_matches[0]["comments"]) if target_matches else {}
+        if process_group_id:
+            if not ownership_metadata:
+                raise NiFiAPIError(
+                    f"declared target root child process group {target_name!r} already exists in NiFi without the product ownership marker; operator-owned targets are not adopted automatically"
+                )
+            validate_owned_target(import_entry, ownership_metadata)
+            import_status["ownershipState"] = "owned"
+        else:
+            import_status["ownershipState"] = "creating"
+
         registry_name = import_entry["registryClientRef"]["name"]
-        registry_ids = flow_registry_ids_by_name(opener, base_url, token)
-        registry_id = registry_ids.get(registry_name)
+        registry_id = flow_registry_ids_by_name(opener, base_url, proxied_identity).get(registry_name)
         if not registry_id:
             raise NiFiAPIError(
                 f"selected Flow Registry Client {registry_name!r} does not exist in NiFi; create it first from the prepared catalog or another operator-managed path"
@@ -673,21 +958,22 @@ data:
 
         bucket_name = import_entry["source"]["bucket"]
         flow_name = import_entry["source"]["flowName"]
-        flow_id = resolve_flow_id(opener, base_url, token, registry_id, bucket_name, flow_name)
+        flow_id = resolve_flow_id(opener, base_url, proxied_identity, registry_id, bucket_name, flow_name)
         import_status["bucket"] = bucket_name
         import_status["flowName"] = flow_name
         import_status["flowId"] = flow_id
 
-        version_entry = resolve_version_entry(
+        version_entry = resolved_version_for_import(
             opener,
             base_url,
-            token,
+            proxied_identity,
+            import_entry,
             registry_id,
-            bucket_name,
             flow_id,
-            import_entry["source"]["version"],
+            ownership_metadata,
+            previous_entry,
+            import_status,
         )
-        import_status["resolvedVersion"] = version_entry["version"]
         snapshot = selected_snapshot(
             config,
             registry_name,
@@ -703,44 +989,44 @@ data:
         parameter_context_refs = import_entry.get("parameterContextRefs", [])
         if parameter_context_refs:
             parameter_context_name = parameter_context_refs[0]["name"]
-            parameter_context_id = parameter_context_ids_by_name(opener, base_url, token).get(parameter_context_name, "")
+            parameter_context_id = parameter_context_ids_by_name(opener, base_url, proxied_identity).get(parameter_context_name, "")
             if not parameter_context_id:
                 raise NiFiAPIError(
-                    f"declared Parameter Context {parameter_context_name!r} does not exist in NiFi; reconcile it first or remove the reference"
+                    f"declared Parameter Context {parameter_context_name!r} does not exist in NiFi yet; reconcile it first through parameterContexts or create it manually before this bounded import runs"
                 )
             import_status["parameterContextName"] = parameter_context_name
             import_status["parameterContextId"] = parameter_context_id
 
-        target_name = import_entry["target"]["rootProcessGroupName"]
-        existing_id = root_child_process_groups_by_name(opener, base_url, token).get(target_name)
         action = "unchanged"
-
-        if not existing_id:
-            existing_id = import_process_group(
+        if not process_group_id:
+            process_group_id = import_process_group(
                 opener,
                 base_url,
-                token,
+                proxied_identity,
                 client_id,
                 target_name,
                 snapshot,
             )
             action = "created"
 
-        component_payload, component, revision = get_process_group_component(opener, base_url, token, existing_id)
-        _, process_group_flow, flow_payload = get_process_group_flow(opener, base_url, token, existing_id)
+        component_payload, component, revision, process_group_flow, flow_payload, version_control = refresh_process_group_state(
+            opener,
+            base_url,
+            proxied_identity,
+            process_group_id,
+        )
 
         if component.get("name") != target_name:
             raise NiFiAPIError(
-                f"target process group {existing_id!r} has name {component.get('name')!r}; expected {target_name!r}"
+                f"target process group {process_group_id!r} has name {component.get('name')!r}; expected {target_name!r}"
             )
 
-        version_control = version_control_information(component_payload, process_group_flow, flow_payload)
         actual_flow_name = version_control.get("flowName") or version_control.get("name") or ""
         actual_flow_id = version_control.get("flowId") or version_control.get("identifier") or ""
         actual_version = version_control.get("version")
         actual_version = "" if actual_version is None else str(actual_version)
+        resolved_version = str(import_status["resolvedVersion"])
 
-        selected_resolved_version = str(version_entry["version"])
         needs_version_update = not version_control
         if version_control and actual_flow_name and actual_flow_name != flow_name:
             raise NiFiAPIError(
@@ -750,24 +1036,27 @@ data:
             raise NiFiAPIError(
                 f"root child process group {target_name!r} is attached to flow id {actual_flow_id!r}, not declared flow id {flow_id!r}"
             )
-        if version_control and actual_version != selected_resolved_version:
+        if version_control and actual_version != resolved_version:
             needs_version_update = True
 
         if needs_version_update:
             update_imported_process_group_version(
                 opener,
                 base_url,
-                token,
+                proxied_identity,
                 client_id,
-                existing_id,
+                process_group_id,
                 revision.get("version", 0),
                 registry_id,
                 snapshot,
             )
             action = "updated" if action == "unchanged" else action
-            component_payload, component, revision = get_process_group_component(opener, base_url, token, existing_id)
-            _, process_group_flow, flow_payload = get_process_group_flow(opener, base_url, token, existing_id)
-            version_control = version_control_information(component_payload, process_group_flow, flow_payload)
+            component_payload, component, revision, process_group_flow, flow_payload, version_control = refresh_process_group_state(
+                opener,
+                base_url,
+                proxied_identity,
+                process_group_id,
+            )
 
         if not version_control:
             raise NiFiAPIError(
@@ -777,7 +1066,8 @@ data:
         actual_flow_name = version_control.get("flowName") or version_control.get("name") or ""
         actual_flow_id = version_control.get("flowId") or version_control.get("identifier") or ""
         actual_version = version_control.get("version")
-        import_status["actualVersion"] = "" if actual_version is None else str(actual_version)
+        actual_version = "" if actual_version is None else str(actual_version)
+        import_status["actualVersion"] = actual_version
         import_status["versionControlState"] = version_control.get("state", "")
 
         if actual_flow_name and actual_flow_name != flow_name:
@@ -788,9 +1078,9 @@ data:
             raise NiFiAPIError(
                 f"root child process group {target_name!r} is attached to flow id {actual_flow_id!r}, not declared flow id {flow_id!r}"
             )
-        if import_status["actualVersion"] and import_status["actualVersion"] != selected_resolved_version:
+        if actual_version and actual_version != resolved_version:
             raise NiFiAPIError(
-                f"root child process group {target_name!r} is on version {import_status['actualVersion']!r}, not resolved version {selected_resolved_version!r}"
+                f"root child process group {target_name!r} is on version {actual_version!r}, not resolved version {resolved_version!r}"
             )
 
         actual_parameter_context_id = component.get("parameterContext", {}).get("id", "")
@@ -799,85 +1089,184 @@ data:
                 bind_parameter_context(
                     opener,
                     base_url,
-                    token,
-                    client_id,
-                    existing_id,
+                    proxied_identity,
+                    config,
+                    process_group_id,
                     revision.get("version", 0),
                     parameter_context_id,
                 )
                 action = "updated" if action == "unchanged" else action
-                _, component, _ = get_process_group_component(opener, base_url, token, existing_id)
+                component_payload, component, revision, process_group_flow, flow_payload, version_control = refresh_process_group_state(
+                    opener,
+                    base_url,
+                    proxied_identity,
+                    process_group_id,
+                )
                 actual_parameter_context_id = component.get("parameterContext", {}).get("id", "")
             if actual_parameter_context_id != parameter_context_id:
                 raise NiFiAPIError(
                     f"root child process group {target_name!r} did not retain declared Parameter Context {parameter_context_id!r}"
                 )
         elif actual_parameter_context_id:
-            raise NiFiAPIError(
-                f"root child process group {target_name!r} has an attached Parameter Context but none is declared; manual edits outside the bounded import scope are unsupported"
+            clear_parameter_context(
+                opener,
+                base_url,
+                proxied_identity,
+                config,
+                process_group_id,
+                revision.get("version", 0),
+            )
+            action = "updated" if action == "unchanged" else action
+            component_payload, component, revision, process_group_flow, flow_payload, version_control = refresh_process_group_state(
+                opener,
+                base_url,
+                proxied_identity,
+                process_group_id,
+            )
+            actual_parameter_context_id = component.get("parameterContext", {}).get("id", "")
+            if actual_parameter_context_id:
+                raise NiFiAPIError(
+                    f"root child process group {target_name!r} retained Parameter Context {actual_parameter_context_id!r} after the declared direct attachment was removed"
+                )
+
+        desired_comments = managed_comments(
+            config,
+            component.get("comments", "") or "",
+            import_entry,
+            resolved_version,
+            import_status["observedHash"],
+        )
+        if (component.get("comments", "") or "") != desired_comments:
+            update_process_group_comments(
+                opener,
+                base_url,
+                proxied_identity,
+                config,
+                process_group_id,
+                revision.get("version", 0),
+                component.get("name", target_name),
+                desired_comments,
+            )
+            action = "updated" if action == "unchanged" else action
+            component_payload, component, revision, process_group_flow, flow_payload, version_control = refresh_process_group_state(
+                opener,
+                base_url,
+                proxied_identity,
+                process_group_id,
             )
 
-        import_status["processGroupId"] = existing_id
+        import_status["processGroupId"] = process_group_id
         import_status["action"] = action
         import_status["status"] = "ok"
         return import_status
 
 
-    def main():
-        config = load_config()
+    def observe_retained_owned_imports(config, opener, base_url, proxied_identity, status):
+        desired_names = {entry["name"] for entry in config.get("imports", [])}
+        for entry in root_child_process_groups(opener, base_url, proxied_identity):
+            metadata = ownership_metadata_from_comments(config, entry.get("comments", ""))
+            if not metadata:
+                continue
+            import_name = metadata.get("importName", "")
+            if not import_name or import_name in desired_names:
+                continue
+            status["retainedOwnedImports"].append(
+                {
+                    "name": import_name,
+                    "targetRootProcessGroupName": entry.get("name", ""),
+                    "processGroupId": entry.get("id", ""),
+                    "action": "retained",
+                    "status": "ok",
+                    "reason": "removed imports are retained in NiFi and no longer reconciled in this slice",
+                }
+            )
+
+
+    def reconcile_once(config):
         status = base_status(config)
-
-        pod_name = os.environ.get("POD_NAME", "")
-        try:
-            ordinal = int(pod_name.rsplit("-", 1)[1])
-        except Exception:
-            ordinal = -1
-
-        expected_ordinal = int(config["management"].get("reconcilePodOrdinal", 0))
-        if ordinal != expected_ordinal:
-            status["status"] = "skipped"
-            status["reason"] = f"pod ordinal {ordinal} does not own bounded flow import bootstrap; expected {expected_ordinal}"
-            write_status(config, status)
-            return
-
-        ca_cert_path = config["management"]["caCertPath"]
         base_url = f"https://{os.environ['NIFI_POD_FQDN']}:8443/nifi-api"
-        opener = build_http_client(ca_cert_path)
-        token = wait_for_token(opener, base_url)
-        wait_for_cluster_summary(opener, base_url, token)
+        proxied_identity = resolve_proxied_identity(config)
+        opener = build_http_client(config)
+        wait_for_cluster_summary(opener, base_url, proxied_identity)
+
+        previous_status = load_previous_status(config)
+        previous_by_name = {
+            entry.get("name"): entry
+            for entry in previous_status.get("imports", [])
+            if entry.get("name")
+        }
 
         blocked = False
         for import_entry in config.get("imports", []):
             try:
-                import_status = ensure_import(config, opener, base_url, token, import_entry)
+                import_status = ensure_import(
+                    config,
+                    previous_by_name.get(import_entry["name"], {}),
+                    opener,
+                    base_url,
+                    proxied_identity,
+                    import_entry,
+                )
             except Exception as exc:
                 import_status = {
                     "name": import_entry["name"],
+                    "selectedVersion": str(import_entry["source"]["version"]),
+                    "targetRootProcessGroupName": import_entry["target"]["rootProcessGroupName"],
                     "status": "blocked",
                     "reason": str(exc),
                 }
                 blocked = True
             status["imports"].append(import_status)
 
+        observe_retained_owned_imports(config, opener, base_url, proxied_identity, status)
         status["status"] = "blocked" if blocked else "ok"
-        write_status(config, status)
+        return status
+
+
+    def main():
+        once = "--once" in sys.argv[1:]
+
+        while True:
+            try:
+                config = load_config()
+                status = base_status(config)
+                if not should_manage(config, status):
+                    status["status"] = "skipped"
+                    status["reason"] = f"only pod ordinal {config['management']['reconcilePodOrdinal']} reconciles declared versioned flow imports"
+                    write_status(config, status)
+                    print(status["reason"])
+                    if once:
+                        return 0
+                    time.sleep(int(config["management"].get("pollIntervalSeconds", 10)))
+                    continue
+                status = reconcile_once(config)
+            except Exception as exc:
+                config = load_config()
+                status = base_status(config)
+                status["status"] = "failed"
+                status["reason"] = str(exc)
+            write_status(config, status)
+            if once:
+                print(json.dumps(status, indent=2, sort_keys=True))
+                return 0
+            time.sleep(int(config["management"].get("pollIntervalSeconds", 10)))
 
 
     if __name__ == "__main__":
-        try:
-            main()
-        except Exception as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
-            sys.exit(1)
+        sys.exit(main())
   README.txt: |
-    This ConfigMap is a chart-rendered runtime bundle for bounded versioned-flow import.
-    It is intentionally specific:
-    - pod `-0` resolves one live Flow Registry Client reference, bucket, flow, and selected version
-    - the chart imports the selected version into one named root child process group
-    - the chart can attach at most one declared direct Parameter Context reference
-    - the chart does not create Flow Registry Clients in NiFi
-    - the chart does not perform arbitrary process-group mutation
-    - the chart does not perform ongoing controller-managed synchronization
-    Existing imported process groups are only supported within this bounded scope.
-    Manual UI edits outside that scope may block the next restart-scoped reconcile.
+    This ConfigMap defines a bounded runtime-managed versioned-flow import feature.
+    Product-owned scope:
+    - create declared root-child imported process groups in NiFi
+    - reconcile declared version selection live on pod `-0`
+    - attach one declared direct Parameter Context reference to each owned import
+    - retain, but do not delete, removed imports from NiFi
+    - reuse a live Flow Registry Client already present in NiFi
+    Product does not:
+    - create or reconcile Flow Registry Clients in NiFi
+    - adopt same-name operator-owned root-child process groups automatically
+    - perform arbitrary process-group mutation beyond bounded version selection and one direct Parameter Context attachment
+    - perform ongoing automatic synchronization to newer registry versions
+    Enterprise auth modes use the explicit bootstrap admin identity as the
+    bounded trusted-proxy management identity for this feature.
 {{- end }}
