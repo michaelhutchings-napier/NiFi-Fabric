@@ -64,6 +64,7 @@ Primary model:
 - low-pressure evidence stays intentionally simple and explainable: repeated zero-backlog observations, low executor activity when thread counts are available, extra consecutive-sample requirements when queue evidence is incomplete, stabilization, and cooldown
 - disconnect, offload, and post-removal settle work stay restart-safe and resumable inside the same controller-owned execution state
 - stalled destructive work prefers explicit blocked or timed-out states with stage-specific diagnostics over risky retry loops or broader remediation behavior
+- higher-precedence rollout, TLS, hibernation, and restore work can pause autoscaling execution; the autoscaling step must remain resumable after the conflict clears instead of competing with the other lifecycle path
 
 Optional experimental extension:
 

@@ -2784,6 +2784,71 @@ func TestReconcileAutoscalingScaleDownResumesBlockedOffloadAfterRestart(t *testi
 	}
 }
 
+func TestReconcileAutoscalingScaleDownDropsStaleNodeOperationAfterPodChurn(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	setAutoscalingSteadyStateConditions(cluster)
+	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{
+		Purpose: platformv1alpha1.NodeOperationPurposeScaleDown,
+		PodName: "nifi-2",
+		PodUID:  "old-uid",
+		NodeID:  "node-2",
+		Stage:   platformv1alpha1.NodeOperationStageOffloading,
+	}
+	cluster.Status.Autoscaling.Execution = platformv1alpha1.AutoscalingExecutionStatus{
+		Phase:          platformv1alpha1.AutoscalingExecutionPhaseScaleDownPrepare,
+		State:          platformv1alpha1.AutoscalingExecutionStateBlocked,
+		StartedAt:      &metav1.Time{Time: time.Now().UTC().Add(-30 * time.Second)},
+		TargetReplicas: ptrTo(int32(2)),
+		BlockedReason:  autoscalingBlockedReasonScaleDownOffloadRetrying,
+		Message:        "Waiting for NiFi node offload",
+	}
+	cluster.Status.Autoscaling.LastScalingDecision = "NoScaleDown: waiting for NiFi node offload"
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		ScaleDown: platformv1alpha1.AutoscalingScaleDownPolicy{
+			Enabled: true,
+		},
+		MinReplicas: 1,
+		MaxReplicas: 4,
+	}
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+		readyPod("nifi-2", "nifi", "nifi-rev"),
+	}
+	pods[2].UID = "new-uid"
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{}, cluster, statefulSet, &pods[0], &pods[1], &pods[2])
+	nodeManager := &fakeNodeManager{readyImmediately: true}
+	reconciler.NodeManager = nodeManager
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected stale-node-operation recovery to requeue, got %#v", result)
+	}
+	if nodeManager.calls != 1 {
+		t.Fatalf("expected one fresh node-preparation call after pod churn, got %d", nodeManager.calls)
+	}
+	if len(nodeManager.currentStates) != 1 || nodeManager.currentStates[0].PodName != "" {
+		t.Fatalf("expected stale autoscaling node state to be cleared before resume, got %#v", nodeManager.currentStates)
+	}
+
+	updatedStatefulSet := &appsv1.StatefulSet{}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: statefulSet.Name}, updatedStatefulSet); err != nil {
+		t.Fatalf("get updated StatefulSet: %v", err)
+	}
+	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != 2 {
+		t.Fatalf("expected fresh preparation after pod churn to reduce replicas to 2, got %d", got)
+	}
+}
+
 type fakeAutoscalingCollector struct {
 	collection autoscalingSignalCollection
 }

@@ -114,20 +114,24 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 		return ctrl.Result{}, nil
 	}
 
+	scaleDownInProgress := autoscalingScaleDownInProgress(cluster)
+
 	switch cluster.Spec.DesiredState {
 	case platformv1alpha1.DesiredStateHibernated:
+		if scaleDownInProgress {
+			pauseAutoscalingScaleDownForLifecycle(cluster, autoscalingBlockedReasonScaleDownPausedForHibernation, "autoscaling scale-down is paused while hibernation has precedence")
+		}
 		return r.reconcileHibernation(ctx, cluster, target, pods)
 	case platformv1alpha1.DesiredStateRunning:
 		if restoreInProgress(cluster, target) {
+			if scaleDownInProgress {
+				pauseAutoscalingScaleDownForLifecycle(cluster, autoscalingBlockedReasonScaleDownPausedForRestore, "autoscaling scale-down is paused while restore has precedence")
+			}
 			return r.reconcileRestore(ctx, cluster, target)
 		}
 	default:
 		r.markUnsupportedDesiredState(cluster)
 		return ctrl.Result{}, nil
-	}
-
-	if autoscalingScaleDownInProgress(cluster) {
-		return r.reconcileAutoscalingScaleDown(ctx, cluster, target, pods)
 	}
 
 	drift, err := r.computeWatchedResourceDrift(ctx, cluster, target)
@@ -141,6 +145,9 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 		return ctrl.Result{}, err
 	}
 	if handledEarly {
+		if scaleDownInProgress {
+			pauseAutoscalingScaleDownForLifecycle(cluster, autoscalingBlockedReasonScaleDownPausedForTLS, "autoscaling scale-down is paused while TLS drift is being observed or recovered")
+		}
 		return tlsResult, nil
 	}
 
@@ -148,6 +155,13 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 	r.startConfigRolloutIfNeeded(cluster, drift)
 
 	plan := BuildRolloutPlan(target, pods, cluster.Status.Rollout)
+	if scaleDownInProgress {
+		if plan.HasDrift() {
+			pauseAutoscalingScaleDownForLifecycle(cluster, autoscalingBlockedReasonScaleDownPausedForRollout, fmt.Sprintf("autoscaling scale-down is paused while higher-precedence rollout work is active: %s", rolloutMessage(plan)))
+		} else {
+			return r.reconcileAutoscalingScaleDown(ctx, cluster, target, pods)
+		}
+	}
 	if !plan.HasDrift() {
 		return r.finishSteadyState(ctx, cluster, target, pods, drift)
 	}

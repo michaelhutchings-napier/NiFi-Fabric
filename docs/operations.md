@@ -75,6 +75,7 @@ When controller-owned scale-down is stalled, expect:
 
 - `status.autoscaling.execution.state=Blocked`
 - a stage-specific `blockedReason` such as disconnect retrying, offload timed out, drain pending, drain stalled, ready-pod pending, or health-gate timed out
+- precedence pauses now also surface explicitly, for example rollout, restore, or hibernation taking over a previously started scale-down step
 - `lastScalingDecision` to explain why the step is blocked and what to inspect next
 
 Operator checks for a stalled autoscaling removal step:
@@ -83,6 +84,7 @@ Operator checks for a stalled autoscaling removal step:
 - inspect `status.nodeOperation` and the autoscaling execution block or timeout reason on `NiFiCluster`
 - inspect controller logs and recent events for the same pod or node id
 - inspect NiFi node state through the UI or API to confirm whether the target node is stuck disconnecting, disconnected, or offloading
+- if the blocked reason shows a higher-precedence lifecycle pause, inspect the rollout, TLS, hibernation, or restore status first; autoscaling should resume only after that work clears
 - treat failed execution as operator-owned intervention; blocked execution remains resumable on the next reconcile or controller restart
 
 ## Backup and DR

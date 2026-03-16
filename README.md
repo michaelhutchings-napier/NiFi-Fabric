@@ -231,6 +231,7 @@ NiFi-Fabric documentation is intentionally conservative in a few areas:
 - KEDA is documented as experimental even though focused kind proof is green
 - autoscaling scale-down remains intentionally one-step-at-a-time and experimental
 - enforced scale-down now waits for repeated zero-backlog observations, low executor activity when thread counts are available, and stabilization or cooldown windows before a removal step is allowed
+- in-progress autoscaling scale-down now remains restart-safe across blocked prepare or settle work, re-establishes preparation safely after pod churn, and pauses cleanly when higher-precedence rollout, TLS, hibernation, or restore work takes over
 - site-to-site metrics export remains optional, experimental, and intentionally bounded to the typed metrics-export path
 - site-to-site status export remains optional, experimental, and intentionally bounded to the typed status-export path
 - site-to-site provenance export remains optional, experimental, and intentionally bounded to the typed provenance-export path

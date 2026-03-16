@@ -179,7 +179,7 @@ What they prove:
 - low-pressure needs repeated zero-backlog observations and then still waits through stabilization and cooldown
 - transient zero-backlog dips do not trigger removal when executor activity is still above the low-pressure threshold
 - the operator-facing decision text stays explicit about why scale-down is allowed or blocked
-- repo tests also cover stuck offload, stage-specific retry or timeout reasons, stalled post-removal drain, and restart-safe resume of blocked prepare or settle work
+- repo tests also cover stuck offload, stage-specific retry or timeout reasons, stalled post-removal drain, restart-safe resume of blocked prepare or settle work, safe re-establishment after pod churn, and clean pause or resume behavior when rollout, TLS, hibernation, or restore precedence interrupts autoscaling intent
 
 What they do not prove:
 

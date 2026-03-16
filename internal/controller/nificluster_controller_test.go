@@ -1824,6 +1824,320 @@ func TestReconcileAutoscalingSteadyStateKeepsAvailableWhenFormerNodesRemain(t *t
 	}
 }
 
+func TestReconcilePausesAutoscalingScaleDownForHibernation(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.DesiredState = platformv1alpha1.DesiredStateHibernated
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		ScaleDown: platformv1alpha1.AutoscalingScaleDownPolicy{
+			Enabled: true,
+		},
+		MinReplicas: 1,
+		MaxReplicas: 4,
+	}
+	cluster.Status.Autoscaling.Execution = platformv1alpha1.AutoscalingExecutionStatus{
+		Phase:          platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle,
+		State:          platformv1alpha1.AutoscalingExecutionStateRunning,
+		StartedAt:      &metav1.Time{Time: time.Now().UTC().Add(-45 * time.Second)},
+		TargetReplicas: ptrTo(int32(2)),
+		Message:        "Waiting for the autoscaling scale-down step to settle at 2 replicas",
+	}
+	cluster.Status.Autoscaling.LastScalingDecision = "ScaleDown: reduced target StatefulSet replicas from 3 to 2 after preparing pod nifi-2"
+	cluster.Status.LastOperation = runningOperation("AutoscalingScaleDown", "Waiting for autoscaling scale-down settlement")
+	cluster.Status.Hibernation.LastRunningReplicas = 3
+
+	replicas := int32(2)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	statefulSet.Status.Replicas = 2
+	statefulSet.Status.CurrentReplicas = 2
+	statefulSet.Status.ReadyReplicas = 2
+	statefulSet.Status.UpdatedReplicas = 2
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+	}
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{}, cluster, statefulSet, &pods[0], &pods[1])
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected hibernation precedence to requeue, got %s", result.RequeueAfter)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.Autoscaling.Execution.State != platformv1alpha1.AutoscalingExecutionStateBlocked {
+		t.Fatalf("expected autoscaling execution to be blocked during hibernation precedence, got %#v", updatedCluster.Status.Autoscaling.Execution)
+	}
+	if updatedCluster.Status.Autoscaling.Execution.BlockedReason != autoscalingBlockedReasonScaleDownPausedForHibernation {
+		t.Fatalf("expected hibernation pause reason, got %#v", updatedCluster.Status.Autoscaling.Execution)
+	}
+	if !strings.Contains(updatedCluster.Status.Autoscaling.LastScalingDecision, "paused while hibernation has precedence") {
+		t.Fatalf("expected autoscaling pause decision, got %q", updatedCluster.Status.Autoscaling.LastScalingDecision)
+	}
+	progressing := updatedCluster.GetCondition(platformv1alpha1.ConditionProgressing)
+	if progressing == nil || progressing.Reason == "AutoscalingScaleDown" {
+		t.Fatalf("expected higher-precedence hibernation progressing condition, got %#v", progressing)
+	}
+}
+
+func TestReconcilePausesAutoscalingScaleDownForRestore(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		ScaleDown: platformv1alpha1.AutoscalingScaleDownPolicy{
+			Enabled: true,
+		},
+		MinReplicas: 1,
+		MaxReplicas: 4,
+	}
+	cluster.Status.Autoscaling.Execution = platformv1alpha1.AutoscalingExecutionStatus{
+		Phase:          platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle,
+		State:          platformv1alpha1.AutoscalingExecutionStateRunning,
+		StartedAt:      &metav1.Time{Time: time.Now().UTC().Add(-45 * time.Second)},
+		TargetReplicas: ptrTo(int32(2)),
+		Message:        "Waiting for the autoscaling scale-down step to settle at 2 replicas",
+	}
+	cluster.Status.Autoscaling.LastScalingDecision = "ScaleDown: reduced target StatefulSet replicas from 3 to 2 after preparing pod nifi-2"
+	cluster.Status.LastOperation = runningOperation("AutoscalingScaleDown", "Waiting for autoscaling scale-down settlement")
+	cluster.Status.Hibernation.LastRunningReplicas = 3
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionHibernated,
+		Status:             metav1.ConditionFalse,
+		Reason:             "Restoring",
+		Message:            "Restore is scaling the StatefulSet back up",
+		LastTransitionTime: metav1.Now(),
+	})
+
+	statefulSet := managedStatefulSet("nifi", 0, "nifi-rev", "nifi-rev")
+	statefulSet.Status.Replicas = 0
+	statefulSet.Status.CurrentReplicas = 0
+	statefulSet.Status.ReadyReplicas = 0
+	statefulSet.Status.UpdatedReplicas = 0
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{}, cluster, statefulSet)
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected restore precedence to requeue, got %s", result.RequeueAfter)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.Autoscaling.Execution.BlockedReason != autoscalingBlockedReasonScaleDownPausedForRestore {
+		t.Fatalf("expected restore pause reason, got %#v", updatedCluster.Status.Autoscaling.Execution)
+	}
+	if !strings.Contains(updatedCluster.Status.Autoscaling.LastScalingDecision, "paused while restore has precedence") {
+		t.Fatalf("expected restore pause decision, got %q", updatedCluster.Status.Autoscaling.LastScalingDecision)
+	}
+}
+
+func TestReconcilePausesAutoscalingScaleDownForRolloutAndResumesAfterConflictClears(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		ScaleDown: platformv1alpha1.AutoscalingScaleDownPolicy{
+			Enabled: true,
+		},
+		MinReplicas: 1,
+		MaxReplicas: 4,
+	}
+	cluster.Status.ObservedStatefulSetRevision = "nifi-old"
+	cluster.Status.Autoscaling.Execution = platformv1alpha1.AutoscalingExecutionStatus{
+		Phase:          platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle,
+		State:          platformv1alpha1.AutoscalingExecutionStateRunning,
+		StartedAt:      &metav1.Time{Time: time.Now().UTC().Add(-45 * time.Second)},
+		TargetReplicas: ptrTo(int32(2)),
+		Message:        "Waiting for the autoscaling scale-down step to settle at 2 replicas",
+	}
+	cluster.Status.Autoscaling.LastScalingDecision = "ScaleDown: reduced target StatefulSet replicas from 3 to 2 after preparing pod nifi-2"
+	cluster.Status.LastOperation = runningOperation("AutoscalingScaleDown", "Waiting for autoscaling scale-down settlement")
+
+	replicas := int32(2)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-old", "nifi-new")
+	statefulSet.Status.Replicas = 2
+	statefulSet.Status.CurrentReplicas = 2
+	statefulSet.Status.ReadyReplicas = 2
+	statefulSet.Status.UpdatedReplicas = 0
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-old"),
+		readyPod("nifi-1", "nifi", "nifi-old"),
+	}
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		podReadyResponses: []error{nil},
+		healthResponses:   []healthResponse{{result: healthyResult(2)}},
+	}, cluster, statefulSet, &pods[0], &pods[1])
+
+	firstResult, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("first reconcile returned error: %v", err)
+	}
+	if firstResult.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected rollout precedence to requeue, got %s", firstResult.RequeueAfter)
+	}
+
+	pausedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), pausedCluster); err != nil {
+		t.Fatalf("get paused cluster: %v", err)
+	}
+	if pausedCluster.Status.Autoscaling.Execution.BlockedReason != autoscalingBlockedReasonScaleDownPausedForRollout {
+		t.Fatalf("expected rollout pause reason, got %#v", pausedCluster.Status.Autoscaling.Execution)
+	}
+	if !strings.Contains(pausedCluster.Status.Autoscaling.LastScalingDecision, "paused while higher-precedence rollout work is active") {
+		t.Fatalf("expected rollout pause decision, got %q", pausedCluster.Status.Autoscaling.LastScalingDecision)
+	}
+
+	currentStatefulSet := &appsv1.StatefulSet{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), currentStatefulSet); err != nil {
+		t.Fatalf("get statefulset after paused reconcile: %v", err)
+	}
+	currentStatefulSet.Status.CurrentRevision = "nifi-new"
+	currentStatefulSet.Status.UpdateRevision = "nifi-new"
+	currentStatefulSet.Status.Replicas = 2
+	currentStatefulSet.Status.CurrentReplicas = 2
+	currentStatefulSet.Status.ReadyReplicas = 2
+	currentStatefulSet.Status.UpdatedReplicas = 2
+	if err := k8sClient.Status().Update(ctx, currentStatefulSet); err != nil {
+		t.Fatalf("update statefulset status after rollout clear: %v", err)
+	}
+	for _, podName := range []string{"nifi-0", "nifi-1"} {
+		pod := &corev1.Pod{}
+		if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: podName}, pod); err != nil {
+			if !apierrors.IsNotFound(err) {
+				t.Fatalf("get pod %s after rollout clear: %v", podName, err)
+			}
+			replacement := readyPod(podName, "nifi", "nifi-new")
+			if err := k8sClient.Create(ctx, &replacement); err != nil {
+				t.Fatalf("create replacement pod %s after rollout clear: %v", podName, err)
+			}
+			continue
+		}
+		if pod.Labels == nil {
+			pod.Labels = map[string]string{}
+		}
+		pod.Labels[controllerRevisionHashLabel] = "nifi-new"
+		if err := k8sClient.Update(ctx, pod); err != nil {
+			t.Fatalf("update pod %s revision after rollout clear: %v", podName, err)
+		}
+	}
+
+	pausedCluster.Status.ObservedStatefulSetRevision = "nifi-new"
+	pausedCluster.Status.Rollout = platformv1alpha1.RolloutStatus{}
+	pausedCluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionProgressing,
+		Status:             metav1.ConditionFalse,
+		Reason:             "NoDrift",
+		Message:            "No rollout is currently in progress",
+		LastTransitionTime: metav1.Now(),
+	})
+	if err := k8sClient.Status().Update(ctx, pausedCluster); err != nil {
+		t.Fatalf("update cluster status after rollout clear: %v", err)
+	}
+
+	secondResult, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("second reconcile returned error: %v", err)
+	}
+	if secondResult.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected resumed autoscaling settle to requeue, got %s", secondResult.RequeueAfter)
+	}
+
+	resumedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), resumedCluster); err != nil {
+		t.Fatalf("get resumed cluster: %v", err)
+	}
+	if resumedCluster.Status.Autoscaling.Execution.Phase != "" {
+		t.Fatalf("expected autoscaling execution to clear after conflict-free settle, got %#v", resumedCluster.Status.Autoscaling.Execution)
+	}
+	if resumedCluster.Status.LastOperation.Type != "AutoscalingScaleDown" || resumedCluster.Status.LastOperation.Phase != platformv1alpha1.OperationPhaseSucceeded {
+		t.Fatalf("expected autoscaling settle to resume and complete, got %#v", resumedCluster.Status.LastOperation)
+	}
+}
+
+func TestReconcilePausesAutoscalingScaleDownForTLSRollout(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		ScaleDown: platformv1alpha1.AutoscalingScaleDownPolicy{
+			Enabled: true,
+		},
+		MinReplicas: 1,
+		MaxReplicas: 4,
+	}
+	cluster.Spec.RestartPolicy.TLSDrift = platformv1alpha1.TLSDiffPolicyObserveOnly
+	cluster.Spec.RestartTriggers.Secrets = []corev1.LocalObjectReference{{Name: "nifi-tls"}}
+	cluster.Status.Autoscaling.Execution = platformv1alpha1.AutoscalingExecutionStatus{
+		Phase:          platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle,
+		State:          platformv1alpha1.AutoscalingExecutionStateRunning,
+		StartedAt:      &metav1.Time{Time: time.Now().UTC().Add(-45 * time.Second)},
+		TargetReplicas: ptrTo(int32(2)),
+		Message:        "Waiting for the autoscaling scale-down step to settle at 2 replicas",
+	}
+	cluster.Status.Autoscaling.LastScalingDecision = "ScaleDown: reduced target StatefulSet replicas from 3 to 2 after preparing pod nifi-2"
+	cluster.Status.ObservedCertificateHash = "old-certificate-hash"
+	cluster.Status.ObservedTLSConfigurationHash = "old-tls-config-hash"
+
+	statefulSet := managedStatefulSet("nifi", 2, "nifi-rev", "nifi-rev")
+	currentTLSHash, err := computeTLSConfigurationHash(statefulSet)
+	if err != nil {
+		t.Fatalf("compute tls config hash: %v", err)
+	}
+	tlsSecret := watchedSecret("nifi-tls", corev1.SecretTypeOpaque, map[string][]byte{
+		"tls.p12":            []byte("rotated-keystore"),
+		"truststore.p12":     []byte("truststore"),
+		"keystorePassword":   []byte("changeit"),
+		"truststorePassword": []byte("changeit"),
+	})
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+	}
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{
+		checkResponses: []healthResponse{{result: healthyResultWithPods("nifi", 2)}},
+	}, cluster, statefulSet, tlsSecret, &pods[0], &pods[1])
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected TLS observation precedence to requeue, got %s", result.RequeueAfter)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.Autoscaling.Execution.BlockedReason != autoscalingBlockedReasonScaleDownPausedForRollout {
+		t.Fatalf("expected TLS pause reason, got %#v", updatedCluster.Status.Autoscaling.Execution)
+	}
+	if !strings.Contains(updatedCluster.Status.Autoscaling.LastScalingDecision, "TLS drift rollout pending") {
+		t.Fatalf("expected TLS pause decision, got %q", updatedCluster.Status.Autoscaling.LastScalingDecision)
+	}
+	if updatedCluster.Status.Rollout.Trigger != platformv1alpha1.RolloutTriggerTLSDrift {
+		t.Fatalf("expected TLS rollout trigger, got %#v", updatedCluster.Status.Rollout)
+	}
+	if updatedCluster.Status.Rollout.TargetTLSConfigurationHash != currentTLSHash {
+		t.Fatalf("expected TLS rollout target hash %q, got %#v", currentTLSHash, updatedCluster.Status.Rollout)
+	}
+}
+
 func TestReconcileResumesSafelyDuringHibernation(t *testing.T) {
 	ctx := context.Background()
 	cluster := managedCluster()
