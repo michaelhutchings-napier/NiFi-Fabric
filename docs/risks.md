@@ -22,3 +22,19 @@ Current operations-package note:
 - the starter alert file intentionally avoids hard-coding environment-specific scrape job names and custom-resource export assumptions
 - native API scrape-failure alerts and KEDA external-intent alerts usually need environment-specific adaptation
 - teams should still add their own alerts for ingress, storage, node pressure, and cloud control-plane dependencies
+
+Current autoscaling note:
+
+- enforced scale-down remains intentionally conservative and one-step-at-a-time
+- the stronger low-pressure model lowers false-positive removals, but it can also delay legitimate scale-down when NiFi backlog or thread evidence is incomplete
+- stuck disconnect, offload, or post-removal settle work now surfaces more explicitly, but the controller still prefers safe blocking and operator intervention over aggressive remediation
+- blocked scale-down execution is restart-safe and resumable; failed execution still requires operator attention before trusting another destructive step
+- operators should still size cooldowns, stabilization windows, and minimum replicas for their workload rather than expecting aggressive node removal
+
+Current DR note:
+
+- declarative recovery and stateful data recovery are intentionally separate concerns
+- the product can restore release intent, but not queued data or repository state without operator-owned storage recovery
+- PVC snapshot cadence, retention, restore testing, and storage-class behavior remain operator-owned
+- cert-manager, trust-manager, Secret-manager, and IdP recovery plans remain separate dependencies in a production DR design
+- hibernation and restore are lifecycle features, not a substitute for backup or cross-cluster disaster recovery

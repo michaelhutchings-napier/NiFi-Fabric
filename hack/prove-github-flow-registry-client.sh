@@ -201,6 +201,44 @@ nifi_curl() {
     '
 }
 
+nifi_curl_with_status() {
+  local method="$1"
+  local path="$2"
+  local body="${3:-}"
+  local response
+
+  response="$(
+    kubectl -n "${namespace}" exec -i -c nifi "${pod}" -- env \
+      NIFI_TOKEN="${nifi_token}" \
+      NIFI_BASE_URL="${base_url}" \
+      REQUEST_METHOD="${method}" \
+      REQUEST_PATH="${path}" \
+      REQUEST_BODY="${body}" \
+      sh -ec '
+        if [ -n "${REQUEST_BODY}" ]; then
+          curl --silent --show-error \
+            --cacert /opt/nifi/tls/ca.crt \
+            -H "Authorization: Bearer ${NIFI_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -X "${REQUEST_METHOD}" \
+            --data "${REQUEST_BODY}" \
+            --write-out "\n%{http_code}" \
+            "${NIFI_BASE_URL}${REQUEST_PATH}"
+        else
+          curl --silent --show-error \
+            --cacert /opt/nifi/tls/ca.crt \
+            -H "Authorization: Bearer ${NIFI_TOKEN}" \
+            -X "${REQUEST_METHOD}" \
+            --write-out "\n%{http_code}" \
+            "${NIFI_BASE_URL}${REQUEST_PATH}"
+        fi
+      '
+  )"
+
+  STATUS_HTTP_CODE="${response##*$'\n'}"
+  STATUS_HTTP_BODY="${response%$'\n'*}"
+}
+
 nifi_token=""
 for _ in $(seq 1 20); do
   if nifi_token="$(nifi_curl GET "")"; then
@@ -269,14 +307,52 @@ payload = {
 json.dump(payload, sys.stdout)
 PY
   create_payload="$(tr -d '\n' < "${tmpdir}/create-registry-client.json")"
-  nifi_curl POST /controller/registry-clients "${create_payload}" >"${tmpdir}/created-registry-client.json"
-  registry_id="$(python3 - "${tmpdir}/created-registry-client.json" <<'PY'
+  nifi_curl_with_status POST /controller/registry-clients "${create_payload}"
+  if [[ "${STATUS_HTTP_CODE}" =~ ^2 ]]; then
+    printf '%s' "${STATUS_HTTP_BODY}" >"${tmpdir}/created-registry-client.json"
+  elif [[ "${STATUS_HTTP_CODE}" == "409" ]]; then
+    for _ in $(seq 1 10); do
+      sleep 2
+      nifi_curl GET /flow/registries >"${tmpdir}/flow-registries.json"
+      existing_id="$(
+        python3 - "${tmpdir}/flow-registries.json" "${client_name}" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1]))
+target = sys.argv[2]
+for registry in payload["registries"]:
+    if registry["component"]["name"] == target:
+        print(registry["id"])
+        break
+PY
+      )"
+      if [[ -n "${existing_id}" ]]; then
+        break
+      fi
+    done
+    if [[ -z "${existing_id}" ]]; then
+      echo "registry client ${client_name} already exists but could not be resolved after HTTP 409" >&2
+      printf '%s\n' "${STATUS_HTTP_BODY}" >&2
+      exit 1
+    fi
+  else
+    echo "failed to create registry client ${client_name}: HTTP ${STATUS_HTTP_CODE}" >&2
+    printf '%s\n' "${STATUS_HTTP_BODY}" >&2
+    exit 1
+  fi
+
+  if [[ -z "${existing_id}" ]]; then
+    registry_id="$(python3 - "${tmpdir}/created-registry-client.json" <<'PY'
 import json
 import sys
 
 print(json.load(open(sys.argv[1]))["id"])
 PY
 )"
+  else
+    registry_id="${existing_id}"
+  fi
 else
   registry_id="${existing_id}"
 fi

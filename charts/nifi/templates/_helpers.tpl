@@ -300,6 +300,14 @@ app.kubernetes.io/component: metrics-exporter
 {{- printf "%s-site-to-site-provenance" (include "nifi.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "nifi.parameterContextsConfigName" -}}
+{{- printf "%s-parameter-contexts" (include "nifi.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "nifi.versionedFlowImportsConfigName" -}}
+{{- printf "%s-versioned-flow-imports" (include "nifi.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "nifi.metricsServiceSelectorLabels" -}}
 {{- $observability := default (dict) .Values.observability -}}
 {{- $metrics := default (dict) $observability.metrics -}}
@@ -355,6 +363,8 @@ app.kubernetes.io/component: metrics
 {{- $siteToSiteMetrics := default (dict) $metrics.siteToSite -}}
 {{- $siteToSiteStatus := default (dict) $observability.siteToSiteStatus -}}
 {{- $siteToSiteProvenance := default (dict) $observability.siteToSiteProvenance -}}
+{{- $parameterContexts := default (dict) .Values.parameterContexts -}}
+{{- $versionedFlowImports := default (dict) .Values.versionedFlowImports -}}
 {{- if and (ne $mode "disabled") (ne $mode "nativeApi") (ne $mode "nativeApiLegacy") (ne $mode "exporter") (ne $mode "siteToSite") -}}
 {{- fail "observability.metrics.mode must be one of: disabled, nativeApi, exporter, siteToSite" -}}
 {{- end -}}
@@ -678,6 +688,223 @@ app.kubernetes.io/component: metrics
 {{- end -}}
 {{- if and (ne $provenance.startPosition "beginningOfStream") (ne $provenance.startPosition "endOfStream") -}}
 {{- fail "observability.siteToSiteProvenance.provenance.startPosition must be one of: beginningOfStream, endOfStream" -}}
+{{- end -}}
+{{- end -}}
+{{- if $parameterContexts.enabled -}}
+{{- $authMode := include "nifi.authMode" . -}}
+{{- $authz := default (dict) .Values.authz -}}
+{{- $bootstrap := default (dict) $authz.bootstrap -}}
+{{- if not $parameterContexts.mountPath -}}
+{{- fail "parameterContexts.mountPath is required when parameterContexts.enabled=true" -}}
+{{- end -}}
+{{- if and (ne $authMode "singleUser") (ne $authMode "oidc") (ne $authMode "ldap") -}}
+{{- fail "parameterContexts.enabled=true supports only auth.mode=singleUser, oidc, or ldap" -}}
+{{- end -}}
+{{- if and (or (eq $authMode "oidc") (eq $authMode "ldap")) (not $bootstrap.initialAdminIdentity) -}}
+{{- fail "parameterContexts.enabled=true with auth.mode=oidc or auth.mode=ldap requires authz.bootstrap.initialAdminIdentity so the bounded trusted-proxy management identity is explicit" -}}
+{{- end -}}
+{{- if eq (len $parameterContexts.contexts) 0 -}}
+{{- fail "parameterContexts.enabled=true requires parameterContexts.contexts to contain at least one context definition" -}}
+{{- end -}}
+{{- $contextNames := list -}}
+{{- $attachmentTargets := list -}}
+{{- range $contextIndex, $context := $parameterContexts.contexts -}}
+{{- $parameters := default (list) $context.parameters -}}
+{{- $providerRefs := default (list) $context.providerRefs -}}
+{{- $attachments := default (list) $context.attachments -}}
+{{- if not $context.name -}}
+{{- fail (printf "parameterContexts.contexts[%d].name is required" $contextIndex) -}}
+{{- end -}}
+{{- if ne (trim $context.name) $context.name -}}
+{{- fail (printf "parameterContexts.contexts[%d].name=%q must not have leading or trailing whitespace" $contextIndex $context.name) -}}
+{{- end -}}
+{{- if has $context.name $contextNames -}}
+{{- fail (printf "parameterContexts.contexts[%d].name=%q is duplicated; context names must be unique" $contextIndex $context.name) -}}
+{{- end -}}
+{{- $contextNames = append $contextNames $context.name -}}
+{{- if and (eq (len $parameters) 0) (eq (len $providerRefs) 0) -}}
+{{- fail (printf "parameterContexts.contexts[%d] must define at least one parameter or providerRef" $contextIndex) -}}
+{{- end -}}
+{{- $parameterNames := list -}}
+{{- range $parameterIndex, $parameter := $parameters -}}
+{{- $secretRef := default (dict) $parameter.secretRef -}}
+{{- $hasInlineValue := hasKey $parameter "value" -}}
+{{- if not $parameter.name -}}
+{{- fail (printf "parameterContexts.contexts[%d].parameters[%d].name is required" $contextIndex $parameterIndex) -}}
+{{- end -}}
+{{- if ne (trim $parameter.name) $parameter.name -}}
+{{- fail (printf "parameterContexts.contexts[%d].parameters[%d].name=%q must not have leading or trailing whitespace" $contextIndex $parameterIndex $parameter.name) -}}
+{{- end -}}
+{{- if has $parameter.name $parameterNames -}}
+{{- fail (printf "parameterContexts.contexts[%d].parameters[%d].name=%q is duplicated within the same context" $contextIndex $parameterIndex $parameter.name) -}}
+{{- end -}}
+{{- $parameterNames = append $parameterNames $parameter.name -}}
+{{- if and $hasInlineValue $secretRef.name -}}
+{{- fail (printf "parameterContexts.contexts[%d].parameters[%d] supports either value or secretRef, not both" $contextIndex $parameterIndex) -}}
+{{- end -}}
+{{- if and (not $hasInlineValue) (not $secretRef.name) -}}
+{{- fail (printf "parameterContexts.contexts[%d].parameters[%d] requires either value or secretRef" $contextIndex $parameterIndex) -}}
+{{- end -}}
+{{- if and (not $secretRef.name) $secretRef.key -}}
+{{- fail (printf "parameterContexts.contexts[%d].parameters[%d].secretRef.name is required when secretRef.key is set" $contextIndex $parameterIndex) -}}
+{{- end -}}
+{{- if and $secretRef.name (not $secretRef.key) -}}
+{{- fail (printf "parameterContexts.contexts[%d].parameters[%d].secretRef.key is required when secretRef.name is set" $contextIndex $parameterIndex) -}}
+{{- end -}}
+{{- if and $parameter.sensitive $hasInlineValue -}}
+{{- fail (printf "parameterContexts.contexts[%d].parameters[%d] must use secretRef when sensitive=true" $contextIndex $parameterIndex) -}}
+{{- end -}}
+{{- if and (not $parameter.sensitive) $secretRef.name -}}
+{{- fail (printf "parameterContexts.contexts[%d].parameters[%d].secretRef is supported only when sensitive=true" $contextIndex $parameterIndex) -}}
+{{- end -}}
+{{- end -}}
+{{- $providerNames := list -}}
+{{- range $providerIndex, $providerRef := $providerRefs -}}
+{{- if not $providerRef.name -}}
+{{- fail (printf "parameterContexts.contexts[%d].providerRefs[%d].name is required" $contextIndex $providerIndex) -}}
+{{- end -}}
+{{- if ne (trim $providerRef.name) $providerRef.name -}}
+{{- fail (printf "parameterContexts.contexts[%d].providerRefs[%d].name=%q must not have leading or trailing whitespace" $contextIndex $providerIndex $providerRef.name) -}}
+{{- end -}}
+{{- if has $providerRef.name $providerNames -}}
+{{- fail (printf "parameterContexts.contexts[%d].providerRefs[%d].name=%q is duplicated within the same context" $contextIndex $providerIndex $providerRef.name) -}}
+{{- end -}}
+{{- $providerNames = append $providerNames $providerRef.name -}}
+{{- end -}}
+{{- $attachmentNames := list -}}
+{{- range $attachmentIndex, $attachment := $attachments -}}
+{{- if not $attachment.rootProcessGroupName -}}
+{{- fail (printf "parameterContexts.contexts[%d].attachments[%d].rootProcessGroupName is required" $contextIndex $attachmentIndex) -}}
+{{- end -}}
+{{- if ne (trim $attachment.rootProcessGroupName) $attachment.rootProcessGroupName -}}
+{{- fail (printf "parameterContexts.contexts[%d].attachments[%d].rootProcessGroupName=%q must not have leading or trailing whitespace" $contextIndex $attachmentIndex $attachment.rootProcessGroupName) -}}
+{{- end -}}
+{{- if has $attachment.rootProcessGroupName $attachmentNames -}}
+{{- fail (printf "parameterContexts.contexts[%d].attachments[%d].rootProcessGroupName=%q is duplicated within the same context" $contextIndex $attachmentIndex $attachment.rootProcessGroupName) -}}
+{{- end -}}
+{{- if has $attachment.rootProcessGroupName $attachmentTargets -}}
+{{- fail (printf "parameterContexts.contexts[%d].attachments[%d].rootProcessGroupName=%q is already declared by another context; each direct root-child process group target can be attached to at most one declared Parameter Context" $contextIndex $attachmentIndex $attachment.rootProcessGroupName) -}}
+{{- end -}}
+{{- $attachmentNames = append $attachmentNames $attachment.rootProcessGroupName -}}
+{{- $attachmentTargets = append $attachmentTargets $attachment.rootProcessGroupName -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if $versionedFlowImports.enabled -}}
+{{- $flowRegistryClients := default (dict) .Values.flowRegistryClients -}}
+{{- $authz := default (dict) .Values.authz -}}
+{{- $authzBundles := default (dict) $authz.bundles -}}
+{{- $authzCapabilities := default (dict) $authz.capabilities -}}
+{{- $mutableFlow := default (dict) $authzCapabilities.mutableFlow -}}
+{{- if not $flowRegistryClients.enabled -}}
+{{- fail "versionedFlowImports.enabled=true currently requires flowRegistryClients.enabled=true so the selected prepared client definition can be resolved for bounded import reconciliation" -}}
+{{- end -}}
+{{- $knownPreparedClientNames := list -}}
+{{- range $client := default (list) $flowRegistryClients.clients -}}
+{{- $knownPreparedClientNames = append $knownPreparedClientNames $client.name -}}
+{{- end -}}
+{{- $knownParameterContextNames := list -}}
+{{- range $context := default (list) $parameterContexts.contexts -}}
+{{- $knownParameterContextNames = append $knownParameterContextNames $context.name -}}
+{{- end -}}
+{{- if not $versionedFlowImports.mountPath -}}
+{{- fail "versionedFlowImports.mountPath is required when versionedFlowImports.enabled=true" -}}
+{{- end -}}
+{{- if ne (include "nifi.authMode" .) "singleUser" -}}
+{{- fail "versionedFlowImports.enabled=true currently requires auth.mode=singleUser for bounded NiFi API import reconciliation" -}}
+{{- end -}}
+{{- if not (or (and $mutableFlow.enabled $mutableFlow.includeInitialAdmin) $authzBundles.flowVersionManager.includeInitialAdmin) -}}
+{{- fail "versionedFlowImports.enabled=true currently requires authz.capabilities.mutableFlow.enabled=true with includeInitialAdmin=true or authz.bundles.flowVersionManager.includeInitialAdmin=true" -}}
+{{- end -}}
+{{- if eq (len $versionedFlowImports.imports) 0 -}}
+{{- fail "versionedFlowImports.enabled=true requires versionedFlowImports.imports to contain at least one import definition" -}}
+{{- end -}}
+{{- $importNames := list -}}
+{{- $targetRootProcessGroupNames := list -}}
+{{- range $importIndex, $import := $versionedFlowImports.imports -}}
+{{- $parameterContextRefs := default (list) $import.parameterContextRefs -}}
+{{- $target := default (dict) $import.target -}}
+{{- if not $import.name -}}
+{{- fail (printf "versionedFlowImports.imports[%d].name is required" $importIndex) -}}
+{{- end -}}
+{{- if ne (trim $import.name) $import.name -}}
+{{- fail (printf "versionedFlowImports.imports[%d].name=%q must not have leading or trailing whitespace" $importIndex $import.name) -}}
+{{- end -}}
+{{- if has $import.name $importNames -}}
+{{- fail (printf "versionedFlowImports.imports[%d].name=%q is duplicated; import names must be unique" $importIndex $import.name) -}}
+{{- end -}}
+{{- $importNames = append $importNames $import.name -}}
+{{- if not $import.registryClientName -}}
+{{- fail (printf "versionedFlowImports.imports[%d].registryClientName is required" $importIndex) -}}
+{{- end -}}
+{{- if ne (trim $import.registryClientName) $import.registryClientName -}}
+{{- fail (printf "versionedFlowImports.imports[%d].registryClientName=%q must not have leading or trailing whitespace" $importIndex $import.registryClientName) -}}
+{{- end -}}
+{{- if not (has $import.registryClientName $knownPreparedClientNames) -}}
+{{- fail (printf "versionedFlowImports.imports[%d].registryClientName=%q is not present in flowRegistryClients.clients[].name" $importIndex $import.registryClientName) -}}
+{{- end -}}
+{{- $preparedClient := dict -}}
+{{- range $client := default (list) $flowRegistryClients.clients -}}
+{{- if eq $client.name $import.registryClientName -}}
+{{- $preparedClient = $client -}}
+{{- end -}}
+{{- end -}}
+{{- if ne $preparedClient.provider "github" -}}
+{{- fail (printf "versionedFlowImports.imports[%d].registryClientName=%q currently requires flowRegistryClients.clients[].provider=github for bounded runtime-managed import" $importIndex $import.registryClientName) -}}
+{{- end -}}
+{{- if and $preparedClient.github.auth.type (eq $preparedClient.github.auth.type "appInstallation") -}}
+{{- fail (printf "versionedFlowImports.imports[%d].registryClientName=%q currently supports github.auth.type none or personalAccessToken; appInstallation remains future work" $importIndex $import.registryClientName) -}}
+{{- end -}}
+{{- if not $import.bucket -}}
+{{- fail (printf "versionedFlowImports.imports[%d].bucket is required" $importIndex) -}}
+{{- end -}}
+{{- if ne (trim $import.bucket) $import.bucket -}}
+{{- fail (printf "versionedFlowImports.imports[%d].bucket=%q must not have leading or trailing whitespace" $importIndex $import.bucket) -}}
+{{- end -}}
+{{- if not $import.flowName -}}
+{{- fail (printf "versionedFlowImports.imports[%d].flowName is required" $importIndex) -}}
+{{- end -}}
+{{- if ne (trim $import.flowName) $import.flowName -}}
+{{- fail (printf "versionedFlowImports.imports[%d].flowName=%q must not have leading or trailing whitespace" $importIndex $import.flowName) -}}
+{{- end -}}
+{{- if not $import.version -}}
+{{- fail (printf "versionedFlowImports.imports[%d].version is required" $importIndex) -}}
+{{- end -}}
+{{- if not (or (eq $import.version "latest") (regexMatch "^\\S+$" (printf "%v" $import.version))) -}}
+{{- fail (printf "versionedFlowImports.imports[%d].version must be \"latest\" or a non-empty version identifier without whitespace" $importIndex) -}}
+{{- end -}}
+{{- if not $target.rootProcessGroupName -}}
+{{- fail (printf "versionedFlowImports.imports[%d].target.rootProcessGroupName is required" $importIndex) -}}
+{{- end -}}
+{{- if ne (trim $target.rootProcessGroupName) $target.rootProcessGroupName -}}
+{{- fail (printf "versionedFlowImports.imports[%d].target.rootProcessGroupName=%q must not have leading or trailing whitespace" $importIndex $target.rootProcessGroupName) -}}
+{{- end -}}
+{{- if eq $target.rootProcessGroupName "root" -}}
+{{- fail (printf "versionedFlowImports.imports[%d].target.rootProcessGroupName=%q is reserved" $importIndex $target.rootProcessGroupName) -}}
+{{- end -}}
+{{- if has $target.rootProcessGroupName $targetRootProcessGroupNames -}}
+{{- fail (printf "versionedFlowImports.imports[%d].target.rootProcessGroupName=%q is duplicated; root child target names must be unique" $importIndex $target.rootProcessGroupName) -}}
+{{- end -}}
+{{- $targetRootProcessGroupNames = append $targetRootProcessGroupNames $target.rootProcessGroupName -}}
+{{- if gt (len $parameterContextRefs) 1 -}}
+{{- fail (printf "versionedFlowImports.imports[%d] supports at most one direct parameterContextRef in this slice" $importIndex) -}}
+{{- end -}}
+{{- $parameterContextRefNames := list -}}
+{{- range $refIndex, $ref := $parameterContextRefs -}}
+{{- if not $ref.name -}}
+{{- fail (printf "versionedFlowImports.imports[%d].parameterContextRefs[%d].name is required" $importIndex $refIndex) -}}
+{{- end -}}
+{{- if ne (trim $ref.name) $ref.name -}}
+{{- fail (printf "versionedFlowImports.imports[%d].parameterContextRefs[%d].name=%q must not have leading or trailing whitespace" $importIndex $refIndex $ref.name) -}}
+{{- end -}}
+{{- if has $ref.name $parameterContextRefNames -}}
+{{- fail (printf "versionedFlowImports.imports[%d].parameterContextRefs[%d].name=%q is duplicated within the same import" $importIndex $refIndex $ref.name) -}}
+{{- end -}}
+{{- $parameterContextRefNames = append $parameterContextRefNames $ref.name -}}
+{{- if and $parameterContexts.enabled (not (has $ref.name $knownParameterContextNames)) -}}
+{{- fail (printf "versionedFlowImports.imports[%d].parameterContextRefs[%d].name=%q is not present in parameterContexts.contexts[].name" $importIndex $refIndex $ref.name) -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- if eq $mode "nativeApi" -}}

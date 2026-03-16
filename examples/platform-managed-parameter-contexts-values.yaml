@@ -1,0 +1,22 @@
+nifi:
+  parameterContexts:
+    enabled: true
+    contexts:
+    - name: platform-runtime
+      description: Product-owned runtime-managed Parameter Context for platform-managed installs.
+      parameters:
+      - name: external.api.baseUrl
+        description: Non-sensitive platform endpoint used by downstream flows.
+        value: https://api.internal.example.com
+      - name: external.api.token
+        description: Sensitive token sourced from a Kubernetes Secret during runtime reconciliation.
+        sensitive: true
+        secretRef:
+          name: platform-parameter-context
+          key: external-api-token
+      providerRefs:
+      - name: shared-secrets-provider
+        parameterGroup: payments
+        description: Existing NiFi Parameter Provider referenced by name only and managed outside the product.
+      attachments:
+      - rootProcessGroupName: platform-target

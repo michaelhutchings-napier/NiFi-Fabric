@@ -1,0 +1,45 @@
+nifi:
+  authz:
+    bundles:
+      flowVersionManager:
+        includeInitialAdmin: true
+  flowRegistryClients:
+    enabled: true
+    clients:
+    - name: github-flows
+      provider: github
+      description: Prepared GitHub registry client reference for bounded versioned-flow import intent.
+      repository:
+        owner: example-org
+        name: nifi-flows
+        path: flows
+        branch: main
+      parameterContextValues: retain
+      github:
+        apiUrl: https://api.github.com
+        auth:
+          type: personalAccessToken
+          personalAccessTokenSecret:
+            name: github-flow-registry
+            key: token
+  parameterContexts:
+    enabled: true
+    contexts:
+    - name: payments-runtime
+      description: Runtime-managed parameter context referenced by the bounded flow import path.
+      parameters:
+      - name: payments.api.baseUrl
+        value: https://payments.internal.example.com
+  versionedFlowImports:
+    enabled: true
+    imports:
+    - name: payments-api
+      description: Runtime-managed bounded versioned-flow import for the standard platform chart path.
+      registryClientName: github-flows
+      bucket: team-a
+      flowName: payments-api
+      version: latest
+      target:
+        rootProcessGroupName: payments-api-root
+      parameterContextRefs:
+      - name: payments-runtime

@@ -1,0 +1,883 @@
+{{- if .Values.versionedFlowImports.enabled }}
+{{- $statusFile := "/opt/nifi/nifi-current/logs/versioned-flow-imports-bootstrap-status.json" -}}
+{{- $ownership := dict
+  "createsImportedProcessGroupsInNiFi" true
+  "reconcilesDeclaredImportsInNiFi" true
+  "deletesRemovedImportedProcessGroupsInNiFi" false
+  "createsFlowRegistryClientsInNiFi" false
+  "attachesDirectParameterContexts" true
+  "manualNiFiDrift" "unsupported-outside-bounded-import-scope"
+  "undeclaredProcessGroups" "operator-owned"
+-}}
+{{- $catalog := dict
+  "catalogMode" "runtime-managed"
+  "ownership" $ownership
+  "runtimeContract" (dict
+    "requiresAuthMode" "singleUser"
+    "requiresLiveRegistryClient" true
+    "requiresPreparedGithubClient" true
+    "reconcilePodOrdinal" 0
+    "statusFile" $statusFile
+    "parameterContextRefs" "0-or-1 direct attachment"
+    "versionSync" "no-ongoing-sync"
+    "snapshotSource" "nifi-flow-registry-api-with-prepared-github-fallback"
+  )
+  "imports" (list)
+-}}
+{{- $runtimeConfig := dict
+  "management" (dict
+    "caCertPath" (printf "%s/%s" .Values.tls.mountPath .Values.tls.caCertKey)
+    "statusFile" $statusFile
+    "reconcilePodOrdinal" 0
+    "clientId" "fabric-versioned-flow-import-bootstrap"
+    "rootProcessGroupId" "root"
+  )
+  "ownership" $ownership
+  "preparedRegistryClients" (list)
+  "imports" (list)
+-}}
+{{- range $clientIndex, $client := default (list) .Values.flowRegistryClients.clients }}
+{{- $clientEntry := dict
+  "name" $client.name
+  "provider" $client.provider
+-}}
+{{- if eq $client.provider "github" }}
+{{- $authType := default "personalAccessToken" $client.github.auth.type -}}
+{{- $github := dict
+  "apiUrl" (default "https://api.github.com" $client.github.apiUrl)
+  "owner" $client.repository.owner
+  "repository" $client.repository.name
+  "path" (default "" $client.repository.path)
+  "branch" (default "main" $client.repository.branch)
+  "authType" $authType
+-}}
+{{- if or (not $client.github.auth.type) (eq $client.github.auth.type "personalAccessToken") }}
+{{- $_ := set $github "tokenEnvVar" (printf "FLOW_REGISTRY_CLIENT_GITHUB_PAT_%d" $clientIndex) -}}
+{{- end -}}
+{{- $_ := set $clientEntry "github" $github -}}
+{{- end -}}
+{{- $_ := set $runtimeConfig "preparedRegistryClients" (append (get $runtimeConfig "preparedRegistryClients") $clientEntry) -}}
+{{- end }}
+{{- range $import := .Values.versionedFlowImports.imports }}
+{{- $parameterContextRefs := list -}}
+{{- range $ref := default (list) $import.parameterContextRefs }}
+{{- $parameterContextRefs = append $parameterContextRefs (dict "name" $ref.name) -}}
+{{- end }}
+{{- $entry := dict
+  "name" $import.name
+  "bootstrapMode" "runtime-managed"
+  "driftPolicy" (dict
+    "createdByProduct" true
+    "reconciledByProduct" true
+    "deletedWhenRemovedFromValues" false
+    "manualNiFiDrift" "unsupported-outside-bounded-import-scope"
+  )
+  "registryClientRef" (dict "name" $import.registryClientName)
+  "source" (dict
+    "bucket" $import.bucket
+    "flowName" $import.flowName
+    "version" (printf "%v" $import.version)
+  )
+  "target" (dict
+    "rootProcessGroupName" $import.target.rootProcessGroupName
+  )
+  "parameterContextRefs" $parameterContextRefs
+-}}
+{{- if hasKey $import "description" -}}
+{{- $_ := set $entry "description" $import.description -}}
+{{- end -}}
+{{- $_ := set $catalog "imports" (append (get $catalog "imports") $entry) -}}
+{{- $_ := set $runtimeConfig "imports" (append (get $runtimeConfig "imports") $entry) -}}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nifi.versionedFlowImportsConfigName" . }}
+  labels:
+    {{- include "nifi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: versioned-flow-imports
+data:
+  config.json: |
+{{ $runtimeConfig | toPrettyJson | indent 4 }}
+  imports.yaml: |
+{{ $catalog | toYaml | indent 4 }}
+  imports.json: |
+{{ $catalog | toPrettyJson | indent 4 }}
+  bootstrap.py: |
+    import base64
+    import json
+    import os
+    import ssl
+    import sys
+    import time
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    CONFIG_PATH = "/opt/nifi/fabric/versioned-flow-imports/config.json"
+
+
+    class NiFiAPIError(RuntimeError):
+        pass
+
+
+    def load_config():
+        with open(CONFIG_PATH, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+
+
+    def write_status(config, payload):
+        path = config["management"]["statusFile"]
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+
+
+    def base_status(config):
+        return {
+            "podName": os.environ.get("POD_NAME", ""),
+            "authMode": os.environ.get("AUTH_MODE", ""),
+            "status": "running",
+            "imports": [],
+        }
+
+
+    def build_http_client(ca_cert_path):
+        context = ssl.create_default_context(cafile=ca_cert_path)
+        return urllib.request.build_opener(urllib.request.HTTPSHandler(context=context))
+
+
+    def request(opener, base_url, method, path, token=None, payload=None, expect=(200,)):
+        body = None
+        headers = {}
+        if payload is not None:
+            body = json.dumps(payload).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        if token:
+            headers["Authorization"] = "Bearer " + token
+        req = urllib.request.Request(base_url + path, data=body, headers=headers, method=method)
+        try:
+            with opener.open(req, timeout=20) as response:
+                data = response.read()
+                if response.status not in expect:
+                    raise NiFiAPIError(
+                        f"{method} {path} returned unexpected status {response.status}: {data[:4096].decode('utf-8', 'ignore')}"
+                    )
+                if not data:
+                    return None
+                content_type = response.headers.get("Content-Type", "")
+                if "application/json" in content_type:
+                    return json.loads(data.decode("utf-8"))
+                return data.decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            body_text = exc.read().decode("utf-8", "ignore")
+            raise NiFiAPIError(f"{method} {path} failed with status {exc.code}: {body_text[:4096]}") from exc
+
+
+    def request_token(opener, base_url):
+        username = os.environ.get("SINGLE_USER_CREDENTIALS_USERNAME", "")
+        password = os.environ.get("SINGLE_USER_CREDENTIALS_PASSWORD", "")
+        if not username or not password:
+            raise NiFiAPIError("single-user credentials are required for versioned flow import bootstrap")
+        form = urllib.parse.urlencode({"username": username, "password": password}).encode("utf-8")
+        req = urllib.request.Request(
+            base_url + "/access/token",
+            data=form,
+            headers={"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"},
+            method="POST",
+        )
+        try:
+            with opener.open(req, timeout=15) as response:
+                token = response.read().decode("utf-8").strip()
+                if response.status not in (200, 201) or not token:
+                    raise NiFiAPIError(f"token request returned {response.status} with empty token")
+                return token
+        except urllib.error.HTTPError as exc:
+            body_text = exc.read().decode("utf-8", "ignore")
+            raise NiFiAPIError(f"POST /access/token failed with status {exc.code}: {body_text[:4096]}") from exc
+
+
+    def wait_for_token(opener, base_url):
+        last_error = None
+        for _ in range(90):
+            try:
+                return request_token(opener, base_url)
+            except Exception as exc:
+                last_error = exc
+                time.sleep(2)
+        raise last_error or NiFiAPIError("timed out waiting for NiFi API token")
+
+
+    def wait_for_cluster_summary(opener, base_url, token):
+        last_error = None
+        for _ in range(90):
+            try:
+                payload = request(opener, base_url, "GET", "/flow/cluster/summary", token=token)
+                summary = payload.get("clusterSummary", {})
+                if (
+                    summary.get("clustered") is True
+                    and summary.get("connectedToCluster") is True
+                    and int(summary.get("connectedNodeCount", 0)) >= 1
+                    and int(summary.get("totalNodeCount", 0)) >= 1
+                    and int(summary.get("connectedNodeCount", 0)) == int(summary.get("totalNodeCount", 0))
+                ):
+                    return summary
+                last_error = NiFiAPIError(f"cluster summary not yet stable: {summary}")
+            except Exception as exc:
+                last_error = exc
+            time.sleep(2)
+        raise last_error or NiFiAPIError("timed out waiting for stable cluster summary")
+
+
+    def prepared_registry_clients_by_name(config):
+        mapping = {}
+        for entry in config.get("preparedRegistryClients", []):
+            if not isinstance(entry, dict):
+                continue
+            name = entry.get("name")
+            if name:
+                mapping[name] = entry
+        return mapping
+
+
+    def github_api_request(url, headers):
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=20) as response:
+                data = response.read()
+                if response.status not in (200, 201):
+                    raise NiFiAPIError(
+                        f"GET {url} returned unexpected status {response.status}: {data[:4096].decode('utf-8', 'ignore')}"
+                    )
+                if not data:
+                    raise NiFiAPIError(f"GET {url} returned an empty response")
+                return json.loads(data.decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            body_text = exc.read().decode("utf-8", "ignore")
+            raise NiFiAPIError(f"GET {url} failed with status {exc.code}: {body_text[:4096]}") from exc
+        except urllib.error.URLError as exc:
+            raise NiFiAPIError(f"GET {url} failed: {exc}") from exc
+
+
+    def github_snapshot_path(client, bucket_name, flow_id):
+        segments = []
+        base_path = client.get("github", {}).get("path", "")
+        if base_path:
+            segments.extend(part for part in base_path.split("/") if part)
+        segments.extend([bucket_name, f"{flow_id}.json"])
+        return "/".join(urllib.parse.quote(segment, safe="") for segment in segments)
+
+
+    def fetch_github_snapshot(config, client_name, bucket_name, flow_id, resolved_version):
+        client = prepared_registry_clients_by_name(config).get(client_name)
+        if not client:
+            raise NiFiAPIError(
+                f"selected prepared Flow Registry Client definition {client_name!r} was not found in the chart-rendered config"
+            )
+        if client.get("provider") != "github":
+            raise NiFiAPIError(
+                f"selected prepared Flow Registry Client definition {client_name!r} is not a supported GitHub client for bounded runtime-managed import"
+            )
+
+        github = client.get("github", {})
+        api_url = (github.get("apiUrl") or "https://api.github.com").rstrip("/")
+        owner = github.get("owner")
+        repository = github.get("repository")
+        if not owner or not repository:
+            raise NiFiAPIError(
+                f"selected prepared Flow Registry Client definition {client_name!r} is missing GitHub repository coordinates"
+            )
+
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "nifi-fabric-versioned-flow-import-bootstrap",
+        }
+        auth_type = github.get("authType") or "personalAccessToken"
+        if auth_type == "personalAccessToken":
+            token_env_var = github.get("tokenEnvVar")
+            token_value = os.environ.get(token_env_var or "", "")
+            if not token_env_var or not token_value:
+                raise NiFiAPIError(
+                    f"selected prepared Flow Registry Client definition {client_name!r} requires token env {token_env_var!r}, but it was not present"
+                )
+            headers["Authorization"] = "Bearer " + token_value
+        elif auth_type != "none":
+            raise NiFiAPIError(
+                f"selected prepared Flow Registry Client definition {client_name!r} uses unsupported github auth type {auth_type!r}"
+            )
+
+        path = github_snapshot_path(client, bucket_name, flow_id)
+        query = urllib.parse.urlencode({"ref": resolved_version})
+        url = f"{api_url}/repos/{urllib.parse.quote(owner, safe='')}/{urllib.parse.quote(repository, safe='')}/contents/{path}?{query}"
+        payload = github_api_request(url, headers)
+        content = payload.get("content", "")
+        encoding = payload.get("encoding", "")
+        if encoding != "base64" or not content:
+            raise NiFiAPIError(
+                f"GitHub contents response for Flow Registry Client {client_name!r} did not include base64-encoded flow content"
+            )
+        try:
+            decoded = base64.b64decode(content.encode("utf-8"), validate=True).decode("utf-8")
+            snapshot = json.loads(decoded)
+        except Exception as exc:
+            raise NiFiAPIError(
+                f"GitHub contents response for Flow Registry Client {client_name!r} did not contain valid JSON flow content"
+            ) from exc
+        if not isinstance(snapshot, dict):
+            raise NiFiAPIError(
+                f"GitHub contents response for Flow Registry Client {client_name!r} did not contain a JSON object"
+            )
+        return snapshot
+
+
+    def enrich_snapshot_metadata(snapshot, registry_name, registry_id, bucket_name, flow_name, flow_id, version_entry, selected_version):
+        enriched = json.loads(json.dumps(snapshot))
+        metadata = enriched.get("snapshotMetadata")
+        if not isinstance(metadata, dict):
+            metadata = enriched.get("versionedFlowSnapshotMetadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        version_metadata = version_entry.get("metadata", {})
+        if isinstance(version_metadata, dict):
+            for key in ("author", "comments", "timestamp", "branch"):
+                if key in version_metadata and key not in metadata:
+                    metadata[key] = version_metadata[key]
+
+        metadata["version"] = str(version_entry["version"])
+        metadata["bucketIdentifier"] = metadata.get("bucketIdentifier") or bucket_name
+        metadata["flowIdentifier"] = metadata.get("flowIdentifier") or flow_id
+        metadata["flowName"] = metadata.get("flowName") or flow_name
+        metadata["registryIdentifier"] = metadata.get("registryIdentifier") or registry_id
+        metadata["registryName"] = metadata.get("registryName") or registry_name
+        if version_metadata.get("timestamp") is not None:
+            metadata["timestamp"] = version_metadata["timestamp"]
+
+        enriched["snapshotMetadata"] = metadata
+        if isinstance(enriched.get("versionedFlowSnapshotMetadata"), dict):
+            enriched["versionedFlowSnapshotMetadata"] = metadata
+        bucket = enriched.get("bucket")
+        if not isinstance(bucket, dict):
+            bucket = {}
+        bucket["identifier"] = bucket.get("identifier") or bucket_name
+        bucket["name"] = bucket.get("name") or bucket_name
+        enriched["bucket"] = bucket
+
+        flow = enriched.get("flow")
+        if not isinstance(flow, dict):
+            flow = {}
+        flow["identifier"] = flow.get("identifier") or flow_id
+        flow["name"] = flow.get("name") or flow_name
+        enriched["flow"] = flow
+        enriched["latest"] = str(selected_version) == "latest"
+        return enriched
+
+
+    def selected_snapshot(config, registry_name, registry_id, bucket_name, flow_name, flow_id, version_entry, selected_version):
+        snapshot = version_entry.get("snapshot")
+        if snapshot is None:
+            snapshot = fetch_github_snapshot(
+                config,
+                registry_name,
+                bucket_name,
+                flow_id,
+                version_entry["version"],
+            )
+        return enrich_snapshot_metadata(
+            snapshot,
+            registry_name,
+            registry_id,
+            bucket_name,
+            flow_name,
+            flow_id,
+            version_entry,
+            selected_version,
+        )
+
+
+    def flow_registry_ids_by_name(opener, base_url, token):
+        payload = request(opener, base_url, "GET", "/flow/registries", token=token)
+        mapping = {}
+        for entry in payload.get("registries", []):
+            component = entry.get("component", {})
+            name = component.get("name")
+            identifier = entry.get("id") or component.get("id")
+            if name and identifier:
+                mapping[name] = identifier
+        return mapping
+
+
+    def parameter_context_ids_by_name(opener, base_url, token):
+        payload = request(opener, base_url, "GET", "/flow/parameter-contexts", token=token)
+        mapping = {}
+        for entry in payload.get("parameterContexts", []):
+            component = entry.get("component", {})
+            name = component.get("name")
+            identifier = entry.get("id") or component.get("id")
+            if name and identifier:
+                mapping[name] = identifier
+        return mapping
+
+
+    def root_child_process_groups_by_name(opener, base_url, token):
+        payload = request(opener, base_url, "GET", "/flow/process-groups/root", token=token)
+        process_group_flow = payload.get("processGroupFlow", {})
+        flow = process_group_flow.get("flow", {})
+        mapping = {}
+        for entry in flow.get("processGroups", []):
+            component = entry.get("component", {})
+            name = component.get("name")
+            identifier = entry.get("id") or component.get("id")
+            if name and identifier:
+                mapping[name] = identifier
+        return mapping
+
+
+    def get_process_group_component(opener, base_url, token, process_group_id):
+        payload = request(opener, base_url, "GET", f"/process-groups/{process_group_id}", token=token)
+        component = payload.get("component", {})
+        revision = payload.get("revision", {}) or payload.get("revisionDTO", {})
+        return payload, component, revision
+
+
+    def get_process_group_flow(opener, base_url, token, process_group_id):
+        payload = request(opener, base_url, "GET", f"/flow/process-groups/{process_group_id}", token=token)
+        process_group_flow = payload.get("processGroupFlow", {})
+        return payload, process_group_flow, process_group_flow.get("flow", {})
+
+
+    def resolve_flow_id(opener, base_url, token, registry_id, bucket_name, flow_name):
+        payload = request(opener, base_url, "GET", f"/flow/registries/{registry_id}/buckets/{bucket_name}/flows", token=token)
+        flows = payload.get("bucketFlowResults") or payload.get("versionedFlows") or payload.get("flows") or []
+        for entry in flows:
+            candidate = entry.get("flow") or entry.get("versionedFlow") or entry
+            name = candidate.get("name") or candidate.get("flowName") or candidate.get("identifier") or ""
+            identifier = candidate.get("identifier") or candidate.get("flowId") or candidate.get("id") or ""
+            if name == flow_name and identifier:
+                return identifier
+        raise NiFiAPIError(f"selected flow {flow_name!r} was not returned from bucket {bucket_name!r}")
+
+
+    def version_entries(payload):
+        entries = []
+        candidates = []
+
+        if isinstance(payload, dict):
+            if isinstance(payload.get("versionedFlowSnapshotMetadataSet"), list):
+                candidates.extend(payload["versionedFlowSnapshotMetadataSet"])
+            elif isinstance(payload.get("versionedFlowSnapshotMetadataSet"), dict):
+                nested = payload["versionedFlowSnapshotMetadataSet"].get("versionedFlowSnapshotMetadata") or payload["versionedFlowSnapshotMetadataSet"].get("items") or []
+                candidates.extend(nested)
+            if isinstance(payload.get("versionedFlowSnapshots"), list):
+                candidates.extend(payload["versionedFlowSnapshots"])
+            if isinstance(payload.get("versionedFlowSnapshotMetadata"), list):
+                candidates.extend(payload["versionedFlowSnapshotMetadata"])
+            if isinstance(payload.get("items"), list):
+                candidates.extend(payload["items"])
+            if isinstance(payload.get("versionedFlowSnapshot"), dict):
+                candidates.append(payload)
+
+        for index, item in enumerate(candidates):
+            candidate = item if isinstance(item, dict) else {}
+            snapshot = None
+            if isinstance(candidate.get("versionedFlowSnapshot"), dict):
+                snapshot = candidate["versionedFlowSnapshot"]
+            elif isinstance(candidate.get("flowSnapshot"), dict):
+                snapshot = candidate["flowSnapshot"]
+            elif "flowContents" in candidate or "externalControllerServices" in candidate:
+                snapshot = candidate
+
+            metadata = candidate.get("versionedFlowSnapshotMetadata") or candidate.get("snapshotMetadata") or candidate
+            if snapshot is not None:
+                metadata = snapshot.get("snapshotMetadata") or snapshot.get("versionedFlowSnapshotMetadata") or metadata
+
+            version = metadata.get("version")
+            if version is None and snapshot is not None:
+                version = snapshot.get("version")
+            if version is None:
+                continue
+
+            timestamp = metadata.get("timestamp")
+            if not isinstance(timestamp, int):
+                timestamp = -1
+
+            entries.append(
+                {
+                    "version": str(version),
+                    "timestamp": timestamp,
+                    "index": index,
+                    "metadata": metadata,
+                    "snapshot": snapshot,
+                }
+            )
+
+        unique = {}
+        for entry in entries:
+            existing = unique.get(entry["version"])
+            if existing is None:
+                unique[entry["version"]] = entry
+                continue
+            if entry["timestamp"] > existing["timestamp"] or (
+                entry["timestamp"] == existing["timestamp"] and entry["index"] > existing["index"]
+            ):
+                unique[entry["version"]] = entry
+        return list(unique.values())
+
+
+    def resolve_version_entry(opener, base_url, token, registry_id, bucket_name, flow_id, selected_version):
+        payload = request(
+            opener,
+            base_url,
+            "GET",
+            f"/flow/registries/{registry_id}/buckets/{bucket_name}/flows/{flow_id}/versions",
+            token=token,
+        )
+        entries = version_entries(payload)
+        if not entries:
+            raise NiFiAPIError("selected flow did not return any discoverable versions from NiFi")
+
+        if selected_version == "latest":
+            entries.sort(key=lambda item: (item["timestamp"], item["index"]))
+            return entries[-1]
+
+        for entry in entries:
+            if entry["version"] == str(selected_version):
+                return entry
+        available = ", ".join(sorted(entry["version"] for entry in entries))
+        raise NiFiAPIError(
+            f"selected version {selected_version!r} was not returned for the selected flow; available versions: {available}"
+        )
+
+
+    def import_process_group(opener, base_url, token, client_id, target_name, snapshot):
+        payload = {
+            "revisionDTO": {
+                "clientId": client_id,
+                "version": 0,
+            },
+            "groupName": target_name,
+            "positionDTO": {
+                "x": 400.0,
+                "y": 400.0,
+            },
+            "flowSnapshot": snapshot,
+        }
+        created = request(
+            opener,
+            base_url,
+            "POST",
+            "/process-groups/root/process-groups/import",
+            token=token,
+            payload=payload,
+            expect=(200, 201),
+        )
+        component = created.get("component", {})
+        identifier = created.get("id") or component.get("id")
+        if not identifier:
+            raise NiFiAPIError("failed to resolve imported process group id from NiFi response")
+        return identifier
+
+
+    def update_imported_process_group_version(
+        opener,
+        base_url,
+        token,
+        client_id,
+        process_group_id,
+        revision_version,
+        registry_id,
+        snapshot,
+    ):
+        payload = {
+            "processGroupRevision": {
+                "clientId": client_id,
+                "version": int(revision_version),
+            },
+            "registryId": registry_id,
+            "updateDescendantVersionedFlows": False,
+            "versionedFlowSnapshot": snapshot,
+        }
+        response = request(
+            opener,
+            base_url,
+            "PUT",
+            f"/versions/process-groups/{process_group_id}",
+            token=token,
+            payload=payload,
+            expect=(200, 201),
+        )
+        version_control = response.get("versionControlInformation", {})
+        revision = response.get("processGroupRevision", {}) or response.get("revision", {})
+        return version_control, revision
+
+
+    def bind_parameter_context(opener, base_url, token, client_id, process_group_id, revision_version, parameter_context_id):
+        payload = {
+            "revision": {
+                "clientId": client_id,
+                "version": int(revision_version),
+            },
+            "component": {
+                "id": process_group_id,
+                "parameterContext": {
+                    "id": parameter_context_id,
+                },
+            },
+        }
+        request(
+            opener,
+            base_url,
+            "PUT",
+            f"/process-groups/{process_group_id}",
+            token=token,
+            payload=payload,
+            expect=(200, 201),
+        )
+
+
+    def version_control_information(component_payload, process_group_flow, flow_payload):
+        for source in (
+            component_payload.get("component", {}),
+            process_group_flow.get("breadcrumb", {}),
+            process_group_flow,
+            flow_payload,
+        ):
+            if not isinstance(source, dict):
+                continue
+            if isinstance(source.get("versionControlInformation"), dict):
+                return source["versionControlInformation"]
+        return {}
+
+
+    def ensure_import(config, opener, base_url, token, import_entry):
+        client_id = config["management"]["clientId"]
+        import_status = {
+            "name": import_entry["name"],
+            "selectedVersion": import_entry["source"]["version"],
+            "targetRootProcessGroupName": import_entry["target"]["rootProcessGroupName"],
+            "status": "running",
+        }
+
+        registry_name = import_entry["registryClientRef"]["name"]
+        registry_ids = flow_registry_ids_by_name(opener, base_url, token)
+        registry_id = registry_ids.get(registry_name)
+        if not registry_id:
+            raise NiFiAPIError(
+                f"selected Flow Registry Client {registry_name!r} does not exist in NiFi; create it first from the prepared catalog or another operator-managed path"
+            )
+        import_status["registryClientName"] = registry_name
+        import_status["registryClientId"] = registry_id
+
+        bucket_name = import_entry["source"]["bucket"]
+        flow_name = import_entry["source"]["flowName"]
+        flow_id = resolve_flow_id(opener, base_url, token, registry_id, bucket_name, flow_name)
+        import_status["bucket"] = bucket_name
+        import_status["flowName"] = flow_name
+        import_status["flowId"] = flow_id
+
+        version_entry = resolve_version_entry(
+            opener,
+            base_url,
+            token,
+            registry_id,
+            bucket_name,
+            flow_id,
+            import_entry["source"]["version"],
+        )
+        import_status["resolvedVersion"] = version_entry["version"]
+        snapshot = selected_snapshot(
+            config,
+            registry_name,
+            registry_id,
+            bucket_name,
+            flow_name,
+            flow_id,
+            version_entry,
+            import_entry["source"]["version"],
+        )
+
+        parameter_context_id = ""
+        parameter_context_refs = import_entry.get("parameterContextRefs", [])
+        if parameter_context_refs:
+            parameter_context_name = parameter_context_refs[0]["name"]
+            parameter_context_id = parameter_context_ids_by_name(opener, base_url, token).get(parameter_context_name, "")
+            if not parameter_context_id:
+                raise NiFiAPIError(
+                    f"declared Parameter Context {parameter_context_name!r} does not exist in NiFi; reconcile it first or remove the reference"
+                )
+            import_status["parameterContextName"] = parameter_context_name
+            import_status["parameterContextId"] = parameter_context_id
+
+        target_name = import_entry["target"]["rootProcessGroupName"]
+        existing_id = root_child_process_groups_by_name(opener, base_url, token).get(target_name)
+        action = "unchanged"
+
+        if not existing_id:
+            existing_id = import_process_group(
+                opener,
+                base_url,
+                token,
+                client_id,
+                target_name,
+                snapshot,
+            )
+            action = "created"
+
+        component_payload, component, revision = get_process_group_component(opener, base_url, token, existing_id)
+        _, process_group_flow, flow_payload = get_process_group_flow(opener, base_url, token, existing_id)
+
+        if component.get("name") != target_name:
+            raise NiFiAPIError(
+                f"target process group {existing_id!r} has name {component.get('name')!r}; expected {target_name!r}"
+            )
+
+        version_control = version_control_information(component_payload, process_group_flow, flow_payload)
+        actual_flow_name = version_control.get("flowName") or version_control.get("name") or ""
+        actual_flow_id = version_control.get("flowId") or version_control.get("identifier") or ""
+        actual_version = version_control.get("version")
+        actual_version = "" if actual_version is None else str(actual_version)
+
+        selected_resolved_version = str(version_entry["version"])
+        needs_version_update = not version_control
+        if version_control and actual_flow_name and actual_flow_name != flow_name:
+            raise NiFiAPIError(
+                f"root child process group {target_name!r} is attached to flow {actual_flow_name!r}, not declared flow {flow_name!r}"
+            )
+        if version_control and actual_flow_id and actual_flow_id != flow_id:
+            raise NiFiAPIError(
+                f"root child process group {target_name!r} is attached to flow id {actual_flow_id!r}, not declared flow id {flow_id!r}"
+            )
+        if version_control and actual_version != selected_resolved_version:
+            needs_version_update = True
+
+        if needs_version_update:
+            update_imported_process_group_version(
+                opener,
+                base_url,
+                token,
+                client_id,
+                existing_id,
+                revision.get("version", 0),
+                registry_id,
+                snapshot,
+            )
+            action = "updated" if action == "unchanged" else action
+            component_payload, component, revision = get_process_group_component(opener, base_url, token, existing_id)
+            _, process_group_flow, flow_payload = get_process_group_flow(opener, base_url, token, existing_id)
+            version_control = version_control_information(component_payload, process_group_flow, flow_payload)
+
+        if not version_control:
+            raise NiFiAPIError(
+                f"root child process group {target_name!r} does not expose version-control information after bounded import reconcile"
+            )
+
+        actual_flow_name = version_control.get("flowName") or version_control.get("name") or ""
+        actual_flow_id = version_control.get("flowId") or version_control.get("identifier") or ""
+        actual_version = version_control.get("version")
+        import_status["actualVersion"] = "" if actual_version is None else str(actual_version)
+        import_status["versionControlState"] = version_control.get("state", "")
+
+        if actual_flow_name and actual_flow_name != flow_name:
+            raise NiFiAPIError(
+                f"root child process group {target_name!r} is attached to flow {actual_flow_name!r}, not declared flow {flow_name!r}"
+            )
+        if actual_flow_id and actual_flow_id != flow_id:
+            raise NiFiAPIError(
+                f"root child process group {target_name!r} is attached to flow id {actual_flow_id!r}, not declared flow id {flow_id!r}"
+            )
+        if import_status["actualVersion"] and import_status["actualVersion"] != selected_resolved_version:
+            raise NiFiAPIError(
+                f"root child process group {target_name!r} is on version {import_status['actualVersion']!r}, not resolved version {selected_resolved_version!r}"
+            )
+
+        actual_parameter_context_id = component.get("parameterContext", {}).get("id", "")
+        if parameter_context_id:
+            if actual_parameter_context_id != parameter_context_id:
+                bind_parameter_context(
+                    opener,
+                    base_url,
+                    token,
+                    client_id,
+                    existing_id,
+                    revision.get("version", 0),
+                    parameter_context_id,
+                )
+                action = "updated" if action == "unchanged" else action
+                _, component, _ = get_process_group_component(opener, base_url, token, existing_id)
+                actual_parameter_context_id = component.get("parameterContext", {}).get("id", "")
+            if actual_parameter_context_id != parameter_context_id:
+                raise NiFiAPIError(
+                    f"root child process group {target_name!r} did not retain declared Parameter Context {parameter_context_id!r}"
+                )
+        elif actual_parameter_context_id:
+            raise NiFiAPIError(
+                f"root child process group {target_name!r} has an attached Parameter Context but none is declared; manual edits outside the bounded import scope are unsupported"
+            )
+
+        import_status["processGroupId"] = existing_id
+        import_status["action"] = action
+        import_status["status"] = "ok"
+        return import_status
+
+
+    def main():
+        config = load_config()
+        status = base_status(config)
+
+        pod_name = os.environ.get("POD_NAME", "")
+        try:
+            ordinal = int(pod_name.rsplit("-", 1)[1])
+        except Exception:
+            ordinal = -1
+
+        expected_ordinal = int(config["management"].get("reconcilePodOrdinal", 0))
+        if ordinal != expected_ordinal:
+            status["status"] = "skipped"
+            status["reason"] = f"pod ordinal {ordinal} does not own bounded flow import bootstrap; expected {expected_ordinal}"
+            write_status(config, status)
+            return
+
+        ca_cert_path = config["management"]["caCertPath"]
+        base_url = f"https://{os.environ['NIFI_POD_FQDN']}:8443/nifi-api"
+        opener = build_http_client(ca_cert_path)
+        token = wait_for_token(opener, base_url)
+        wait_for_cluster_summary(opener, base_url, token)
+
+        blocked = False
+        for import_entry in config.get("imports", []):
+            try:
+                import_status = ensure_import(config, opener, base_url, token, import_entry)
+            except Exception as exc:
+                import_status = {
+                    "name": import_entry["name"],
+                    "status": "blocked",
+                    "reason": str(exc),
+                }
+                blocked = True
+            status["imports"].append(import_status)
+
+        status["status"] = "blocked" if blocked else "ok"
+        write_status(config, status)
+
+
+    if __name__ == "__main__":
+        try:
+            main()
+        except Exception as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            sys.exit(1)
+  README.txt: |
+    This ConfigMap is a chart-rendered runtime bundle for bounded versioned-flow import.
+    It is intentionally specific:
+    - pod `-0` resolves one live Flow Registry Client reference, bucket, flow, and selected version
+    - the chart imports the selected version into one named root child process group
+    - the chart can attach at most one declared direct Parameter Context reference
+    - the chart does not create Flow Registry Clients in NiFi
+    - the chart does not perform arbitrary process-group mutation
+    - the chart does not perform ongoing controller-managed synchronization
+    Existing imported process groups are only supported within this bounded scope.
+    Manual UI edits outside that scope may block the next restart-scoped reconcile.
+{{- end }}

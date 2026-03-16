@@ -65,6 +65,12 @@ There is also one optional focused fast overlay:
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml) or [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml).
   - The primary focused runtime commands are `make kind-platform-managed-fast-e2e` and `make kind-platform-managed-cert-manager-fast-e2e`.
 
+- [platform-managed-restore-kind-values.yaml](platform-managed-restore-kind-values.yaml)
+  - Focused product-chart overlay for the bounded restore workflow proof.
+  - Enables a kind-local GitHub Flow Registry Client catalog entry, one runtime-managed Parameter Context, and one bounded versioned-flow import selection.
+  - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml) and [platform-fast-values.yaml](platform-fast-values.yaml).
+  - The focused runtime command is `make kind-platform-managed-restore-fast-e2e`.
+
 Metrics note:
 
 - [platform-managed-metrics-native-values.yaml](platform-managed-metrics-native-values.yaml) is an optional overlay for the first-class native API metrics subsystem
@@ -227,6 +233,43 @@ There are also prepared Flow Registry Client overlays:
 - [azure-devops-flow-registry-values.yaml](azure-devops-flow-registry-values.yaml)
   - Prepared Azure DevOps Flow Registry Client catalog entry.
   - Renders a validated definition only; it does not auto-create the client in NiFi.
+
+There are also bounded Parameter Context overlays:
+
+- [platform-managed-parameter-contexts-values.yaml](platform-managed-parameter-contexts-values.yaml)
+  - Runtime-managed Parameter Context entry for the standard `charts/nifi-platform` path, including one bounded direct root-child attachment target.
+  - It models one bounded context with inline non-sensitive values, a sensitive Kubernetes Secret reference, and one external Parameter Provider reference.
+  - It creates or updates that declared context in NiFi through the bounded pod bootstrap path.
+  - It does not create Parameter Providers or assign contexts to process groups.
+
+- [platform-managed-parameter-contexts-kind-values.yaml](platform-managed-parameter-contexts-kind-values.yaml)
+  - Focused kind overlay for the live runtime-managed Parameter Context proof.
+  - It also enables the bounded mutable-flow bootstrap permission used only to seed the proof target root-child process group.
+  - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml), [platform-fast-values.yaml](platform-fast-values.yaml), and [platform-managed-parameter-contexts-values.yaml](platform-managed-parameter-contexts-values.yaml).
+  - The focused runtime commands are `make kind-parameter-contexts-runtime-fast-e2e` and `make kind-parameter-contexts-runtime-fast-e2e-reuse`.
+
+- [platform-managed-parameter-contexts-update-kind-values.yaml](platform-managed-parameter-contexts-update-kind-values.yaml)
+  - Update overlay used by the focused kind proof to demonstrate bounded reconcile behavior after a restart.
+
+There are also bounded versioned-flow import overlays:
+
+- [platform-managed-versioned-flow-import-values.yaml](platform-managed-versioned-flow-import-values.yaml)
+  - Runtime-managed bounded versioned-flow import for the standard `charts/nifi-platform` path.
+  - It models one selected live registry client reference, bucket, flow name, version, intended root-child target name, and one direct Parameter Context reference.
+  - It imports only that declared root-child process group, attaches or updates only the selected registry-backed version without provider write-back, and does not add ongoing synchronization or generic graph editing.
+
+- [platform-managed-versioned-flow-import-kind-values.yaml](platform-managed-versioned-flow-import-kind-values.yaml)
+  - Focused kind overlay for the platform-chart runtime-managed versioned-flow import proof.
+  - Uses a focused single-node managed topology for the proof harness.
+  - The focused proof upgrades the platform release, hydrates the chart-rendered bounded import bundle into pod `-0`, and executes the bounded bootstrap directly so the live operator-owned Flow Registry Client can be reused without pretending single-node pod replacement preserves it.
+  - The proof verifies bounded import, selected-version attachment, and one seeded flow-content element on the imported process group.
+  - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml), [platform-fast-values.yaml](platform-fast-values.yaml), and [platform-managed-versioned-flow-import-values.yaml](platform-managed-versioned-flow-import-values.yaml).
+  - The focused runtime commands are `make kind-platform-managed-versioned-flow-import-fast-e2e` and `make kind-platform-managed-versioned-flow-import-fast-e2e-reuse`.
+
+- [github-versioned-flow-selection-kind-values.yaml](github-versioned-flow-selection-kind-values.yaml)
+  - Focused kind overlay for the bounded GitHub versioned-flow selection proof.
+  - Compose it with [managed/values.yaml](managed/values.yaml), [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml), [github-flow-registry-kind-values.yaml](github-flow-registry-kind-values.yaml), [github-flow-registry-workflow-values.yaml](github-flow-registry-workflow-values.yaml), and [test-fast-values.yaml](test-fast-values.yaml).
+  - The focused runtime commands are `make kind-versioned-flow-selection-fast-e2e` and `make kind-versioned-flow-selection-fast-e2e-reuse`.
 
 There is also one focused NiFi version compatibility overlay:
 

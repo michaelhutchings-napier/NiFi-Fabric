@@ -7,5 +7,7 @@ This chart now deploys a minimal real NiFi 2.x cluster shape for kind and other 
 - `flowRegistryClients.enabled=true` renders a prepared Flow Registry Client catalog for GitHub, GitLab, Bitbucket, or Azure DevOps under `{{ .Values.flowRegistryClients.mountPath }}` in the NiFi pod.
 - the catalog is available as both `clients.yaml` and `clients.json` in ConfigMap `{{ include "nifi.fullname" . }}-flow-registry-clients`
 - Flow Registry Clients are chart-prepared only: the chart does not auto-create them in NiFi and the controller does not manage flows.
+- `versionedFlowImports.enabled=true` enables bounded restart-scoped flow import under `{{ .Values.versionedFlowImports.mountPath }}` for one named root child process group per declared import.
+- the selected live Flow Registry Client must already exist in NiFi, and the chart does not add ongoing synchronization or arbitrary process-group mutation.
 - For kind, use hack/create-kind-secrets.sh before installing the chart.
 - This chart is still not production complete. Advanced controller-driven rollout logic remains stubbed.

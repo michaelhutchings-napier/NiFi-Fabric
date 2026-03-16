@@ -262,7 +262,12 @@ func buildQueuePressureSignalStatus(sample autoscalingQueuePressureSample, queue
 	if sample.Actionable {
 		message += " backlog is actionable"
 	} else if sample.LowPressure {
-		message += " backlog is low"
+		threshold := autoscalingLowPressureActiveThreadThreshold(sample.MaxTimerDrivenThreads)
+		if sample.ActiveTimerDrivenThreads > threshold {
+			message += fmt.Sprintf(" backlog is zero but active timer-driven work is still above the low-pressure threshold %d", threshold)
+		} else {
+			message += " backlog is low"
+		}
 	}
 
 	return platformv1alpha1.AutoscalingSignalStatus{

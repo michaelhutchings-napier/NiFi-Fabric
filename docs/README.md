@@ -19,9 +19,12 @@ Use this documentation set as the customer-facing guide to install, operate, and
 - [TLS and cert-manager](manage/tls-and-cert-manager.md)
 - [Authentication](manage/authentication.md)
 - [Autoscaling](manage/autoscaling.md)
+- [Parameter Contexts](manage/parameters.md)
+- [Flows](manage/flows.md)
 - [Flow Registry Clients](manage/flow-registry-clients.md)
 - [Hibernation and Restore](manage/hibernation-and-restore.md)
 - [Observability and Metrics](manage/observability-metrics.md)
+- [Backup, Restore, and Disaster Recovery](dr.md)
 
 ## Reference
 

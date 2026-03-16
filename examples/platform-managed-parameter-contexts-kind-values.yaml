@@ -1,0 +1,9 @@
+nifi:
+  replicaCount: 1
+  image:
+    tag: 2.8.0
+  authz:
+    capabilities:
+      mutableFlow:
+        enabled: true
+        includeInitialAdmin: true

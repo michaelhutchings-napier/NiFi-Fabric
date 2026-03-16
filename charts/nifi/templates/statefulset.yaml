@@ -25,6 +25,9 @@ spec:
         {{- if .Values.observability.siteToSiteProvenance.enabled }}
         checksum/site-to-site-provenance-config: {{ include (print $.Template.BasePath "/site-to-site-provenance-configmap.yaml") . | sha256sum }}
         {{- end }}
+        {{- if .Values.versionedFlowImports.enabled }}
+        checksum/versioned-flow-imports-config: {{ include (print $.Template.BasePath "/versioned-flow-imports-configmap.yaml") . | sha256sum }}
+        {{- end }}
         platform.nifi.io/controller-managed: {{ ternary "true" "false" .Values.controllerManaged.enabled | quote }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -407,6 +410,13 @@ spec:
           {{- if .Values.observability.siteToSiteProvenance.enabled }}
           python3 /opt/nifi/fabric/site-to-site-provenance/bootstrap.py
           {{- end }}
+          {{- if .Values.parameterContexts.enabled }}
+          python3 /opt/nifi/fabric/parameter-contexts/bootstrap.py --once >>/opt/nifi/nifi-current/logs/parameter-contexts-bootstrap.log 2>&1 || true
+          python3 /opt/nifi/fabric/parameter-contexts/bootstrap.py >>/opt/nifi/nifi-current/logs/parameter-contexts-bootstrap.log 2>&1 &
+          {{- end }}
+          {{- if .Values.versionedFlowImports.enabled }}
+          python3 /opt/nifi/fabric/versioned-flow-imports/bootstrap.py
+          {{- end }}
           wait "${nifi_pid}"
         securityContext:
           {{- toYaml .Values.securityContext | nindent 10 }}
@@ -423,7 +433,7 @@ spec:
           value: "$(POD_NAME).{{ include "nifi.fullname" . }}-headless.$(POD_NAMESPACE).svc.cluster.local"
         - name: AUTH_MODE
           value: {{ include "nifi.authMode" . | quote }}
-        {{- if or (eq (include "nifi.metricsMode" .) "siteToSite") .Values.observability.siteToSiteStatus.enabled .Values.observability.siteToSiteProvenance.enabled }}
+        {{- if or (eq (include "nifi.metricsMode" .) "siteToSite") .Values.observability.siteToSiteStatus.enabled .Values.observability.siteToSiteProvenance.enabled .Values.parameterContexts.enabled }}
         - name: KEYSTORE_PASSWORD
           {{- if eq (include "nifi.tlsMode" .) "certManager" }}
           {{- if .Values.tls.certManager.pkcs12.password }}
@@ -505,6 +515,17 @@ spec:
               name: {{ include "nifi.singleUserUsernameSecretName" . | quote }}
               key: {{ .Values.auth.singleUser.passwordKey | quote }}
         {{- end }}
+        {{- if and .Values.versionedFlowImports.enabled .Values.flowRegistryClients.enabled }}
+        {{- range $clientIndex, $client := default (list) .Values.flowRegistryClients.clients }}
+        {{- if and (eq $client.provider "github") (or (not $client.github.auth.type) (eq $client.github.auth.type "personalAccessToken")) }}
+        - name: {{ printf "FLOW_REGISTRY_CLIENT_GITHUB_PAT_%d" $clientIndex }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ $client.github.auth.personalAccessTokenSecret.name | quote }}
+              key: {{ $client.github.auth.personalAccessTokenSecret.key | quote }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
         ports:
         - name: https
           containerPort: {{ .Values.ports.https }}
@@ -583,6 +604,33 @@ spec:
           mountPath: {{ .Values.flowRegistryClients.mountPath }}
           readOnly: true
         {{- end }}
+        {{- if .Values.parameterContexts.enabled }}
+        - name: parameter-contexts
+          mountPath: {{ .Values.parameterContexts.mountPath }}
+          readOnly: true
+        {{- $parameterContextSecretRefs := dict -}}
+        {{- range $context := .Values.parameterContexts.contexts }}
+        {{- range $parameter := default (list) $context.parameters }}
+        {{- if default false $parameter.sensitive }}
+        {{- $secretName := $parameter.secretRef.name -}}
+        {{- $existing := get $parameterContextSecretRefs $secretName | default (list) -}}
+        {{- if not (has $parameter.secretRef.key $existing) }}
+        {{- $_ := set $parameterContextSecretRefs $secretName (append $existing $parameter.secretRef.key) -}}
+        {{- end -}}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- if gt (len (keys $parameterContextSecretRefs)) 0 }}
+        - name: parameter-context-secrets
+          mountPath: /opt/nifi/fabric/parameter-context-secrets
+          readOnly: true
+        {{- end }}
+        {{- end }}
+        {{- if .Values.versionedFlowImports.enabled }}
+        - name: versioned-flow-imports
+          mountPath: {{ .Values.versionedFlowImports.mountPath }}
+          readOnly: true
+        {{- end }}
       volumes:
       - name: config-template
         configMap:
@@ -638,6 +686,43 @@ spec:
       - name: flow-registry-clients
         configMap:
           name: {{ include "nifi.fullname" . }}-flow-registry-clients
+      {{- end }}
+      {{- if .Values.parameterContexts.enabled }}
+      - name: parameter-contexts
+        configMap:
+          name: {{ include "nifi.parameterContextsConfigName" . }}
+      {{- $parameterContextSecretRefs := dict -}}
+      {{- range $context := .Values.parameterContexts.contexts }}
+      {{- range $parameter := default (list) $context.parameters }}
+      {{- if default false $parameter.sensitive }}
+      {{- $secretName := $parameter.secretRef.name -}}
+      {{- $existing := get $parameterContextSecretRefs $secretName | default (list) -}}
+      {{- if not (has $parameter.secretRef.key $existing) }}
+      {{- $_ := set $parameterContextSecretRefs $secretName (append $existing $parameter.secretRef.key) -}}
+      {{- end -}}
+      {{- end }}
+      {{- end }}
+      {{- end }}
+      {{- if gt (len (keys $parameterContextSecretRefs)) 0 }}
+      - name: parameter-context-secrets
+        projected:
+          sources:
+          {{- range $secretName := keys $parameterContextSecretRefs | sortAlpha }}
+          - secret:
+              name: {{ $secretName | quote }}
+              optional: true
+              items:
+              {{- range $secretKey := get $parameterContextSecretRefs $secretName }}
+              - key: {{ $secretKey | quote }}
+                path: {{ printf "%s/%s" $secretName $secretKey | quote }}
+              {{- end }}
+          {{- end }}
+      {{- end }}
+      {{- end }}
+      {{- if .Values.versionedFlowImports.enabled }}
+      - name: versioned-flow-imports
+        configMap:
+          name: {{ include "nifi.versionedFlowImportsConfigName" . }}
       {{- end }}
       {{- if not .Values.persistence.enabled }}
       - name: database-repository

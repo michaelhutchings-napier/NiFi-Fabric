@@ -13,6 +13,15 @@ import (
 	platformv1alpha1 "github.com/michaelhutchings-napier/NiFi-Fabric/api/v1alpha1"
 )
 
+const (
+	autoscalingBlockedReasonScaleDownDrainPending       = "ScaleDownDrainPending"
+	autoscalingBlockedReasonScaleDownDrainStalled       = "ScaleDownDrainStalled"
+	autoscalingBlockedReasonScaleDownReadyPodsPending   = "ScaleDownReadyPodsPending"
+	autoscalingBlockedReasonScaleDownReadyPodsStalled   = "ScaleDownReadyPodsStalled"
+	autoscalingBlockedReasonScaleDownHealthGateBlocked  = "ScaleDownHealthGateBlocked"
+	autoscalingBlockedReasonScaleDownHealthGateTimedOut = "ScaleDownHealthGateTimedOut"
+)
+
 func autoscalingScaleDownInProgress(cluster *platformv1alpha1.NiFiCluster) bool {
 	if cluster.Status.Autoscaling.Execution.State == platformv1alpha1.AutoscalingExecutionStateFailed {
 		return false
@@ -80,7 +89,11 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleDown(ctx context.Con
 		return false, ctrl.Result{}, nil
 	}
 	if status.LowPressureSince == nil {
-		cluster.Status.Autoscaling.LastScalingDecision = "NoScaleDown: low pressure is not currently observed"
+		if reason := autoscalingLowPressureBlockedReason(samples); reason != "" {
+			cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("NoScaleDown: %s", reason)
+		} else {
+			cluster.Status.Autoscaling.LastScalingDecision = "NoScaleDown: low pressure is not currently observed"
+		}
 		return false, ctrl.Result{}, nil
 	}
 	if !autoscalingLowPressureRequirementMet(status.LowPressure) {
@@ -128,7 +141,7 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleDown(ctx context.Con
 		if cluster.Status.Autoscaling.Execution.State == "" || cluster.Status.Autoscaling.Execution.State == platformv1alpha1.AutoscalingExecutionStateRunning {
 			setAutoscalingExecutionStatus(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleDownPrepare, platformv1alpha1.AutoscalingExecutionStateRunning, currentReplicas-1, "", "", fmt.Sprintf("Preparing pod %s for safe autoscaling scale-down", targetPod.Name))
 		}
-		cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("ScaleDown: preparing pod %s for safe removal", targetPod.Name)
+		cluster.Status.Autoscaling.LastScalingDecision = autoscalingScaleDownPreparationDecision(cluster, targetPod.Name)
 		return true, result, nil
 	}
 
@@ -152,7 +165,7 @@ func (r *NiFiClusterReconciler) reconcileAutoscalingScaleDown(ctx context.Contex
 			return ctrl.Result{}, err
 		}
 		if !prepared {
-			cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("ScaleDown: preparing pod %s for safe removal", currentNodeOpPod.Name)
+			cluster.Status.Autoscaling.LastScalingDecision = autoscalingScaleDownPreparationDecision(cluster, currentNodeOpPod.Name)
 			return result, nil
 		}
 		handled, result, err := r.executeAutoscalingScaleDownStep(ctx, cluster, target, currentNodeOpPod, currentReplicas)
@@ -164,6 +177,10 @@ func (r *NiFiClusterReconciler) reconcileAutoscalingScaleDown(ctx context.Contex
 		}
 	}
 
+	if cluster.Status.Autoscaling.Execution.Phase == platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle &&
+		cluster.Status.Autoscaling.Execution.State == platformv1alpha1.AutoscalingExecutionStateBlocked {
+		setAutoscalingExecutionStatus(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle, platformv1alpha1.AutoscalingExecutionStateRunning, currentReplicas, "", "", fmt.Sprintf("Resuming autoscaling scale-down settlement at %d replicas after a blocked or restarted step", currentReplicas))
+	}
 	settled, result, err := r.waitForAutoscalingScaleDownStepToSettle(ctx, cluster, target, pods)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -213,6 +230,14 @@ func (r *NiFiClusterReconciler) reconcileAutoscalingScaleDown(ctx context.Contex
 	return steadyStateReconcileResult(cluster), nil
 }
 
+func autoscalingScaleDownPreparationDecision(cluster *platformv1alpha1.NiFiCluster, podName string) string {
+	if cluster.Status.Autoscaling.Execution.State == platformv1alpha1.AutoscalingExecutionStateBlocked &&
+		cluster.Status.Autoscaling.LastScalingDecision != "" {
+		return cluster.Status.Autoscaling.LastScalingDecision
+	}
+	return fmt.Sprintf("ScaleDown: preparing pod %s for safe removal", podName)
+}
+
 func (r *NiFiClusterReconciler) executeAutoscalingScaleDownStep(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, pod corev1.Pod, currentReplicas int32) (bool, ctrl.Result, error) {
 	nextReplicas := currentReplicas - 1
 	if err := r.patchTargetReplicas(ctx, target, nextReplicas); err != nil {
@@ -239,27 +264,38 @@ func (r *NiFiClusterReconciler) executeAutoscalingScaleDownStep(ctx context.Cont
 func (r *NiFiClusterReconciler) waitForAutoscalingScaleDownStepToSettle(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, pods []corev1.Pod) (bool, ctrl.Result, error) {
 	expectedReplicas := derefInt32(target.Spec.Replicas)
 	cluster.Status.Replicas.Desired = expectedReplicas
-	setAutoscalingExecutionStatus(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle, platformv1alpha1.AutoscalingExecutionStateRunning, expectedReplicas, "", "", fmt.Sprintf("Waiting for the autoscaling scale-down step to settle at %d replicas", expectedReplicas))
+	settleMessage := fmt.Sprintf("Waiting for the autoscaling scale-down step to settle at %d replicas", expectedReplicas)
+	if cluster.Status.Autoscaling.Execution.State == platformv1alpha1.AutoscalingExecutionStateBlocked {
+		settleMessage = fmt.Sprintf("Resuming autoscaling scale-down settlement at %d replicas after a blocked or restarted step", expectedReplicas)
+	}
+	setAutoscalingExecutionStatus(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle, platformv1alpha1.AutoscalingExecutionStateRunning, expectedReplicas, "", "", settleMessage)
 
 	if podsPendingTermination(pods) || (int32(len(pods)) != expectedReplicas && !statefulSetReplicasSettled(target, expectedReplicas)) {
 		message := fmt.Sprintf("Waiting for the previous autoscaling scale-down step to settle at %d replicas before any further decision; current pods: %s", expectedReplicas, podNames(pods))
-		cluster.Status.LastOperation = runningOperation("AutoscalingScaleDown", message)
-		setAutoscalingExecutionStatus(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle, platformv1alpha1.AutoscalingExecutionStateBlocked, expectedReplicas, "WaitingForAutoscalingScaleDown", "", message)
-		r.setAutoscalingScaleDownProgressConditions(cluster, "WaitingForAutoscalingScaleDown", message)
+		if autoscalingScaleDownExecutionTimedOut(cluster, autoscalingScaleDownSettleTimeout(cluster, expectedReplicas)) {
+			message = fmt.Sprintf("%s. Autoscaling scale-down remains blocked because pod termination or replica settlement has stalled. Operator action: inspect the terminating pod, PVC finalizers, and Kubernetes events before allowing another scale-down step.", message)
+			r.markAutoscalingScaleDownBlocked(cluster, expectedReplicas, autoscalingBlockedReasonScaleDownDrainStalled, "WaitingForAutoscalingScaleDown", message, true)
+		} else {
+			r.markAutoscalingScaleDownBlocked(cluster, expectedReplicas, autoscalingBlockedReasonScaleDownDrainPending, "WaitingForAutoscalingScaleDown", message, false)
+		}
 		return false, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 	}
 
 	if cluster.Spec.Safety.RequireClusterHealthy {
 		if settleDelay, nextEligibleTime, pending := autoscalingScaleDownSettleDelay(cluster, r.HealthChecker); pending {
 			message := fmt.Sprintf("Waiting until %s before sampling post-scale-down health at %d replicas", nextEligibleTime.UTC().Format(time.RFC3339), expectedReplicas)
-			cluster.Status.LastOperation = runningOperation("AutoscalingScaleDown", message)
-			setAutoscalingExecutionStatus(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle, platformv1alpha1.AutoscalingExecutionStateBlocked, expectedReplicas, "WaitingForScaleDownStabilization", "", message)
-			r.setAutoscalingScaleDownProgressConditions(cluster, "WaitingForAutoscalingScaleDown", message)
+			r.markAutoscalingScaleDownBlocked(cluster, expectedReplicas, "WaitingForScaleDownStabilization", "WaitingForAutoscalingScaleDown", message, false)
 			return false, ctrl.Result{RequeueAfter: minDuration(rolloutPollRequeue, settleDelay)}, nil
 		}
 
 		if !expectedPodsReady(expectedReplicas, target.Name, pods) {
-			r.markAutoscalingScaleDownHealthBlocked(cluster, expectedReplicas, fmt.Sprintf("Waiting for %d target pods to become Ready before autoscaling can declare the step settled", expectedReplicas))
+			message := fmt.Sprintf("Waiting for %d target pods to become Ready before autoscaling can declare the step settled", expectedReplicas)
+			if autoscalingScaleDownExecutionTimedOut(cluster, autoscalingScaleDownSettleTimeout(cluster, expectedReplicas)) {
+				message = fmt.Sprintf("%s. Autoscaling scale-down remains blocked because post-removal readiness has stalled. Operator action: inspect pod readiness, NiFi logs, and StatefulSet events before allowing another scale-down step.", message)
+				r.markAutoscalingScaleDownBlocked(cluster, expectedReplicas, autoscalingBlockedReasonScaleDownReadyPodsStalled, "WaitingForAutoscalingScaleDown", message, true)
+			} else {
+				r.markAutoscalingScaleDownBlocked(cluster, expectedReplicas, autoscalingBlockedReasonScaleDownReadyPodsPending, "WaitingForAutoscalingScaleDown", message, false)
+			}
 			return false, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 		}
 
@@ -272,7 +308,13 @@ func (r *NiFiClusterReconciler) waitForAutoscalingScaleDownStepToSettle(ctx cont
 			if err == nil {
 				err = fmt.Errorf("cluster health gate not yet satisfied: %s", healthResult.Summary())
 			}
-			r.markAutoscalingScaleDownHealthBlocked(cluster, expectedReplicas, fmt.Sprintf("Cluster health gate blocked autoscaling scale-down at %d replicas: %v", expectedReplicas, err))
+			message := fmt.Sprintf("Cluster health gate blocked autoscaling scale-down at %d replicas: %v", expectedReplicas, err)
+			if autoscalingScaleDownExecutionTimedOut(cluster, autoscalingScaleDownSettleTimeout(cluster, expectedReplicas)) {
+				message = fmt.Sprintf("%s. Autoscaling scale-down remains blocked because post-removal drain or cluster recovery has not completed within the bounded settle timeout. Operator action: verify NiFi cluster connectivity and resolve the unhealthy node state before another scale-down step.", message)
+				r.markAutoscalingScaleDownBlocked(cluster, expectedReplicas, autoscalingBlockedReasonScaleDownHealthGateTimedOut, "WaitingForAutoscalingScaleDown", message, true)
+			} else {
+				r.markAutoscalingScaleDownBlocked(cluster, expectedReplicas, autoscalingBlockedReasonScaleDownHealthGateBlocked, "WaitingForAutoscalingScaleDown", message, false)
+			}
 			return false, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 		}
 	}
@@ -290,6 +332,18 @@ func autoscalingScaleDownHealthCheckTimeout(cluster *platformv1alpha1.NiFiCluste
 		return clusterTimeout
 	}
 	return timeout
+}
+
+func autoscalingScaleDownSettleTimeout(cluster *platformv1alpha1.NiFiCluster, expectedReplicas int32) time.Duration {
+	return maxDuration(nodePreparationTimeout(cluster), autoscalingScaleDownHealthCheckTimeout(cluster, expectedReplicas))
+}
+
+func autoscalingScaleDownExecutionTimedOut(cluster *platformv1alpha1.NiFiCluster, timeout time.Duration) bool {
+	startedAt := cluster.Status.Autoscaling.Execution.StartedAt
+	if startedAt == nil || timeout <= 0 {
+		return false
+	}
+	return time.Since(startedAt.Time) > timeout
 }
 
 func autoscalingScaleDownSettleDelay(cluster *platformv1alpha1.NiFiCluster, checker ClusterHealthChecker) (time.Duration, time.Time, bool) {
@@ -359,6 +413,19 @@ func minDuration(left, right time.Duration) time.Duration {
 	return right
 }
 
+func maxDuration(left, right time.Duration) time.Duration {
+	if left <= 0 {
+		return right
+	}
+	if right <= 0 {
+		return left
+	}
+	if left > right {
+		return left
+	}
+	return right
+}
+
 func (r *NiFiClusterReconciler) setAutoscalingScaleDownProgressConditions(cluster *platformv1alpha1.NiFiCluster, reason, message string) {
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionAvailable,
@@ -390,9 +457,19 @@ func (r *NiFiClusterReconciler) setAutoscalingScaleDownProgressConditions(cluste
 	})
 }
 
-func (r *NiFiClusterReconciler) markAutoscalingScaleDownHealthBlocked(cluster *platformv1alpha1.NiFiCluster, targetReplicas int32, message string) {
-	setAutoscalingExecutionStatus(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle, platformv1alpha1.AutoscalingExecutionStateBlocked, targetReplicas, "WaitingForAutoscalingScaleDown", "", message)
-	r.setAutoscalingScaleDownProgressConditions(cluster, "WaitingForAutoscalingScaleDown", message)
+func (r *NiFiClusterReconciler) markAutoscalingScaleDownBlocked(cluster *platformv1alpha1.NiFiCluster, targetReplicas int32, blockedReason, progressReason, message string, degraded bool) {
+	setAutoscalingExecutionStatus(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle, platformv1alpha1.AutoscalingExecutionStateBlocked, targetReplicas, blockedReason, "", message)
+	r.setAutoscalingScaleDownProgressConditions(cluster, progressReason, message)
+	if degraded {
+		cluster.SetCondition(metav1.Condition{
+			Type:               platformv1alpha1.ConditionDegraded,
+			Status:             metav1.ConditionTrue,
+			Reason:             blockedReason,
+			Message:            message,
+			LastTransitionTime: metav1.Now(),
+		})
+	}
+	cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("NoScaleDown: %s", message)
 	cluster.Status.LastOperation = runningOperation("AutoscalingScaleDown", message)
 }
 

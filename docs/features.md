@@ -28,6 +28,8 @@ NiFi-Fabric keeps the product surface small and explicit.
 - `Advisory` mode provides recommendation-only guidance
 - `Enforced` mode supports controller-owned scale-up
 - one-step safe scale-down is available and intentionally conservative
+- enforced scale-down now requires durable low-pressure evidence: repeated zero-backlog observations, low executor activity when NiFi reports thread counts, extra consecutive samples when queue evidence is incomplete, and stabilization or cooldown windows
+- transient zero-backlog dips are rejected when timer-driven work is still busy, and the controller records that block reason explicitly
 - direct autoscaler ownership of the NiFi `StatefulSet` is not the supported architecture
 
 ## Optional KEDA Integration
@@ -64,6 +66,25 @@ NiFi-Fabric keeps the product surface small and explicit.
 - GitHub also has a focused end-to-end save-to-registry workflow proof on NiFi `2.8.0`
 - the workflow proof is user-driven through the NiFi API; it does not introduce controller-managed flow deployment or synchronization
 - Azure DevOps remains prepared and render-validated
+
+## Parameter Contexts
+
+- Parameter Context support is available as an optional typed runtime-managed feature under `parameterContexts.*`
+- the bounded public surface covers named contexts, inline non-sensitive values, sensitive Kubernetes Secret references, small external Parameter Provider references, and optional direct root-child attachment targets
+- the chart creates, updates, deletes, and attaches only the declared Parameter Contexts it owns in NiFi
+- manual UI edits to owned contexts are live-reconciled back to the declared bounded state; undeclared contexts remain operator-owned
+- providerRefs stay reference-only, and the chart does not create Parameter Providers
+- focused kind proof covers declared context creation, live update without pod replacement, deletion of removed owned contexts, sensitive Secret-backed values, and bounded direct root-child attachment without widening into arbitrary flow graph editing or generic runtime-object management
+
+## Flows
+
+- bounded versioned-flow import is available as an optional typed runtime-managed feature under `versionedFlowImports.*`
+- the public surface is intentionally small and limited to registry client selection, bucket, flow name, one selected version identifier or `latest`, one intended root-child import target name, and optional direct Parameter Context attachment
+- the chart imports only the declared root-child process group instances it owns and only on restart-scoped reconciliation
+- the chart attaches or updates only the selected registry-backed version for those owned process groups and does not write new versions back to the registry
+- the selected live Flow Registry Client must already exist in NiFi; the feature reuses that client instead of broadening into generic registry-client management
+- focused kind proof now covers real import of a selected registry-backed flow, resulting process-group creation, version-control state, and bounded Parameter Context attachment on the platform install path
+- arbitrary process-group mutation, controller-managed ongoing sync, and flow CRDs remain out of scope
 
 ## Observability
 

@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -11,6 +12,15 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	platformv1alpha1 "github.com/michaelhutchings-napier/NiFi-Fabric/api/v1alpha1"
+)
+
+const (
+	autoscalingBlockedReasonScaleDownNodePreparationRetrying = "ScaleDownNodePreparationRetrying"
+	autoscalingBlockedReasonScaleDownNodePreparationTimedOut = "ScaleDownNodePreparationTimedOut"
+	autoscalingBlockedReasonScaleDownDisconnectRetrying      = "ScaleDownDisconnectRetrying"
+	autoscalingBlockedReasonScaleDownOffloadRetrying         = "ScaleDownOffloadRetrying"
+	autoscalingBlockedReasonScaleDownDisconnectTimedOut      = "ScaleDownDisconnectTimedOut"
+	autoscalingBlockedReasonScaleDownOffloadTimedOut         = "ScaleDownOffloadTimedOut"
 )
 
 func (r *NiFiClusterReconciler) preparePodForRestart(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, pods []corev1.Pod, pod corev1.Pod) (bool, ctrl.Result, error) {
@@ -30,8 +40,12 @@ func (r *NiFiClusterReconciler) preparePodForOperation(ctx context.Context, clus
 
 	result, err := r.NodeManager.PreparePodForOperation(ctx, cluster, target, pods, pod, purpose, cluster.Status.NodeOperation, nodePreparationTimeout(cluster))
 	if err != nil {
-		r.markNodePreparationBlocked(cluster, purpose, fmt.Sprintf("Waiting for NiFi node preparation: %v", err))
-		r.updateAutoscalingExecutionForNodePreparation(cluster, purpose, platformv1alpha1.AutoscalingExecutionStateBlocked, "NodePreparationRetrying", "", cluster.Status.LastOperation.Message)
+		message := fmt.Sprintf("Waiting for NiFi node preparation: %v", err)
+		if purpose == platformv1alpha1.NodeOperationPurposeScaleDown {
+			message = autoscalingScaleDownNodePreparationGuidance(cluster.Status.NodeOperation, message, true)
+		}
+		r.markNodePreparationBlocked(cluster, purpose, message)
+		r.updateAutoscalingExecutionForNodePreparation(cluster, purpose, platformv1alpha1.AutoscalingExecutionStateBlocked, autoscalingScaleDownNodePreparationRetryReason(cluster.Status.NodeOperation), "", message)
 		return false, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 	}
 
@@ -42,8 +56,19 @@ func (r *NiFiClusterReconciler) preparePodForOperation(ctx context.Context, clus
 	}
 
 	if result.TimedOut {
-		r.markNodePreparationTimedOut(cluster, purpose, result.Message)
-		r.updateAutoscalingExecutionForNodePreparation(cluster, purpose, platformv1alpha1.AutoscalingExecutionStateBlocked, "NodePreparationTimedOut", "", result.Message)
+		message := result.Message
+		if purpose == platformv1alpha1.NodeOperationPurposeScaleDown {
+			message = autoscalingScaleDownNodePreparationGuidance(result.Operation, result.Message, false)
+		}
+		r.markNodePreparationTimedOut(cluster, purpose, message)
+		r.updateAutoscalingExecutionForNodePreparation(cluster, purpose, platformv1alpha1.AutoscalingExecutionStateBlocked, autoscalingScaleDownNodePreparationTimeoutReason(result.Operation), "", message)
+		return false, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
+	}
+
+	if purpose == platformv1alpha1.NodeOperationPurposeScaleDown && result.RequeueNow && strings.HasPrefix(strings.ToLower(result.Message), "retrying ") {
+		message := autoscalingScaleDownNodePreparationGuidance(result.Operation, result.Message, true)
+		r.markNodePreparationBlocked(cluster, purpose, message)
+		r.updateAutoscalingExecutionForNodePreparation(cluster, purpose, platformv1alpha1.AutoscalingExecutionStateBlocked, autoscalingScaleDownNodePreparationRetryReason(result.Operation), "", message)
 		return false, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
 	}
 
@@ -160,6 +185,9 @@ func (r *NiFiClusterReconciler) markNodePreparationTimedOut(cluster *platformv1a
 		LastTransitionTime: metav1.Now(),
 	})
 	cluster.Status.LastOperation = runningOperation(string(purpose), message)
+	if purpose == platformv1alpha1.NodeOperationPurposeScaleDown {
+		cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("NoScaleDown: %s", message)
+	}
 }
 
 func (r *NiFiClusterReconciler) markNodePreparationBlocked(cluster *platformv1alpha1.NiFiCluster, purpose platformv1alpha1.NodeOperationPurpose, message string) {
@@ -186,6 +214,9 @@ func (r *NiFiClusterReconciler) markNodePreparationBlocked(cluster *platformv1al
 		LastTransitionTime: metav1.Now(),
 	})
 	cluster.Status.LastOperation = runningOperation(string(purpose), message)
+	if purpose == platformv1alpha1.NodeOperationPurposeScaleDown {
+		cluster.Status.Autoscaling.LastScalingDecision = fmt.Sprintf("NoScaleDown: %s", message)
+	}
 }
 
 func progressingReasonForNodePreparation(purpose platformv1alpha1.NodeOperationPurpose) string {
@@ -203,4 +234,43 @@ func nodePreparationTimeout(cluster *platformv1alpha1.NiFiCluster) time.Duration
 		return cluster.Spec.Hibernation.OffloadTimeout.Duration
 	}
 	return defaultNodePreparationTimeout
+}
+
+func autoscalingScaleDownNodePreparationRetryReason(operation platformv1alpha1.NodeOperationStatus) string {
+	switch operation.Stage {
+	case platformv1alpha1.NodeOperationStageDisconnecting:
+		return autoscalingBlockedReasonScaleDownDisconnectRetrying
+	case platformv1alpha1.NodeOperationStageOffloading:
+		return autoscalingBlockedReasonScaleDownOffloadRetrying
+	default:
+		return autoscalingBlockedReasonScaleDownNodePreparationRetrying
+	}
+}
+
+func autoscalingScaleDownNodePreparationTimeoutReason(operation platformv1alpha1.NodeOperationStatus) string {
+	switch operation.Stage {
+	case platformv1alpha1.NodeOperationStageDisconnecting:
+		return autoscalingBlockedReasonScaleDownDisconnectTimedOut
+	case platformv1alpha1.NodeOperationStageOffloading:
+		return autoscalingBlockedReasonScaleDownOffloadTimedOut
+	default:
+		return autoscalingBlockedReasonScaleDownNodePreparationTimedOut
+	}
+}
+
+func autoscalingScaleDownNodePreparationGuidance(operation platformv1alpha1.NodeOperationStatus, message string, retrying bool) string {
+	stageMessage := "NiFi node preparation is retrying"
+	operatorAction := "check controller logs and NiFi API reachability"
+	switch operation.Stage {
+	case platformv1alpha1.NodeOperationStageDisconnecting:
+		stageMessage = "disconnect is not progressing cleanly"
+		operatorAction = fmt.Sprintf("verify the target node %s can disconnect cleanly and is not stuck in CONNECTING or DISCONNECTING", emptyIfUnset(operation.NodeID, "for the selected pod"))
+	case platformv1alpha1.NodeOperationStageOffloading:
+		stageMessage = "offload is not progressing cleanly"
+		operatorAction = fmt.Sprintf("verify the target node %s can offload or clear any stuck queued work before autoscaling resumes", emptyIfUnset(operation.NodeID, "for the selected pod"))
+	}
+	if retrying {
+		return fmt.Sprintf("%s. Autoscaling scale-down is blocked because %s. The controller will retry from the same highest ordinal pod; operator check: %s.", message, stageMessage, operatorAction)
+	}
+	return fmt.Sprintf("%s. Autoscaling scale-down is blocked because %s exceeded the configured preparation timeout. Operator action: %s.", message, stageMessage, operatorAction)
 }

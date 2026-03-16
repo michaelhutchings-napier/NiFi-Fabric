@@ -1,0 +1,353 @@
+package unit
+
+import (
+	"strings"
+	"testing"
+)
+
+func preparedGitHubFlowRegistryClientArgs() []string {
+	return []string{
+		"--set", "flowRegistryClients.enabled=true",
+		"--set", "flowRegistryClients.clients[0].name=github-flows",
+		"--set", "flowRegistryClients.clients[0].provider=github",
+		"--set", "flowRegistryClients.clients[0].repository.owner=example-org",
+		"--set", "flowRegistryClients.clients[0].repository.name=nifi-flows",
+		"--set", "flowRegistryClients.clients[0].github.auth.personalAccessTokenSecret.name=github-flow-registry",
+		"--set", "flowRegistryClients.clients[0].github.auth.personalAccessTokenSecret.key=token",
+	}
+}
+
+func TestVersionedFlowImportsValidationFailsWithoutImports(t *testing.T) {
+	args := append(
+		preparedGitHubFlowRegistryClientArgs(),
+		"--set", "auth.mode=singleUser",
+		"--set", "authz.bundles.flowVersionManager.includeInitialAdmin=true",
+		"--set", "versionedFlowImports.enabled=true",
+	)
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		args...,
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail when versionedFlowImports is enabled without any imports\n%s", output)
+	}
+	if !strings.Contains(output, "versionedFlowImports.enabled=true requires versionedFlowImports.imports to contain at least one import definition") {
+		t.Fatalf("expected missing imports validation error\n%s", output)
+	}
+}
+
+func TestVersionedFlowImportsValidationFailsForVersionWithWhitespace(t *testing.T) {
+	args := append(
+		preparedGitHubFlowRegistryClientArgs(),
+		"--set", "auth.mode=singleUser",
+		"--set", "authz.bundles.flowVersionManager.includeInitialAdmin=true",
+		"--set", "versionedFlowImports.enabled=true",
+		"--set", "versionedFlowImports.imports[0].name=payments",
+		"--set", "versionedFlowImports.imports[0].registryClientName=github-flows",
+		"--set", "versionedFlowImports.imports[0].bucket=team-a",
+		"--set", "versionedFlowImports.imports[0].flowName=payments-api",
+		"--set", "versionedFlowImports.imports[0].version=release candidate",
+		"--set", "versionedFlowImports.imports[0].target.rootProcessGroupName=payments-root",
+	)
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		args...,
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail for invalid versionedFlowImports version\n%s", output)
+	}
+	if !strings.Contains(output, "versionedFlowImports.imports[0].version must be \"latest\" or a non-empty version identifier without whitespace") {
+		t.Fatalf("expected version validation error\n%s", output)
+	}
+}
+
+func TestVersionedFlowImportsAllowsExplicitVersionIdentifier(t *testing.T) {
+	args := append(
+		preparedGitHubFlowRegistryClientArgs(),
+		"--set", "auth.mode=singleUser",
+		"--set", "authz.bundles.flowVersionManager.includeInitialAdmin=true",
+		"--set", "versionedFlowImports.enabled=true",
+		"--set", "versionedFlowImports.imports[0].name=payments",
+		"--set", "versionedFlowImports.imports[0].registryClientName=github-flows",
+		"--set", "versionedFlowImports.imports[0].bucket=team-a",
+		"--set", "versionedFlowImports.imports[0].flowName=payments-api",
+		"--set", "versionedFlowImports.imports[0].version=0000000000000000000000000000000000000003",
+		"--set", "versionedFlowImports.imports[0].target.rootProcessGroupName=payments-root",
+	)
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		args...,
+	)
+	if err != nil {
+		t.Fatalf("expected helm template to allow explicit version identifier: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, `"version": "0000000000000000000000000000000000000003"`) {
+		t.Fatalf("expected rendered output to contain explicit version identifier\n%s", output)
+	}
+}
+
+func TestVersionedFlowImportsValidationFailsForUnknownPreparedParameterContextRef(t *testing.T) {
+	args := append(
+		preparedGitHubFlowRegistryClientArgs(),
+		"--set", "auth.mode=singleUser",
+		"--set", "parameterContexts.enabled=true",
+		"--set", "parameterContexts.contexts[0].name=payments-runtime",
+		"--set", "parameterContexts.contexts[0].parameters[0].name=api.baseUrl",
+		"--set", "parameterContexts.contexts[0].parameters[0].value=https://payments.internal.example.com",
+		"--set", "authz.bundles.flowVersionManager.includeInitialAdmin=true",
+		"--set", "versionedFlowImports.enabled=true",
+		"--set", "versionedFlowImports.imports[0].name=payments",
+		"--set", "versionedFlowImports.imports[0].registryClientName=github-flows",
+		"--set", "versionedFlowImports.imports[0].bucket=team-a",
+		"--set", "versionedFlowImports.imports[0].flowName=payments-api",
+		"--set", "versionedFlowImports.imports[0].version=latest",
+		"--set", "versionedFlowImports.imports[0].target.rootProcessGroupName=payments-root",
+		"--set", "versionedFlowImports.imports[0].parameterContextRefs[0].name=missing-context",
+	)
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		args...,
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail for unknown prepared parameter context reference\n%s", output)
+	}
+	if !strings.Contains(output, `versionedFlowImports.imports[0].parameterContextRefs[0].name="missing-context" is not present in parameterContexts.contexts[].name`) {
+		t.Fatalf("expected parameter context reference validation error\n%s", output)
+	}
+}
+
+func TestVersionedFlowImportsValidationFailsWithoutSingleUserAuth(t *testing.T) {
+	args := append(
+		preparedGitHubFlowRegistryClientArgs(),
+		"--set", "auth.mode=oidc",
+		"--set", "authz.bundles.flowVersionManager.includeInitialAdmin=true",
+		"--set", "versionedFlowImports.enabled=true",
+		"--set", "versionedFlowImports.imports[0].name=payments",
+		"--set", "versionedFlowImports.imports[0].registryClientName=github-flows",
+		"--set", "versionedFlowImports.imports[0].bucket=team-a",
+		"--set", "versionedFlowImports.imports[0].flowName=payments-api",
+		"--set", "versionedFlowImports.imports[0].version=latest",
+		"--set", "versionedFlowImports.imports[0].target.rootProcessGroupName=payments-root",
+	)
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		args...,
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail without single-user auth for versionedFlowImports\n%s", output)
+	}
+	if !strings.Contains(output, "versionedFlowImports.enabled=true currently requires auth.mode=singleUser for bounded NiFi API import reconciliation") {
+		t.Fatalf("expected single-user validation error\n%s", output)
+	}
+}
+
+func TestVersionedFlowImportsValidationFailsForMultipleDirectParameterContextRefs(t *testing.T) {
+	args := append(
+		preparedGitHubFlowRegistryClientArgs(),
+		"--set", "auth.mode=singleUser",
+		"--set", "parameterContexts.enabled=true",
+		"--set", "parameterContexts.contexts[0].name=payments-runtime",
+		"--set", "parameterContexts.contexts[0].parameters[0].name=api.baseUrl",
+		"--set", "parameterContexts.contexts[0].parameters[0].value=https://payments.internal.example.com",
+		"--set", "parameterContexts.contexts[1].name=payments-shared",
+		"--set", "parameterContexts.contexts[1].parameters[0].name=shared.region",
+		"--set", "parameterContexts.contexts[1].parameters[0].value=eu-west-1",
+		"--set", "authz.bundles.flowVersionManager.includeInitialAdmin=true",
+		"--set", "versionedFlowImports.enabled=true",
+		"--set", "versionedFlowImports.imports[0].name=payments",
+		"--set", "versionedFlowImports.imports[0].registryClientName=github-flows",
+		"--set", "versionedFlowImports.imports[0].bucket=team-a",
+		"--set", "versionedFlowImports.imports[0].flowName=payments-api",
+		"--set", "versionedFlowImports.imports[0].version=latest",
+		"--set", "versionedFlowImports.imports[0].target.rootProcessGroupName=payments-root",
+		"--set", "versionedFlowImports.imports[0].parameterContextRefs[0].name=payments-runtime",
+		"--set", "versionedFlowImports.imports[0].parameterContextRefs[1].name=payments-shared",
+	)
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		args...,
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail for multiple direct parameterContextRefs\n%s", output)
+	}
+	if !strings.Contains(output, "versionedFlowImports.imports[0] supports at most one direct parameterContextRef in this slice") {
+		t.Fatalf("expected direct parameter context reference validation error\n%s", output)
+	}
+}
+
+func TestVersionedFlowImportsValidationFailsForUnsupportedPreparedClientProvider(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "auth.mode=singleUser",
+		"--set", "authz.bundles.flowVersionManager.includeInitialAdmin=true",
+		"--set", "flowRegistryClients.enabled=true",
+		"--set", "flowRegistryClients.clients[0].name=github-flows",
+		"--set", "flowRegistryClients.clients[0].provider=gitlab",
+		"--set", "flowRegistryClients.clients[0].gitlab.apiUrl=https://gitlab.example.com/api/v4",
+		"--set", "flowRegistryClients.clients[0].repository.namespace=example-org",
+		"--set", "flowRegistryClients.clients[0].repository.name=nifi-flows",
+		"--set", "flowRegistryClients.clients[0].gitlab.accessTokenSecret.name=gitlab-flow-registry",
+		"--set", "flowRegistryClients.clients[0].gitlab.accessTokenSecret.key=token",
+		"--set", "versionedFlowImports.enabled=true",
+		"--set", "versionedFlowImports.imports[0].name=payments",
+		"--set", "versionedFlowImports.imports[0].registryClientName=github-flows",
+		"--set", "versionedFlowImports.imports[0].bucket=team-a",
+		"--set", "versionedFlowImports.imports[0].flowName=payments-api",
+		"--set", "versionedFlowImports.imports[0].version=latest",
+		"--set", "versionedFlowImports.imports[0].target.rootProcessGroupName=payments-root",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail for non-GitHub prepared client provider\n%s", output)
+	}
+	if !strings.Contains(output, `versionedFlowImports.imports[0].registryClientName="github-flows" currently requires flowRegistryClients.clients[].provider=github for bounded runtime-managed import`) {
+		t.Fatalf("expected provider validation error\n%s", output)
+	}
+}
+
+func TestVersionedFlowImportsValidationFailsForUnsupportedPreparedClientAuthType(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "auth.mode=singleUser",
+		"--set", "authz.bundles.flowVersionManager.includeInitialAdmin=true",
+		"--set", "flowRegistryClients.enabled=true",
+		"--set", "flowRegistryClients.clients[0].name=github-flows",
+		"--set", "flowRegistryClients.clients[0].provider=github",
+		"--set", "flowRegistryClients.clients[0].repository.owner=example-org",
+		"--set", "flowRegistryClients.clients[0].repository.name=nifi-flows",
+		"--set", "flowRegistryClients.clients[0].github.auth.type=appInstallation",
+		"--set", "flowRegistryClients.clients[0].github.auth.appId=1234",
+		"--set", "flowRegistryClients.clients[0].github.auth.installationId=5678",
+		"--set", "flowRegistryClients.clients[0].github.auth.privateKeySecret.name=github-app",
+		"--set", "flowRegistryClients.clients[0].github.auth.privateKeySecret.key=privateKey",
+		"--set", "versionedFlowImports.enabled=true",
+		"--set", "versionedFlowImports.imports[0].name=payments",
+		"--set", "versionedFlowImports.imports[0].registryClientName=github-flows",
+		"--set", "versionedFlowImports.imports[0].bucket=team-a",
+		"--set", "versionedFlowImports.imports[0].flowName=payments-api",
+		"--set", "versionedFlowImports.imports[0].version=latest",
+		"--set", "versionedFlowImports.imports[0].target.rootProcessGroupName=payments-root",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail for unsupported GitHub appInstallation auth\n%s", output)
+	}
+	if !strings.Contains(output, `versionedFlowImports.imports[0].registryClientName="github-flows" currently supports github.auth.type none or personalAccessToken; appInstallation remains future work`) {
+		t.Fatalf("expected auth-type validation error\n%s", output)
+	}
+}
+
+func TestPlatformManagedVersionedFlowImportExampleRenders(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi-platform",
+		"-f", "examples/platform-managed-values.yaml",
+		"-f", "examples/platform-managed-versioned-flow-import-values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("expected versionedFlowImports example render to succeed: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		"name: test-nifi-versioned-flow-imports",
+		`"catalogMode": "runtime-managed"`,
+		`"name": "payments-api"`,
+		`"registryClientRef": {`,
+		`"name": "github-flows"`,
+		`"flowName": "payments-api"`,
+		`"version": "latest"`,
+		`"rootProcessGroupName": "payments-api-root"`,
+		`"name": "payments-runtime"`,
+		`checksum/versioned-flow-imports-config`,
+		`python3 /opt/nifi/fabric/versioned-flow-imports/bootstrap.py`,
+		`- name: "test-nifi-versioned-flow-imports"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered platform output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestPlatformManagedRestoreWorkflowExampleRenders(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi-platform",
+		"-f", "examples/platform-managed-values.yaml",
+		"-f", "examples/platform-fast-values.yaml",
+		"-f", "examples/platform-managed-restore-kind-values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("expected platform managed restore workflow example render to succeed: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		"name: test-nifi-flow-registry-clients",
+		"name: test-nifi-parameter-contexts",
+		"name: test-nifi-versioned-flow-imports",
+		`"catalogMode": "runtime-managed"`,
+		`"name": "github-flows-restore"`,
+		`"name": "payments-runtime"`,
+		`"name": "payments-catalog-selection"`,
+		`"rootProcessGroupName": "payments-imported-root"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered platform restore output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestGitHubVersionedFlowSelectionKindExampleRenders(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"-f", "examples/managed/values.yaml",
+		"-f", "examples/nifi-2.8.0-values.yaml",
+		"-f", "examples/github-flow-registry-kind-values.yaml",
+		"-f", "examples/github-flow-registry-workflow-values.yaml",
+		"-f", "examples/github-versioned-flow-selection-kind-values.yaml",
+		"-f", "examples/test-fast-values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("expected GitHub versioned flow selection kind example render to succeed: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		"name: test-nifi-versioned-flow-imports",
+		`"catalogMode": "runtime-managed"`,
+		`"name": "payments-catalog-selection"`,
+		`"name": "github-flows-kind"`,
+		`"flowName": "catalog-selected-flow"`,
+		`"rootProcessGroupName": "payments-imported-root"`,
+		`"name": "payments-runtime"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestPlatformManagedVersionedFlowImportKindExampleRenders(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi-platform",
+		"-f", "examples/platform-managed-values.yaml",
+		"-f", "examples/platform-fast-values.yaml",
+		"-f", "examples/platform-managed-versioned-flow-import-values.yaml",
+		"-f", "examples/platform-managed-versioned-flow-import-kind-values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("expected platform managed versioned flow import kind example render to succeed: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		"name: test-nifi-versioned-flow-imports",
+		`image: "apache/nifi:2.8.0"`,
+		`replicas: 1`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}

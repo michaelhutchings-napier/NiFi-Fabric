@@ -56,6 +56,35 @@ This path stays secondary on purpose:
 - the bundle is generated from the same chart and example overlays, so there is no second install architecture
 - no separate kustomize wrapper is shipped, because that would either duplicate chart logic or depend on Helm-enabled kustomize behavior that is less predictable for customers
 
+## Control-Plane Backup Bundle
+
+For production recovery planning, the repo also includes a thin control-plane export path:
+
+```bash
+bash hack/export-control-plane-backup.sh \
+  --release nifi \
+  --namespace nifi \
+  --output-dir ./backup/nifi-control-plane
+```
+
+That bundle is not a second install architecture. It is an audit and recovery artifact for the existing Helm-centered install model.
+
+Use it when you need:
+
+- a live snapshot of the effective Helm values
+- a rendered manifest inventory for the current release
+- a sanitized managed `NiFiCluster` intent snapshot
+- a reference inventory for Secrets and ConfigMaps that must be recreated during DR
+
+Recover with:
+
+```bash
+bash hack/recover-control-plane-backup.sh \
+  --backup-dir ./backup/nifi-control-plane
+```
+
+The recovery helper still reuses the standard chart install path. It does not introduce a second product control plane or replace operator-owned Secret or storage recovery.
+
 ## When to Use an Advanced Path
 
 Use an advanced path when you need:

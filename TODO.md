@@ -61,6 +61,16 @@ Completed in the scaffold:
    - if site-to-site runtime is revisited, keep it limited to one bounded reporting-task path rather than a general NiFi object-management layer
    - optional provider-side machine-principal provisioning only if it stays clearly isolated from the provider-agnostic Secret bootstrap helper
    - JVM or system-diagnostics runtime proof only after a provider-agnostic authz story exists for those endpoints
+19. Turn the new DR posture into repeatable production guidance without broadening the product into a backup controller:
+   - document GitOps backup recommendations for values, overlays, and `NiFiCluster`
+   - document storage snapshot expectations for the four NiFi repository PVCs
+   - add environment-specific DR notes only after real AKS and OpenShift storage evaluations
+   - keep provider write-back, snapshot orchestration, and generic NiFi runtime-object recovery out of scope unless a separate design justifies them
+20. Add focused backup and restore drill guidance later if it can stay thin and honest:
+   - redeploy-only control-plane recovery rehearsal
+   - snapshot-backed PVC recovery rehearsal
+   - realistic RPO and RTO examples for at least one production storage environment
+   - no new CRD or generic DR control plane unless the architecture changes deliberately
 
 ## Current Managed Rollout Behavior
 

@@ -42,6 +42,8 @@ Defaults in this page are shown only when they are real API defaults or fixed en
 
 ## RestartTriggers
 
+The platform chart wires chart-owned config surfaces into `spec.restartTriggers` only when those features need a restart-aware reconcile path. In the current bounded model, `versionedFlowImports` remains restart-scoped, while `parameterContexts` now reconciles live in-pod and is intentionally not wired into `spec.restartTriggers`.
+
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
 | `spec.restartTriggers.configMaps[]` | `LocalObjectReference` | ConfigMaps observed for restart or rollout decisions. | No |  |

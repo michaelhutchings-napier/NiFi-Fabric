@@ -6,8 +6,11 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${ROOT_DIR}/hack/install-common.sh"
 
 WORKFLOW_PROOF="${WORKFLOW_PROOF:-false}"
+FLOW_SELECTION_PROOF="${FLOW_SELECTION_PROOF:-false}"
 if [[ -z "${KIND_CLUSTER_NAME:-}" ]]; then
-  if [[ "${WORKFLOW_PROOF}" == "true" ]]; then
+  if [[ "${FLOW_SELECTION_PROOF}" == "true" ]]; then
+    KIND_CLUSTER_NAME="nifi-fabric-flow-selection-github"
+  elif [[ "${WORKFLOW_PROOF}" == "true" ]]; then
     KIND_CLUSTER_NAME="nifi-fabric-flow-registry-github-workflow"
   else
     KIND_CLUSTER_NAME="nifi-fabric-flow-registry-github"
@@ -76,7 +79,13 @@ if [[ "${FAST_PROFILE}" == "true" ]]; then
   helm_values_args+=(-f "${ROOT_DIR}/${FAST_VALUES_FILE}")
   profile_label=" with fast profile"
 fi
-if [[ "${WORKFLOW_PROOF}" == "true" ]]; then
+if [[ "${FLOW_SELECTION_PROOF}" == "true" ]]; then
+  helm_values_args+=(
+    -f "${ROOT_DIR}/examples/github-flow-registry-workflow-values.yaml"
+    -f "${ROOT_DIR}/examples/github-versioned-flow-selection-kind-values.yaml"
+  )
+  proof_label="GitHub bounded versioned-flow selection proof"
+elif [[ "${WORKFLOW_PROOF}" == "true" ]]; then
   helm_values_args+=(-f "${ROOT_DIR}/examples/github-flow-registry-workflow-values.yaml")
   proof_label="GitHub Flow Registry workflow proof"
 fi
@@ -139,7 +148,14 @@ kubectl apply -f "${ROOT_DIR}/examples/managed/nificluster.yaml"
 phase "Verifying base NiFi cluster health"
 run_make kind-health KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NAMESPACE="${NAMESPACE}" HELM_RELEASE="${HELM_RELEASE}"
 
-if [[ "${WORKFLOW_PROOF}" == "true" ]]; then
+if [[ "${FLOW_SELECTION_PROOF}" == "true" ]]; then
+  phase "Creating the GitHub Flow Registry client and proving bounded versioned-flow selection"
+  bash "${ROOT_DIR}/hack/prove-versioned-flow-selection.sh" \
+    --namespace "${NAMESPACE}" \
+    --release "${HELM_RELEASE}" \
+    --import-name payments-catalog-selection
+  success_title="NiFi ${NIFI_IMAGE##*:} GitHub bounded versioned-flow selection proof completed"
+elif [[ "${WORKFLOW_PROOF}" == "true" ]]; then
   phase "Creating the GitHub Flow Registry client and proving a versioned-flow save workflow"
   bash "${ROOT_DIR}/hack/prove-github-flow-registry-workflow.sh" \
     --namespace "${NAMESPACE}" \

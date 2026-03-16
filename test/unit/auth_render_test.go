@@ -206,6 +206,26 @@ func TestNamedPolicyBundlesRenderExpectedPolicies(t *testing.T) {
 	}
 }
 
+func TestSingleUserFileManagedAuthSeedsInitialAdminIdentityPlaceholder(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"-f", "examples/managed/values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+
+	for _, want := range []string{
+		`<property name="Initial Admin Identity">__SINGLE_USER_IDENTITY__</property>`,
+		`<user identifier="__ADMIN_IDENTITY_ID__" identity="__SINGLE_USER_IDENTITY__"/>`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
 func TestNamedPolicyBundlesSupportOIDCExternalClaimGroups(t *testing.T) {
 	output, err := helmTemplate(
 		t,

@@ -37,11 +37,13 @@ const (
 	defaultAutoscalingScaleDownCooldown      = 10 * time.Minute
 	defaultAutoscalingScaleDownStabilization = 5 * time.Minute
 	defaultAutoscalingLowPressureSamples     = 3
+	autoscalingLowPressureExtraSamples       = 2
+	autoscalingLowPressureThreadDivisor      = 4
 )
 
 type autoscalingExternalEvaluation struct {
-	status                  platformv1alpha1.AutoscalingExternalStatus
-	effectiveReplicas       *int32
+	status                   platformv1alpha1.AutoscalingExternalStatus
+	effectiveReplicas        *int32
 	boundedRequestedReplicas *int32
 }
 
@@ -181,6 +183,11 @@ func autoscalingNoScaleDecision(cluster *platformv1alpha1.NiFiCluster, status pl
 			}
 		}
 		return "NoScaleDown: waiting for the steady-state autoscaling executor"
+	}
+	if currentReplicas > autoscalingMinReplicas(policy, currentReplicas) && policy.ScaleDown.Enabled {
+		if reason := autoscalingLowPressureBlockedReasonFromSignals(status.Signals); reason != "" {
+			return fmt.Sprintf("NoScaleDown: %s", reason)
+		}
 	}
 	return "NoScale: recommended replicas are already satisfied"
 }
@@ -432,7 +439,7 @@ func buildAutoscalingSteadyStateStatus(cluster *platformv1alpha1.NiFiCluster, po
 	case collection.CPU.Actionable:
 		recommended = currentReplicas + 1
 		reason = autoscalingReasonCPUSaturation
-	case collection.QueuePressure.LowPressure && currentReplicas > minReplicas && !externalPreventsScaleDown(externalEvaluation, currentReplicas):
+	case autoscalingLowPressureObserved(collection) && currentReplicas > minReplicas && !externalPreventsScaleDown(externalEvaluation, currentReplicas):
 		recommended = currentReplicas - 1
 		reason = autoscalingReasonLowPressure
 	}
@@ -972,9 +979,9 @@ func updatedAutoscalingLowPressureStatus(previous, desired platformv1alpha1.Auto
 		observedAt = &now
 	}
 
-	requiredSamples := previous.LowPressure.RequiredConsecutiveSamples
-	if requiredSamples <= 0 {
-		requiredSamples = defaultAutoscalingLowPressureSamples
+	requiredSamples := autoscalingLowPressureRequiredSamples(samples)
+	if previous.LowPressure.RequiredConsecutiveSamples > requiredSamples {
+		requiredSamples = previous.LowPressure.RequiredConsecutiveSamples
 	}
 
 	lowPressure := platformv1alpha1.AutoscalingLowPressureStatus{
@@ -1000,11 +1007,12 @@ func updatedAutoscalingLowPressureStatus(previous, desired platformv1alpha1.Auto
 		lowPressure.ConsecutiveSamples = lowPressure.RequiredConsecutiveSamples
 	}
 	lowPressure.Message = fmt.Sprintf(
-		"zero backlog observed across %d/%d consecutive evaluations; queuedFlowFiles=%d queuedBytes=%s",
+		"zero backlog with low executor activity observed across %d/%d consecutive evaluations; queuedFlowFiles=%d queuedBytes=%s; %s",
 		lowPressure.ConsecutiveSamples,
 		lowPressure.RequiredConsecutiveSamples,
 		lowPressure.FlowFilesQueued,
 		formatObservedBytes(lowPressure.BytesQueued, lowPressure.BytesQueuedObserved),
+		autoscalingLowPressureEvidenceDetails(samples.QueuePressure),
 	)
 	return lowPressure
 }
@@ -1023,7 +1031,87 @@ func updatedAutoscalingLowPressureSince(previous, desired platformv1alpha1.Autos
 }
 
 func autoscalingLowPressureObserved(samples autoscalingSignalCollection) bool {
-	return samples.QueuePressure.LowPressure
+	if !samples.QueuePressure.LowPressure {
+		return false
+	}
+	if !samples.QueuePressure.ThreadCountsObserved || samples.QueuePressure.MaxTimerDrivenThreads <= 0 {
+		return true
+	}
+	return samples.QueuePressure.ActiveTimerDrivenThreads <= autoscalingLowPressureActiveThreadThreshold(samples.QueuePressure.MaxTimerDrivenThreads)
+}
+
+func autoscalingLowPressureRequiredSamples(samples autoscalingSignalCollection) int32 {
+	required := int32(defaultAutoscalingLowPressureSamples)
+	if !samples.QueuePressure.BytesQueuedObserved {
+		required += autoscalingLowPressureExtraSamples
+	}
+	if !samples.QueuePressure.ThreadCountsObserved || samples.QueuePressure.MaxTimerDrivenThreads <= 0 {
+		required += autoscalingLowPressureExtraSamples
+	}
+	return required
+}
+
+func autoscalingLowPressureActiveThreadThreshold(maxThreads int32) int32 {
+	if maxThreads <= 0 {
+		return 1
+	}
+	threshold := maxThreads / autoscalingLowPressureThreadDivisor
+	if threshold < 1 {
+		return 1
+	}
+	return threshold
+}
+
+func autoscalingLowPressureEvidenceDetails(sample autoscalingQueuePressureSample) string {
+	details := make([]string, 0, 3)
+	if sample.BytesQueuedObserved {
+		details = append(details, "queued bytes observed")
+	} else {
+		details = append(details, "queued bytes unavailable so extra consecutive evidence is required")
+	}
+	if sample.ThreadCountsObserved && sample.MaxTimerDrivenThreads > 0 {
+		details = append(details, fmt.Sprintf(
+			"activeTimerDrivenThreads=%d/%d (allowed <=%d)",
+			sample.ActiveTimerDrivenThreads,
+			sample.MaxTimerDrivenThreads,
+			autoscalingLowPressureActiveThreadThreshold(sample.MaxTimerDrivenThreads),
+		))
+	} else {
+		details = append(details, "timer-driven thread counts unavailable so extra consecutive evidence is required")
+	}
+	return strings.Join(details, "; ")
+}
+
+func autoscalingLowPressureBlockedReason(samples autoscalingSignalCollection) string {
+	sample := samples.QueuePressure
+	if !sample.LowPressure {
+		return ""
+	}
+	if sample.ThreadCountsObserved && sample.MaxTimerDrivenThreads > 0 {
+		threshold := autoscalingLowPressureActiveThreadThreshold(sample.MaxTimerDrivenThreads)
+		if sample.ActiveTimerDrivenThreads > threshold {
+			return fmt.Sprintf(
+				"zero backlog is not yet trustworthy because activeTimerDrivenThreads=%d/%d is above the low-pressure threshold %d",
+				sample.ActiveTimerDrivenThreads,
+				sample.MaxTimerDrivenThreads,
+				threshold,
+			)
+		}
+	}
+	return ""
+}
+
+func autoscalingLowPressureBlockedReasonFromSignals(signals []platformv1alpha1.AutoscalingSignalStatus) string {
+	const blockedPhrase = "backlog is zero but active timer-driven work is still above the low-pressure threshold"
+	for _, signal := range signals {
+		if signal.Type != platformv1alpha1.AutoscalingSignalQueuePressure || !signal.Available {
+			continue
+		}
+		if strings.Contains(signal.Message, blockedPhrase) {
+			return fmt.Sprintf("zero backlog is not yet trustworthy because %s", signal.Message)
+		}
+	}
+	return ""
 }
 
 func conditionIsTrue(condition *metav1.Condition) bool {

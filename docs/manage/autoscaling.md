@@ -47,6 +47,20 @@ That is intentional:
 - disconnect and offload must complete before deletion
 - bulk scale-down is not supported
 
+Low-pressure evidence is also intentionally conservative.
+
+Scale-down is only eligible when the controller has durable evidence that the cluster is genuinely quiet:
+
+- root-process-group backlog must stay at zero across repeated evaluations
+- when NiFi thread counts are available, active timer-driven work must also stay below the low-pressure threshold
+- when byte backlog or thread evidence is missing, the controller requires extra consecutive qualifying samples before any removal step
+- stabilization and cooldown windows still apply even after low pressure qualifies
+
+This keeps the policy explainable:
+
+- scale-down is allowed only after repeated trustworthy low-pressure evidence
+- scale-down is blocked explicitly when zero backlog appears transient or executor activity is still too busy to trust that quiet sample
+
 ## Optional KEDA Integration
 
 KEDA is optional and experimental.

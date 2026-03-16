@@ -1,0 +1,32 @@
+# Focused kind overlay for bounded versioned-flow import intent validation on
+# the existing GitHub Flow Registry workflow path.
+#
+# Compose with:
+# - examples/managed/values.yaml
+# - examples/nifi-2.8.0-values.yaml
+# - examples/github-flow-registry-kind-values.yaml
+# - examples/github-flow-registry-workflow-values.yaml
+# - examples/test-fast-values.yaml
+
+parameterContexts:
+  enabled: true
+  contexts:
+  - name: payments-runtime
+    description: Prepared parameter context reference for the bounded flow import intent proof.
+    parameters:
+    - name: payments.api.baseUrl
+      value: https://payments.internal.example.com
+
+versionedFlowImports:
+  enabled: true
+  imports:
+  - name: payments-catalog-selection
+    description: Prepared import intent for the focused GitHub versioned-flow selection proof.
+    registryClientName: github-flows-kind
+    bucket: team-a
+    flowName: catalog-selected-flow
+    version: latest
+    target:
+      rootProcessGroupName: payments-imported-root
+    parameterContextRefs:
+    - name: payments-runtime

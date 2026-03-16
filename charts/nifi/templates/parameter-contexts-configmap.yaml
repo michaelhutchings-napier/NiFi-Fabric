@@ -1,0 +1,828 @@
+{{- if .Values.parameterContexts.enabled }}
+{{- $statusFile := "/opt/nifi/nifi-current/logs/parameter-contexts-bootstrap-status.json" -}}
+{{- $secretRootPath := "/opt/nifi/fabric/parameter-context-secrets" -}}
+{{- $descriptionMarker := "Managed by NiFi-Fabric parameterContexts" -}}
+{{- $authMode := include "nifi.authMode" . -}}
+{{- $proxiedIdentity := .Values.authz.bootstrap.initialAdminIdentity -}}
+{{- if eq $authMode "singleUser" -}}
+{{- $proxiedIdentity = "__SINGLE_USER_IDENTITY__" -}}
+{{- end -}}
+{{- $ownership := dict
+  "createsParameterContextsInNiFi" true
+  "reconcilesDeclaredParameterContextsInNiFi" true
+  "deletesRemovedParameterContextsInNiFi" true
+  "createsParameterProvidersInNiFi" false
+  "assignsContextsToRootChildProcessGroups" true
+  "manualNiFiDrift" "reconciled-live-within-bounded-scope"
+  "undeclaredContexts" "operator-owned"
+-}}
+{{- $catalog := dict
+  "catalogMode" "runtime-managed"
+  "ownership" $ownership
+  "runtimeContract" (dict
+    "authMode" $authMode
+    "proxiedIdentity" $proxiedIdentity
+    "descriptionMarker" $descriptionMarker
+    "statusFile" $statusFile
+    "pollIntervalSeconds" 10
+    "providerRefs" "referenced-only"
+    "attachmentScope" "declared-direct-root-child-process-groups"
+    "secretValueRefresh" "live-from-mounted-secret-files"
+  )
+  "contexts" (list)
+-}}
+{{- $runtimeConfig := dict
+  "management" (dict
+    "authMode" $authMode
+    "caCertPath" (printf "%s/%s" .Values.tls.mountPath .Values.tls.caCertKey)
+    "keystorePath" (printf "%s/%s" .Values.tls.mountPath .Values.tls.keystoreKey)
+    "keystorePasswordEnv" "KEYSTORE_PASSWORD"
+    "statusFile" $statusFile
+    "pollIntervalSeconds" 10
+    "reconcilePodOrdinal" 0
+    "proxiedIdentity" $proxiedIdentity
+    "clientId" "fabric-parameter-context-reconciler"
+  )
+  "ownership" (dict
+    "descriptionMarker" $descriptionMarker
+  )
+  "providerRefsMode" "referenced-only"
+  "secretRootPath" $secretRootPath
+  "contexts" (list)
+-}}
+{{- range $contextIndex, $context := .Values.parameterContexts.contexts }}
+{{- $parameters := list -}}
+{{- range $parameterIndex, $parameter := default (list) $context.parameters }}
+{{- $secretRef := default (dict) $parameter.secretRef -}}
+{{- $source := dict "type" "inline" -}}
+{{- if default false $parameter.sensitive -}}
+{{- $source = dict
+  "type" "secretRef"
+  "secretFile" (printf "%s/%s/%s" $secretRootPath $secretRef.name $secretRef.key)
+-}}
+{{- else -}}
+{{- $_ := set $source "value" $parameter.value -}}
+{{- end -}}
+{{- $entry := dict
+  "name" $parameter.name
+  "sensitive" (default false $parameter.sensitive)
+  "source" $source
+-}}
+{{- if hasKey $parameter "description" -}}
+{{- $_ := set $entry "description" $parameter.description -}}
+{{- end -}}
+{{- if default false $parameter.sensitive -}}
+{{- $_ := set $entry "secretRef" (dict
+  "name" $secretRef.name
+  "key" $secretRef.key
+) -}}
+{{- end -}}
+{{- $parameters = append $parameters $entry -}}
+{{- end }}
+{{- $providerRefs := list -}}
+{{- range $providerRef := default (list) $context.providerRefs }}
+{{- $providerEntry := dict
+  "name" $providerRef.name
+  "bootstrapMode" "referenced-only"
+-}}
+{{- if hasKey $providerRef "description" -}}
+{{- $_ := set $providerEntry "description" $providerRef.description -}}
+{{- end -}}
+{{- if $providerRef.parameterGroup -}}
+{{- $_ := set $providerEntry "parameterGroup" $providerRef.parameterGroup -}}
+{{- end -}}
+{{- $providerRefs = append $providerRefs $providerEntry -}}
+{{- end }}
+{{- $attachments := list -}}
+{{- range $attachment := default (list) $context.attachments }}
+{{- $attachments = append $attachments (dict "rootProcessGroupName" $attachment.rootProcessGroupName) -}}
+{{- end }}
+{{- $contextEntry := dict
+  "name" $context.name
+  "bootstrapMode" "runtime-managed"
+  "driftPolicy" (dict
+    "createdByProduct" true
+    "reconciledByProduct" true
+    "deletedWhenRemovedFromValues" true
+    "manualNiFiDrift" "reconciled-live-within-bounded-scope"
+  )
+  "parameters" $parameters
+  "providerRefs" $providerRefs
+  "attachments" $attachments
+-}}
+{{- if hasKey $context "description" -}}
+{{- $_ := set $contextEntry "description" $context.description -}}
+{{- end -}}
+{{- $_ := set $catalog "contexts" (append (get $catalog "contexts") $contextEntry) -}}
+{{- $_ := set $runtimeConfig "contexts" (append (get $runtimeConfig "contexts") $contextEntry) -}}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nifi.parameterContextsConfigName" . }}
+  labels:
+    {{- include "nifi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: parameter-contexts
+data:
+  config.json: |
+{{ $runtimeConfig | toPrettyJson | indent 4 }}
+  parameter-contexts.yaml: |
+{{ $catalog | toYaml | indent 4 }}
+  parameter-contexts.json: |
+{{ $catalog | toPrettyJson | indent 4 }}
+  bootstrap.py: |
+    import hashlib
+    import json
+    import os
+    import ssl
+    import subprocess
+    import sys
+    import tempfile
+    import time
+    import urllib.error
+    import urllib.request
+
+    CONFIG_PATH = "/opt/nifi/fabric/parameter-contexts/config.json"
+
+
+    class NiFiAPIError(RuntimeError):
+        pass
+
+
+    def load_config():
+        with open(CONFIG_PATH, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+
+
+    def load_previous_status(config):
+        path = config["management"]["statusFile"]
+        if not os.path.exists(path):
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except Exception:
+            return {}
+
+
+    def write_status(config, payload):
+        path = config["management"]["statusFile"]
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        payload["timestamp"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+
+
+    def base_status(config):
+        return {
+            "podName": os.environ.get("POD_NAME", ""),
+            "authMode": config["management"].get("authMode", ""),
+            "providerRefsMode": config.get("providerRefsMode", "referenced-only"),
+            "status": "running",
+            "contexts": [],
+            "detachedAttachments": [],
+            "deletedContexts": [],
+        }
+
+
+    def should_manage(config, status):
+        pod_name = status["podName"]
+        suffix = f"-{config['management']['reconcilePodOrdinal']}"
+        return not pod_name or pod_name.endswith(suffix)
+
+
+    def resolve_proxied_identity(config):
+        identity = config["management"].get("proxiedIdentity", "")
+        if identity == "__SINGLE_USER_IDENTITY__":
+            identity = os.environ.get("SINGLE_USER_CREDENTIALS_USERNAME", "")
+        identity = identity.strip()
+        if not identity:
+            raise NiFiAPIError("bounded Parameter Context reconciliation requires a proxied management identity")
+        return identity
+
+
+    def ensure_client_certificate_files(config):
+        keystore_path = config["management"]["keystorePath"]
+        password_env = config["management"].get("keystorePasswordEnv", "KEYSTORE_PASSWORD")
+        keystore_password = os.environ.get(password_env, "")
+        if not keystore_password:
+            raise NiFiAPIError(f"missing workload keystore password in environment variable {password_env!r}")
+        if not os.path.exists(keystore_path):
+            raise NiFiAPIError(f"workload keystore path {keystore_path!r} does not exist")
+
+        workdir = tempfile.mkdtemp(prefix="nifi-fabric-parameter-contexts-")
+        cert_path = os.path.join(workdir, "client.crt.pem")
+        key_path = os.path.join(workdir, "client.key.pem")
+
+        subprocess.run(
+            [
+                "openssl",
+                "pkcs12",
+                "-in",
+                keystore_path,
+                "-clcerts",
+                "-nokeys",
+                "-passin",
+                f"pass:{keystore_password}",
+                "-out",
+                cert_path,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            [
+                "openssl",
+                "pkcs12",
+                "-in",
+                keystore_path,
+                "-nocerts",
+                "-nodes",
+                "-passin",
+                f"pass:{keystore_password}",
+                "-out",
+                key_path,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return cert_path, key_path
+
+
+    def build_http_client(config):
+        ca_cert_path = config["management"]["caCertPath"]
+        cert_path, key_path = ensure_client_certificate_files(config)
+        context = ssl.create_default_context(cafile=ca_cert_path)
+        context.load_cert_chain(certfile=cert_path, keyfile=key_path)
+        return urllib.request.build_opener(urllib.request.HTTPSHandler(context=context))
+
+
+    def request(opener, base_url, method, path, proxied_identity, payload=None, expect=(200,)):
+        body = None
+        headers = {
+            "X-ProxiedEntitiesChain": f"<{proxied_identity}>",
+        }
+        if payload is not None:
+            body = json.dumps(payload).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        req = urllib.request.Request(base_url + path, data=body, headers=headers, method=method)
+        try:
+            with opener.open(req, timeout=15) as response:
+                data = response.read()
+                if response.status not in expect:
+                    raise NiFiAPIError(
+                        f"{method} {path} returned unexpected status {response.status}: {data[:4096].decode('utf-8', 'ignore')}"
+                    )
+                if not data:
+                    return None
+                content_type = response.headers.get("Content-Type", "")
+                if "application/json" in content_type:
+                    return json.loads(data.decode("utf-8"))
+                return data.decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            body_text = exc.read().decode("utf-8", "ignore")
+            raise NiFiAPIError(f"{method} {path} failed with status {exc.code}: {body_text[:4096]}") from exc
+
+
+    def wait_for_cluster_summary(opener, base_url, proxied_identity):
+        last_error = None
+        for _ in range(90):
+            try:
+                payload = request(opener, base_url, "GET", "/flow/cluster/summary", proxied_identity)
+                summary = payload.get("clusterSummary", {})
+                if (
+                    summary.get("clustered") is True
+                    and summary.get("connectedToCluster") is True
+                    and int(summary.get("connectedNodeCount", 0)) >= 1
+                    and int(summary.get("totalNodeCount", 0)) >= 1
+                    and int(summary.get("connectedNodeCount", 0)) == int(summary.get("totalNodeCount", 0))
+                ):
+                    return summary
+                last_error = NiFiAPIError(f"cluster summary not yet stable: {summary}")
+            except Exception as exc:
+                last_error = exc
+            time.sleep(2)
+        raise last_error or NiFiAPIError("timed out waiting for stable cluster summary")
+
+
+    def strip_management_marker(config, description):
+        marker = config["ownership"]["descriptionMarker"]
+        if description == marker:
+            return ""
+        suffix = "\n\n" + marker
+        if description.endswith(suffix):
+            return description[: -len(suffix)]
+        return description or ""
+
+
+    def managed_description(config, description):
+        marker = config["ownership"]["descriptionMarker"]
+        description = description or ""
+        if not description:
+            return marker
+        return description + "\n\n" + marker
+
+
+    def is_owned_context(config, entity):
+        component = entity.get("component", {})
+        description = component.get("description", "") or ""
+        marker = config["ownership"]["descriptionMarker"]
+        return description == marker or description.endswith("\n\n" + marker)
+
+
+    def context_entities_by_name(opener, base_url, proxied_identity):
+        payload = request(opener, base_url, "GET", "/flow/parameter-contexts", proxied_identity)
+        mapping = {}
+        for entry in payload.get("parameterContexts", []):
+            component = entry.get("component", {})
+            name = component.get("name")
+            identifier = entry.get("id") or component.get("id")
+            if name and identifier:
+                mapping[name] = entry
+        return mapping
+
+
+    def root_child_process_groups(opener, base_url, proxied_identity):
+        payload = request(opener, base_url, "GET", "/flow/process-groups/root", proxied_identity)
+        entries = []
+        for entry in payload.get("processGroupFlow", {}).get("flow", {}).get("processGroups", []):
+            component = entry.get("component", {})
+            identifier = entry.get("id") or component.get("id")
+            if not identifier:
+                continue
+            entries.append(
+                {
+                    "id": identifier,
+                    "name": component.get("name", ""),
+                }
+            )
+        return entries
+
+
+    def get_process_group_component(opener, base_url, proxied_identity, process_group_id):
+        payload = request(opener, base_url, "GET", f"/process-groups/{process_group_id}", proxied_identity)
+        return payload, payload.get("component", {}), payload.get("revision", {})
+
+
+    def resolve_parameter_value(entry):
+        source = entry.get("source", {})
+        if source.get("type") == "secretRef":
+            secret_file = source.get("secretFile", "")
+            if not secret_file or not os.path.exists(secret_file):
+                secret_ref = entry.get("secretRef", {})
+                raise NiFiAPIError(
+                    f"parameter context {entry.get('contextName', '<unknown>')!r} parameter {entry['name']!r} is missing secret material "
+                    f"from {secret_ref.get('name', '<unknown>')}/{secret_ref.get('key', '<unknown>')}"
+                )
+            with open(secret_file, "r", encoding="utf-8") as handle:
+                value = handle.read().rstrip("\n")
+            if value == "":
+                secret_ref = entry.get("secretRef", {})
+                raise NiFiAPIError(
+                    f"parameter context {entry.get('contextName', '<unknown>')!r} parameter {entry['name']!r} resolved empty secret material "
+                    f"from {secret_ref.get('name', '<unknown>')}/{secret_ref.get('key', '<unknown>')}"
+                )
+            return value
+        return source.get("value", "")
+
+
+    def build_parameter_entry(context_name, entry):
+        parameter = {
+            "name": entry["name"],
+            "sensitive": bool(entry.get("sensitive", False)),
+        }
+        if entry.get("description"):
+            parameter["description"] = entry["description"]
+        with_context = dict(entry)
+        with_context["contextName"] = context_name
+        parameter["value"] = resolve_parameter_value(with_context)
+        return {"parameter": parameter}
+
+
+    def build_desired_component(config, context):
+        parameters = [build_parameter_entry(context["name"], entry) for entry in context.get("parameters", [])]
+        return {
+            "name": context["name"],
+            "description": managed_description(config, context.get("description", "")),
+            "parameters": parameters,
+        }
+
+
+    def normalize_parameter_entry(entry):
+        parameter = entry.get("parameter", entry)
+        normalized = {
+            "name": parameter.get("name", ""),
+            "description": parameter.get("description", "") or "",
+            "sensitive": bool(parameter.get("sensitive", False)),
+        }
+        if not normalized["sensitive"]:
+            normalized["value"] = parameter.get("value", "") or ""
+        return normalized
+
+
+    def current_component_differs(config, current_entity, desired_component):
+        current_component = current_entity.get("component", {})
+        if strip_management_marker(config, current_component.get("description", "") or "") != strip_management_marker(
+            config, desired_component.get("description", "") or ""
+        ):
+            return True
+        if not is_owned_context(config, current_entity):
+            return True
+
+        current_parameters = {
+            normalize_parameter_entry(entry)["name"]: normalize_parameter_entry(entry)
+            for entry in current_component.get("parameters", [])
+        }
+        desired_parameters = {
+            normalize_parameter_entry(entry)["name"]: normalize_parameter_entry(entry)
+            for entry in desired_component.get("parameters", [])
+        }
+
+        if current_parameters.keys() != desired_parameters.keys():
+            return True
+
+        for name, desired_parameter in desired_parameters.items():
+            current_parameter = current_parameters.get(name, {})
+            if current_parameter != desired_parameter:
+                return True
+        return False
+
+
+    def desired_hash(config, context):
+        payload = {
+            "name": context["name"],
+            "description": context.get("description", "") or "",
+            "parameters": [],
+            "attachments": sorted(
+                attachment.get("rootProcessGroupName", "") for attachment in context.get("attachments", []) if attachment.get("rootProcessGroupName")
+            ),
+        }
+        for entry in context.get("parameters", []):
+            resolved = {
+                "name": entry["name"],
+                "description": entry.get("description", "") or "",
+                "sensitive": bool(entry.get("sensitive", False)),
+            }
+            if resolved["sensitive"]:
+                resolved["valueHash"] = hashlib.sha256(resolve_parameter_value({"contextName": context["name"], **entry}).encode("utf-8")).hexdigest()
+                resolved["secretRef"] = entry.get("secretRef", {})
+            else:
+                resolved["value"] = entry.get("source", {}).get("value", "")
+            payload["parameters"].append(resolved)
+        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+    def create_context(opener, base_url, proxied_identity, config, context):
+        payload = {
+            "revision": {
+                "clientId": config["management"]["clientId"],
+                "version": 0,
+            },
+            "component": build_desired_component(config, context),
+        }
+        return request(opener, base_url, "POST", "/parameter-contexts", proxied_identity, payload=payload, expect=(200, 201))
+
+
+    def update_context(opener, base_url, proxied_identity, config, context_id, current_entity, context):
+        payload = {
+            "revision": {
+                "clientId": config["management"]["clientId"],
+                "version": current_entity["revision"]["version"],
+            },
+            "component": build_desired_component(config, context),
+        }
+        payload["component"]["id"] = context_id
+        return request(opener, base_url, "PUT", f"/parameter-contexts/{context_id}", proxied_identity, payload=payload)
+
+
+    def delete_context(opener, base_url, proxied_identity, config, context_id, revision_version):
+        request(
+            opener,
+            base_url,
+            "DELETE",
+            f"/parameter-contexts/{context_id}?version={revision_version}&clientId={config['management']['clientId']}",
+            proxied_identity,
+            expect=(200, 202),
+        )
+
+
+    def bind_parameter_context(opener, base_url, proxied_identity, config, process_group_id, revision_version, parameter_context_id):
+        payload = {
+            "revision": {
+                "clientId": config["management"]["clientId"],
+                "version": int(revision_version),
+            },
+            "component": {
+                "id": process_group_id,
+                "parameterContext": {
+                    "id": parameter_context_id,
+                },
+            },
+        }
+        request(opener, base_url, "PUT", f"/process-groups/{process_group_id}", proxied_identity, payload=payload, expect=(200, 201))
+
+
+    def clear_parameter_context(opener, base_url, proxied_identity, config, process_group_id, revision_version):
+        payload = {
+            "revision": {
+                "clientId": config["management"]["clientId"],
+                "version": int(revision_version),
+            },
+            "component": {
+                "id": process_group_id,
+                "parameterContext": None,
+            },
+        }
+        request(opener, base_url, "PUT", f"/process-groups/{process_group_id}", proxied_identity, payload=payload, expect=(200, 201))
+
+
+    def build_context_status(context, observed_hash):
+        parameters = []
+        for entry in context.get("parameters", []):
+            status = {
+                "name": entry["name"],
+                "sensitive": bool(entry.get("sensitive", False)),
+                "source": entry.get("source", {}).get("type", "inline"),
+            }
+            if status["source"] == "secretRef":
+                secret_file = entry.get("source", {}).get("secretFile", "")
+                status["secretResolved"] = bool(secret_file and os.path.exists(secret_file) and os.path.getsize(secret_file) > 0)
+                status["secretRef"] = entry.get("secretRef", {})
+            parameters.append(status)
+        return {
+            "name": context["name"],
+            "providerRefs": context.get("providerRefs", []),
+            "attachments": context.get("attachments", []),
+            "parameters": parameters,
+            "observedHash": observed_hash,
+        }
+
+
+    def reconcile_contexts(config, previous_status, opener, base_url, proxied_identity, status):
+        previous_by_name = {
+            entry.get("name"): entry
+            for entry in previous_status.get("contexts", [])
+            if entry.get("name")
+        }
+        live_by_name = context_entities_by_name(opener, base_url, proxied_identity)
+        managed_context_ids = {}
+        blocked = False
+
+        for context in config.get("contexts", []):
+            previous_entry = previous_by_name.get(context["name"], {})
+            observed_hash = desired_hash(config, context)
+            context_status = build_context_status(context, observed_hash)
+            try:
+                live_entity = live_by_name.get(context["name"])
+                if live_entity and not is_owned_context(config, live_entity):
+                    raise NiFiAPIError(
+                        f"declared Parameter Context {context['name']!r} already exists in NiFi without the product ownership marker; operator-owned contexts are not adopted automatically"
+                    )
+
+                if not live_entity:
+                    entity = create_context(opener, base_url, proxied_identity, config, context)
+                    context_status["action"] = "created"
+                    context_status["id"] = entity.get("id") or entity.get("component", {}).get("id", "")
+                    live_by_name = context_entities_by_name(opener, base_url, proxied_identity)
+                    live_entity = live_by_name.get(context["name"], {})
+                else:
+                    current_id = live_entity.get("id") or live_entity.get("component", {}).get("id", "")
+                    if not current_id:
+                        raise NiFiAPIError(f"declared Parameter Context {context['name']!r} did not return a live identifier")
+
+                    desired_component = build_desired_component(config, context)
+                    hash_changed = previous_entry.get("observedHash") != observed_hash
+                    if current_component_differs(config, live_entity, desired_component) or hash_changed:
+                        entity = update_context(opener, base_url, proxied_identity, config, current_id, live_entity, context)
+                        context_status["action"] = "updated"
+                        context_status["id"] = entity.get("id") or entity.get("component", {}).get("id", current_id)
+                        live_by_name = context_entities_by_name(opener, base_url, proxied_identity)
+                        live_entity = live_by_name.get(context["name"], live_entity)
+                    else:
+                        context_status["action"] = "unchanged"
+                        context_status["id"] = current_id
+
+                context_status["result"] = "ok"
+                managed_context_ids[context["name"]] = context_status["id"]
+            except Exception as exc:
+                context_status["action"] = context_status.get("action", "blocked")
+                context_status["result"] = "blocked"
+                context_status["error"] = str(exc)
+                blocked = True
+
+            status["contexts"].append(context_status)
+
+        return blocked, managed_context_ids
+
+
+    def reconcile_attachments(config, opener, base_url, proxied_identity, status, managed_context_ids):
+        blocked = False
+        desired_targets = {}
+        for context in config.get("contexts", []):
+            context_id = managed_context_ids.get(context["name"], "")
+            if not context_id:
+                continue
+            for attachment in context.get("attachments", []):
+                desired_targets[attachment["rootProcessGroupName"]] = {
+                    "contextName": context["name"],
+                    "contextId": context_id,
+                }
+
+        root_children = root_child_process_groups(opener, base_url, proxied_identity)
+        root_children_by_name = {}
+        duplicate_targets = set()
+        for entry in root_children:
+            if entry["name"] in root_children_by_name:
+                duplicate_targets.add(entry["name"])
+                continue
+            root_children_by_name[entry["name"]] = entry["id"]
+
+        for context_status in status["contexts"]:
+            if context_status.get("result") != "ok":
+                continue
+            attachment_statuses = []
+            for attachment in context_status.get("attachments", []):
+                target_name = attachment["rootProcessGroupName"]
+                target_status = {
+                    "rootProcessGroupName": target_name,
+                }
+                try:
+                    if target_name in duplicate_targets:
+                        raise NiFiAPIError(
+                            f"direct root-child process group name {target_name!r} is ambiguous; rename the targets so the bounded attachment scope stays unique"
+                        )
+                    process_group_id = root_children_by_name.get(target_name, "")
+                    if not process_group_id:
+                        raise NiFiAPIError(
+                            f"declared root child process group {target_name!r} does not exist in NiFi; create it first or remove the attachment"
+                        )
+                    _, component, revision = get_process_group_component(opener, base_url, proxied_identity, process_group_id)
+                    actual_context_id = component.get("parameterContext", {}).get("id", "")
+                    desired_context_id = desired_targets[target_name]["contextId"]
+                    if actual_context_id != desired_context_id:
+                        bind_parameter_context(
+                            opener,
+                            base_url,
+                            proxied_identity,
+                            config,
+                            process_group_id,
+                            revision.get("version", 0),
+                            desired_context_id,
+                        )
+                        target_status["action"] = "attached"
+                    else:
+                        target_status["action"] = "unchanged"
+                    target_status["processGroupId"] = process_group_id
+                    target_status["result"] = "ok"
+                except Exception as exc:
+                    target_status["action"] = target_status.get("action", "blocked")
+                    target_status["result"] = "blocked"
+                    target_status["error"] = str(exc)
+                    blocked = True
+                attachment_statuses.append(target_status)
+            context_status["attachmentStatuses"] = attachment_statuses
+
+        managed_ids = set(managed_context_ids.values())
+        for entry in root_children:
+            target_name = entry["name"]
+            if target_name in desired_targets:
+                continue
+            try:
+                _, component, revision = get_process_group_component(opener, base_url, proxied_identity, entry["id"])
+                actual_context_id = component.get("parameterContext", {}).get("id", "")
+                if actual_context_id not in managed_ids:
+                    continue
+                clear_parameter_context(
+                    opener,
+                    base_url,
+                    proxied_identity,
+                    config,
+                    entry["id"],
+                    revision.get("version", 0),
+                )
+                status["detachedAttachments"].append(
+                    {
+                        "rootProcessGroupName": target_name,
+                        "processGroupId": entry["id"],
+                        "action": "detached",
+                        "result": "ok",
+                    }
+                )
+            except Exception as exc:
+                status["detachedAttachments"].append(
+                    {
+                        "rootProcessGroupName": target_name,
+                        "processGroupId": entry["id"],
+                        "action": "blocked",
+                        "result": "blocked",
+                        "error": str(exc),
+                    }
+                )
+                blocked = True
+
+        return blocked
+
+
+    def delete_removed_contexts(config, opener, base_url, proxied_identity, status):
+        blocked = False
+        desired_names = {context["name"] for context in config.get("contexts", [])}
+        live_by_name = context_entities_by_name(opener, base_url, proxied_identity)
+        for name, entity in live_by_name.items():
+            if name in desired_names:
+                continue
+            if not is_owned_context(config, entity):
+                continue
+            context_id = entity.get("id") or entity.get("component", {}).get("id", "")
+            deletion = {
+                "name": name,
+                "id": context_id,
+            }
+            try:
+                revision_version = entity.get("revision", {}).get("version", 0)
+                delete_context(opener, base_url, proxied_identity, config, context_id, revision_version)
+                deletion["action"] = "deleted"
+                deletion["result"] = "ok"
+            except Exception as exc:
+                deletion["action"] = "blocked"
+                deletion["result"] = "blocked"
+                deletion["error"] = str(exc)
+                blocked = True
+            status["deletedContexts"].append(deletion)
+        return blocked
+
+
+    def reconcile_once(config):
+        status = base_status(config)
+        base_url = f"https://{os.environ['NIFI_POD_FQDN']}:8443/nifi-api"
+        proxied_identity = resolve_proxied_identity(config)
+        opener = build_http_client(config)
+        wait_for_cluster_summary(opener, base_url, proxied_identity)
+
+        previous_status = load_previous_status(config)
+        blocked_contexts, managed_context_ids = reconcile_contexts(
+            config,
+            previous_status,
+            opener,
+            base_url,
+            proxied_identity,
+            status,
+        )
+        blocked_attachments = reconcile_attachments(config, opener, base_url, proxied_identity, status, managed_context_ids)
+        blocked_deletes = delete_removed_contexts(config, opener, base_url, proxied_identity, status)
+
+        status["status"] = "blocked" if (blocked_contexts or blocked_attachments or blocked_deletes) else "ok"
+        return status
+
+
+    def main():
+        once = "--once" in sys.argv[1:]
+
+        while True:
+            try:
+                config = load_config()
+                status = base_status(config)
+                if not should_manage(config, status):
+                    status["status"] = "skipped"
+                    status["reason"] = f"only pod ordinal {config['management']['reconcilePodOrdinal']} reconciles declared parameter contexts"
+                    write_status(config, status)
+                    print(status["reason"])
+                    if once:
+                        return 0
+                    time.sleep(int(config["management"].get("pollIntervalSeconds", 10)))
+                    continue
+                status = reconcile_once(config)
+            except Exception as exc:
+                config = load_config()
+                status = base_status(config)
+                status["status"] = "failed"
+                status["reason"] = str(exc)
+            write_status(config, status)
+            if once:
+                print(json.dumps(status, indent=2, sort_keys=True))
+                return 0
+            time.sleep(int(config["management"].get("pollIntervalSeconds", 10)))
+
+
+    if __name__ == "__main__":
+        sys.exit(main())
+  README.txt: |
+    This ConfigMap defines a bounded runtime-managed Parameter Context feature.
+    Product-owned scope:
+    - create declared Parameter Contexts in NiFi
+    - update declared Parameter Contexts in NiFi through live reconcile
+    - delete removed owned Parameter Contexts from NiFi
+    - attach declared Parameter Contexts only to named direct root-child process groups
+    - read sensitive values from referenced Kubernetes Secrets through mounted files
+    Product does not:
+    - adopt undeclared or operator-owned Parameter Contexts automatically
+    - create or reconcile NiFi Parameter Providers
+    - perform arbitrary process-group mutation outside the declared attachment scope
+    - add generic runtime-object or generic Controller Service management
+    Enterprise auth modes use the explicit bootstrap admin identity as the
+    bounded trusted-proxy management identity for this feature.
+{{- end }}

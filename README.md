@@ -97,9 +97,12 @@ Manage NiFi:
 - [TLS and cert-manager](docs/manage/tls-and-cert-manager.md)
 - [Authentication](docs/manage/authentication.md)
 - [Autoscaling](docs/manage/autoscaling.md)
+- [Parameter Contexts](docs/manage/parameters.md)
+- [Flows](docs/manage/flows.md)
 - [Flow Registry Clients](docs/manage/flow-registry-clients.md)
 - [Hibernation and Restore](docs/manage/hibernation-and-restore.md)
 - [Observability and Metrics](docs/manage/observability-metrics.md)
+- [Backup, Restore, and Disaster Recovery](docs/dr.md)
 
 Reference and support:
 
@@ -131,14 +134,21 @@ See [Compatibility](docs/compatibility.md) for the detailed matrix.
 - `charts/nifi` is the standalone-capable app chart
 - built-in controller-owned autoscaling is the primary autoscaling model
 - KEDA is optional, experimental, and secondary as an external intent source
+- enforced scale-down stays one-step-at-a-time and now requires durable low-pressure evidence before the controller removes any node
+- when scale-down disconnect, offload, or post-removal settle work stalls, the controller now keeps the step blocked and restart-safe with stage-specific diagnostics instead of silently retrying risky destructive work
 - mutable-flow authorization bootstrap stays chart-first and controller-free
 - GitHub, GitLab, and Bitbucket Flow Registry Client paths are runtime-proven on NiFi `2.8.0`
 - a user-driven GitHub versioned-flow save-to-registry workflow is focused-runtime-proven on NiFi `2.8.0`
 - Azure DevOps Flow Registry Client remains prepared and render-validated
+- Parameter Context support is available as an optional typed runtime-managed feature for bounded Parameter Context creation, live update, deletion, and direct root-child attachment, not as generic flow-runtime management
+- bounded versioned flow import and version selection are available as an optional typed runtime-managed feature for one declared root-child import target, including selected-version attachment without provider write-back, not as generic flow-runtime management
+- a bounded restore workflow is now focused-runtime-proven on the platform chart path for control-plane reinstall plus registry-client reconnect, runtime-managed Parameter Context recovery, and selected-flow import from registry-backed content
 - native API metrics are the primary, recommended metrics path and are runtime-proven on kind
 - exporter metrics are an optional experimental secondary path and are runtime-proven on kind
 - site-to-site metrics, status, and provenance export are optional typed runtime paths for bounded sender-side use cases, not a generic NiFi runtime-object framework
 - optional trust-manager integration distributes shared CA bundles without moving TLS orchestration into the controller
+- backup and DR are documented as a first-class production posture with explicit separation between declarative platform recovery and PVC-backed NiFi data recovery
+- a thin control-plane backup or recovery MVP now exports Helm values, rendered manifest intent, sanitized `NiFiCluster` intent, and reference inventories without adding a second product control plane
 - the repo now includes a starter operations package for dashboards, alerting, and runbooks; teams still need to adapt it to their Prometheus, Grafana, and incident-routing conventions
 
 ## Experimental Features
@@ -220,11 +230,16 @@ NiFi-Fabric documentation is intentionally conservative in a few areas:
 - AKS and OpenShift guidance is published, but real-cluster runtime proof is not yet claimed here
 - KEDA is documented as experimental even though focused kind proof is green
 - autoscaling scale-down remains intentionally one-step-at-a-time and experimental
+- enforced scale-down now waits for repeated zero-backlog observations, low executor activity when thread counts are available, and stabilization or cooldown windows before a removal step is allowed
 - site-to-site metrics export remains optional, experimental, and intentionally bounded to the typed metrics-export path
 - site-to-site status export remains optional, experimental, and intentionally bounded to the typed status-export path
 - site-to-site provenance export remains optional, experimental, and intentionally bounded to the typed provenance-export path
+- parameter contexts are runtime-managed only within the declared bounded scope of owned context create/update/delete and direct root-child attachment; Parameter Provider creation and generic flow-runtime management remain out of scope
 - exporter support remains experimental and intentionally bounded to flow metrics plus selected `/flow/status` gauges
-- versioned-flow workflow proof currently covers a user-driven GitHub save-to-registry path only; it does not add automatic import, deployment, or synchronization
+- the user-driven GitHub save-to-registry workflow is separately proven, while bounded runtime-managed flow import is proven only within the declared `versionedFlowImports.*` scope; generic deployment and ongoing synchronization remain out of scope
 - trust-manager currently distributes shared CA bundles only; it does not replace cert-manager or move trust orchestration into the controller
 - automatic mirroring of the workload TLS `ca.crt` into a trust-manager source Secret is available as an optional chart-owned helper path
 - ConfigMap and Secret bundle targets are supported, but current automatic app consumption still centers on the PEM `ca.crt` bundle key
+- DR guidance is production-oriented but intentionally does not claim storage snapshot orchestration, provider write-back, or full NiFi internal recovery ownership
+- versioned flow import is runtime-managed only within the declared bounded scope; live registry client lifecycle, provider write-back, broader process-group mutation, and ongoing synchronization remain out of scope
+- the bounded restore workflow proof is config-and-flow recovery only; it does not claim queue, provenance, content, or other PVC-backed NiFi state replay

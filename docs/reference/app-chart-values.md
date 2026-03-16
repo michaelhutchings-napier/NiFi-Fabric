@@ -6,7 +6,7 @@ File of record:
 
 - `charts/nifi/values.yaml`
 
-For install guidance, see [Install with Helm](../install/helm.md). For feature behavior, use the manage pages such as [TLS and cert-manager](../manage/tls-and-cert-manager.md), [Authentication](../manage/authentication.md), [Observability and Metrics](../manage/observability-metrics.md), and [Flow Registry Clients](../manage/flow-registry-clients.md).
+For install guidance, see [Install with Helm](../install/helm.md). For feature behavior, use the manage pages such as [TLS and cert-manager](../manage/tls-and-cert-manager.md), [Authentication](../manage/authentication.md), [Parameter Contexts](../manage/parameters.md), [Flows](../manage/flows.md), [Observability and Metrics](../manage/observability-metrics.md), and [Flow Registry Clients](../manage/flow-registry-clients.md).
 
 ## Workload Shape and Version
 
@@ -168,6 +168,26 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | `flowRegistryClients.enabled` | boolean | Enables prepared Flow Registry Client catalog rendering. | No | `false` |
 | `flowRegistryClients.mountPath` | string | Mount path for the rendered catalog files. | No | `/opt/nifi/fabric/flow-registry-clients` |
 | `flowRegistryClients.clients[]` | object list | Prepared client definitions. | No | `[]` |
+
+## Parameter Contexts
+
+`parameterContexts.*` is a bounded runtime-managed feature. It creates, updates, deletes, and optionally attaches only the declared product-owned Parameter Contexts, supports `auth.mode=singleUser`, `oidc`, and `ldap` with the explicit bounded trusted-proxy assumptions documented in [Parameter Contexts](../manage/parameters.md), keeps `providerRefs[]` reference-only, and does not introduce arbitrary graph editing or generic runtime-object management.
+
+| Field | Type | Description | Required | Default |
+| --- | --- | --- | --- | --- |
+| `parameterContexts.enabled` | boolean | Enables bounded runtime-managed Parameter Context reconciliation. | No | `false` |
+| `parameterContexts.mountPath` | string | Mount path for the rendered runtime bundle and status bootstrap files. | No | `/opt/nifi/fabric/parameter-contexts` |
+| `parameterContexts.contexts[]` | object list | Declared Parameter Context definitions with bounded inline values, sensitive Secret references, and reference-only provider refs. | No | `[]` |
+
+## Versioned Flow Imports
+
+`versionedFlowImports.*` is a bounded runtime-managed feature. It creates only the declared root-child imported process groups owned by the product, attaches or updates them to the selected registry-backed version without provider write-back, currently requires `auth.mode=singleUser` plus the bounded mutable-flow or flow-version-manager bootstrap access path, reuses an already live Flow Registry Client by name, and supports at most one direct Parameter Context attachment per import.
+
+| Field | Type | Description | Required | Default |
+| --- | --- | --- | --- | --- |
+| `versionedFlowImports.enabled` | boolean | Enables bounded runtime-managed versioned-flow import reconciliation. | No | `false` |
+| `versionedFlowImports.mountPath` | string | Mount path for the rendered runtime bundle and bootstrap status files. | No | `/opt/nifi/fabric/versioned-flow-imports` |
+| `versionedFlowImports.imports[]` | object list | Declared versioned-flow imports with a selected registry client name, bucket, flow name, selected version identifier or `latest`, one intended root-child target name, and optional direct Parameter Context reference. | No | `[]` |
 
 ## Availability, Storage, and Resources
 

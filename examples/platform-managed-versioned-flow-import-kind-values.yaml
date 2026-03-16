@@ -1,0 +1,23 @@
+nifi:
+  replicaCount: 1
+  image:
+    tag: 2.8.0
+  flowRegistryClients:
+    enabled: true
+    clients:
+    - name: github-flows
+      provider: github
+      description: Kind-focused GitHub registry client for bounded versioned-flow import proof.
+      repository:
+        owner: example-org
+        name: nifi-flows
+        path: flows
+        branch: main
+      parameterContextValues: retain
+      github:
+        apiUrl: http://github-mock.nifi.svc.cluster.local:8080
+        auth:
+          type: personalAccessToken
+          personalAccessTokenSecret:
+            name: github-flow-registry
+            key: token

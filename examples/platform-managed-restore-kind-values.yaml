@@ -1,0 +1,56 @@
+nifi:
+  replicaCount: 1
+  image:
+    tag: 2.8.0
+
+  authz:
+    applicationGroups:
+    - nifi-flow-version-managers
+    bundles:
+      flowVersionManager:
+        includeInitialAdmin: true
+        groups:
+        - nifi-flow-version-managers
+
+  flowRegistryClients:
+    enabled: true
+    clients:
+    - name: github-flows-restore
+      provider: github
+      description: Prepared GitHub registry client for the bounded restore workflow proof.
+      repository:
+        owner: example-org
+        name: nifi-flows
+        path: flows
+        branch: main
+      parameterContextValues: retain
+      github:
+        apiUrl: http://github-mock.nifi.svc.cluster.local:8080
+        auth:
+          type: personalAccessToken
+          personalAccessTokenSecret:
+            name: github-flow-registry
+            key: token
+
+  parameterContexts:
+    enabled: true
+    contexts:
+    - name: payments-runtime
+      description: Runtime-managed parameter context used by the bounded restore workflow proof.
+      parameters:
+      - name: payments.api.baseUrl
+        value: https://payments.internal.example.com
+
+  versionedFlowImports:
+    enabled: true
+    imports:
+    - name: payments-catalog-selection
+      description: Runtime-managed bounded versioned-flow import used by the bounded restore workflow proof.
+      registryClientName: github-flows-restore
+      bucket: team-a
+      flowName: catalog-selected-flow
+      version: latest
+      target:
+        rootProcessGroupName: payments-imported-root
+      parameterContextRefs:
+      - name: payments-runtime

@@ -10,6 +10,8 @@ mock_deployment="github-mock"
 controller_namespace="nifi-system"
 controller_deployment="nifi-fabric-controller-manager"
 workflow_bucket="team-a"
+workflow_flow_name=""
+workflow_pg_name=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -31,6 +33,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --workflow-bucket)
       workflow_bucket="$2"
+      shift 2
+      ;;
+    --workflow-flow-name)
+      workflow_flow_name="$2"
+      shift 2
+      ;;
+    --workflow-process-group-name)
+      workflow_pg_name="$2"
       shift 2
       ;;
     *)
@@ -215,8 +225,8 @@ if [[ -z "${registry_id}" ]]; then
 fi
 
 workflow_suffix="$(date +%s)"
-workflow_pg_name="workflow-pg-${workflow_suffix}"
-workflow_flow_name="workflow-flow-${workflow_suffix}"
+workflow_pg_name="${workflow_pg_name:-workflow-pg-${workflow_suffix}}"
+workflow_flow_name="${workflow_flow_name:-workflow-flow-${workflow_suffix}}"
 
 python3 - "${workflow_pg_name}" >"${tmpdir}/create-process-group.json" <<'PY'
 import json
@@ -256,6 +266,42 @@ if [[ -z "${workflow_pg_id}" ]]; then
   echo "failed to create workflow process group" >&2
   exit 1
 fi
+
+python3 >"${tmpdir}/create-label.json" <<'PY'
+import json
+import sys
+
+payload = {
+    "revision": {
+        "clientId": "github-flow-workflow-proof",
+        "version": 0,
+    },
+    "component": {
+        "label": "payments import seed",
+        "width": 260.0,
+        "height": 40.0,
+        "position": {"x": 180.0, "y": 180.0},
+        "style": {
+            "background-color": "#fff4bf",
+        },
+    },
+}
+json.dump(payload, sys.stdout)
+PY
+
+create_label_payload="$(tr -d '\n' < "${tmpdir}/create-label.json")"
+nifi_request POST "/process-groups/${workflow_pg_id}/labels" "${create_label_payload}" >"${tmpdir}/created-label.json"
+nifi_request GET "/process-groups/${workflow_pg_id}" >"${tmpdir}/workflow-process-group.json"
+
+workflow_pg_version="$(
+  python3 - "${tmpdir}/workflow-process-group.json" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1]))
+print(payload.get("revision", {}).get("version", 0))
+PY
+)"
 
 python3 - "${workflow_pg_version}" "${registry_id}" "${workflow_bucket}" "${workflow_flow_name}" >"${tmpdir}/start-version-control-request.json" <<'PY'
 import json
@@ -348,6 +394,8 @@ if expected_path not in files:
 content = files[expected_path]["content"]
 if flow_name not in content:
     raise SystemExit(f"expected {expected_path} to contain flow name {flow_name!r}")
+if "payments import seed" not in content:
+    raise SystemExit(f"expected {expected_path} to contain the seeded label content")
 
 print(json.dumps({"storedPath": expected_path}, indent=2, sort_keys=True))
 PY

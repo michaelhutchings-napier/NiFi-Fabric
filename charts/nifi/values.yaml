@@ -529,6 +529,47 @@ flowRegistryClients:
   clients: []
 
 # ------------------------------------------------------------------------------
+# Parameter Contexts
+# Docs: ../../docs/manage/parameters.md
+# ------------------------------------------------------------------------------
+
+# -- Runtime-managed Parameter Context definitions.
+# The chart creates and reconciles only the declared Parameter Contexts in NiFi:
+# - declared contexts are created, updated, and deleted through the NiFi API
+# - optional attachments are limited to named direct root-child process groups
+# - providerRefs stay reference-only; the product does not create or reconcile
+#   NiFi Parameter Providers
+# - live reconciliation does not require a rollout or pod restart for values or
+#   referenced Secret changes
+# Enterprise auth modes use the explicit bootstrap admin identity as the bounded
+# trusted-proxy management identity for this feature.
+parameterContexts:
+  enabled: false
+  mountPath: /opt/nifi/fabric/parameter-contexts
+  contexts: []
+
+# ------------------------------------------------------------------------------
+# Versioned Flow Imports
+# Docs: ../../docs/manage/flows.md
+# ------------------------------------------------------------------------------
+
+# -- Runtime-managed versioned-flow import definitions.
+# The chart creates only the bounded NiFi runtime state required for one
+# selected registry-backed flow import per entry:
+# - the selected live Flow Registry Client must already exist in NiFi
+# - the declared flow is imported under one named root child process group
+# - at most one direct Parameter Context reference can be attached
+# - removed imports are not deleted from NiFi in this slice
+# - ongoing version synchronization and arbitrary process-group mutation remain
+#   out of scope
+# In managed mode, changes are applied through the existing restart-trigger and
+# rollout safety path.
+versionedFlowImports:
+  enabled: false
+  mountPath: /opt/nifi/fabric/versioned-flow-imports
+  imports: []
+
+# ------------------------------------------------------------------------------
 # Availability, Storage, and Resources
 # Docs: ../../docs/reference/app-chart-values.md
 # ------------------------------------------------------------------------------
