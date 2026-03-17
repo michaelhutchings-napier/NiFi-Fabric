@@ -134,7 +134,9 @@ See [Compatibility](docs/compatibility.md) for the detailed matrix.
 - `charts/nifi` is the standalone-capable app chart
 - built-in controller-owned autoscaling is the primary autoscaling model
 - KEDA is optional, experimental, and secondary as an external intent source
+- scale-up recommendations now stay bounded and explainable: root-process-group backlog, queued bytes, timer-driven thread saturation, and CPU saturation are still the only current inputs, but single-signal pressure now needs corroboration or consecutive evaluations before it becomes a stronger recommendation
 - enforced scale-down stays one-step-at-a-time and now requires durable low-pressure evidence before the controller removes any node
+- smarter scale-down candidate selection remains intentionally bounded: under StatefulSet semantics the highest ordinal remains the only supported one-step removal candidate, so the controller explains that constraint explicitly instead of pretending to run a generic scheduler
 - when scale-down disconnect, offload, or post-removal settle work stalls, the controller now keeps the step blocked and restart-safe with stage-specific diagnostics instead of silently retrying risky destructive work
 - autoscaling diagnostics now make the requested, recommended, and executing states explicit through `status.autoscaling.external.*`, `status.autoscaling.recommendedReplicas`, `status.autoscaling.execution.*`, and context-rich `lastScalingDecision`
 - mutable-flow authorization bootstrap stays chart-first and controller-free

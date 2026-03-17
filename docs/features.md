@@ -27,10 +27,16 @@ NiFi-Fabric keeps the product surface small and explicit.
 - built-in controller-owned autoscaler is the primary autoscaling model
 - `Advisory` mode provides recommendation-only guidance
 - `Enforced` mode supports controller-owned scale-up
+- scale-up now uses a small bounded confidence model instead of reacting to a single strong sample:
+- root-process-group backlog and queued bytes are interpreted together with timer-driven thread saturation
+- CPU saturation can corroborate queue pressure
+- single-signal scale-up pressure must persist across consecutive evaluations before it becomes a stronger recommendation
 - one-step safe scale-down is available and intentionally conservative
 - enforced scale-down now requires durable low-pressure evidence: repeated zero-backlog observations, low executor activity when NiFi reports thread counts, extra consecutive samples when queue evidence is incomplete, and stabilization or cooldown windows
+- smarter scale-down candidate selection remains intentionally narrow: the controller still removes only the highest ordinal pod because StatefulSet semantics make that the bounded one-step removal candidate
 - transient zero-backlog dips are rejected when timer-driven work is still busy, and the controller records that block reason explicitly
 - operator-facing diagnostics now keep mode, external requested replicas, controller recommendation, active execution phase, blocked or failure reason, and next operator action visible in the existing autoscaling status fields
+- the signal model remains intentionally small: there is no forecasting, no ML layer, no arbitrary weighting engine, and no multi-node execution logic in this slice
 - direct autoscaler ownership of the NiFi `StatefulSet` is not the supported architecture
 
 ## Optional KEDA Integration

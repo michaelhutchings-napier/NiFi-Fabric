@@ -26,7 +26,7 @@ func TestBuildAutoscalingStatusAdvisoryHoldsCurrentReplicas(t *testing.T) {
 	cluster.Status.Replicas.Desired = 3
 	setAutoscalingSteadyStateConditions(cluster)
 
-	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Spec.Autoscaling, autoscalingSignalCollection{
+	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Status.Autoscaling, cluster.Spec.Autoscaling, autoscalingSignalCollection{
 		SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
 			Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
 			Available: true,
@@ -70,7 +70,7 @@ func TestBuildAutoscalingStatusClampsToConfiguredMinimum(t *testing.T) {
 	cluster.Status.Replicas.Desired = 2
 	setAutoscalingSteadyStateConditions(cluster)
 
-	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Spec.Autoscaling, autoscalingSignalCollection{
+	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Status.Autoscaling, cluster.Spec.Autoscaling, autoscalingSignalCollection{
 		SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{
 			{Type: platformv1alpha1.AutoscalingSignalQueuePressure, Available: true, Message: "queuedFlowFiles=0 queuedBytes=0 activeTimerDrivenThreads=1/10"},
 			{Type: platformv1alpha1.AutoscalingSignalCPU, Available: true, Message: "loadAverage=0.25 availableProcessors=2"},
@@ -91,14 +91,15 @@ func TestBuildAutoscalingStatusClampsToConfiguredMinimum(t *testing.T) {
 func TestBuildAutoscalingStatusScalesUpForActionableQueuePressure(t *testing.T) {
 	cluster := managedCluster()
 	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
-		Mode:        platformv1alpha1.AutoscalingModeAdvisory,
+		Mode:        platformv1alpha1.AutoscalingModeEnforced,
+		ScaleUp:     platformv1alpha1.AutoscalingScaleUpPolicy{Enabled: true},
 		MinReplicas: 2,
 		MaxReplicas: 4,
 	}
 	cluster.Status.Replicas.Desired = 2
 	setAutoscalingSteadyStateConditions(cluster)
 
-	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Spec.Autoscaling, autoscalingSignalCollection{
+	collection := qualifyAutoscalingSignalCollection(cluster.Status.Autoscaling, autoscalingSignalCollection{
 		SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
 			Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
 			Available: true,
@@ -109,18 +110,157 @@ func TestBuildAutoscalingStatusScalesUpForActionableQueuePressure(t *testing.T) 
 			FlowFilesQueued:          64,
 			BytesQueued:              1048576,
 			BytesQueuedObserved:      true,
+			BacklogPresent:           true,
 			ThreadCountsObserved:     true,
 			ActiveTimerDrivenThreads: 10,
 			MaxTimerDrivenThreads:    10,
 			Actionable:               true,
 		},
 	})
+	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Status.Autoscaling, cluster.Spec.Autoscaling, collection)
+
+	if got := derefOptionalInt32(status.RecommendedReplicas); got != 2 {
+		t.Fatalf("expected first saturated queue sample to hold at 2 replicas, got %d", got)
+	}
+	if status.Reason != autoscalingReasonScaleUpPending {
+		t.Fatalf("expected scale-up-confidence-pending reason, got %q", status.Reason)
+	}
+	if !strings.Contains(status.Signals[0].Message, "needs one more corroborating evaluation before scale-up") {
+		t.Fatalf("expected pending queue-pressure explanation, got %q", status.Signals[0].Message)
+	}
+}
+
+func TestBuildAutoscalingStatusScalesUpForConfirmedQueuePressure(t *testing.T) {
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode:        platformv1alpha1.AutoscalingModeEnforced,
+		ScaleUp:     platformv1alpha1.AutoscalingScaleUpPolicy{Enabled: true},
+		MinReplicas: 2,
+		MaxReplicas: 4,
+	}
+	cluster.Status.Replicas.Desired = 2
+	cluster.Status.Autoscaling.Signals = []platformv1alpha1.AutoscalingSignalStatus{{
+		Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
+		Available: true,
+		Message:   "queuedFlowFiles=64 queuedBytes=1048576 activeTimerDrivenThreads=8/10 backlog pressure is building and needs one more corroborating evaluation before scale-up",
+	}}
+	setAutoscalingSteadyStateConditions(cluster)
+
+	collection := qualifyAutoscalingSignalCollection(cluster.Status.Autoscaling, autoscalingSignalCollection{
+		SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
+			Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
+			Available: true,
+			Message:   "queuedFlowFiles=64 queuedBytes=1048576 activeTimerDrivenThreads=8/10 backlog pressure is building",
+		}},
+		QueuePressure: autoscalingQueuePressureSample{
+			Observed:                 true,
+			FlowFilesQueued:          64,
+			BytesQueued:              1048576,
+			BytesQueuedObserved:      true,
+			BacklogPresent:           true,
+			ThreadCountsObserved:     true,
+			ActiveTimerDrivenThreads: 8,
+			MaxTimerDrivenThreads:    10,
+			PressureBuilding:         true,
+		},
+	})
+	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Status.Autoscaling, cluster.Spec.Autoscaling, collection)
 
 	if got := derefOptionalInt32(status.RecommendedReplicas); got != 3 {
-		t.Fatalf("expected queue pressure to recommend 3 replicas, got %d", got)
+		t.Fatalf("expected confirmed queue pressure to recommend 3 replicas, got %d", got)
 	}
 	if status.Reason != autoscalingReasonQueuePressure {
 		t.Fatalf("expected queue-pressure reason, got %q", status.Reason)
+	}
+	if !strings.Contains(status.Signals[0].Message, "persisted across consecutive evaluations") {
+		t.Fatalf("expected persistent queue-pressure explanation, got %q", status.Signals[0].Message)
+	}
+}
+
+func TestBuildAutoscalingStatusScalesUpImmediatelyForCorroboratedQueueAndCPU(t *testing.T) {
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode:        platformv1alpha1.AutoscalingModeAdvisory,
+		MinReplicas: 2,
+		MaxReplicas: 4,
+		Signals: []platformv1alpha1.AutoscalingSignal{
+			platformv1alpha1.AutoscalingSignalQueuePressure,
+			platformv1alpha1.AutoscalingSignalCPU,
+		},
+	}
+	cluster.Status.Replicas.Desired = 2
+	setAutoscalingSteadyStateConditions(cluster)
+
+	collection := qualifyAutoscalingSignalCollection(cluster.Status.Autoscaling, autoscalingSignalCollection{
+		SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{
+			{Type: platformv1alpha1.AutoscalingSignalQueuePressure, Available: true, Message: "queuedFlowFiles=32 queuedBytes=1048576 activeTimerDrivenThreads=8/10"},
+			{Type: platformv1alpha1.AutoscalingSignalCPU, Available: true, Message: "loadAverage=2.00 availableProcessors=2"},
+		},
+		QueuePressure: autoscalingQueuePressureSample{
+			Observed:                 true,
+			FlowFilesQueued:          32,
+			BytesQueued:              1048576,
+			BytesQueuedObserved:      true,
+			BacklogPresent:           true,
+			ThreadCountsObserved:     true,
+			ActiveTimerDrivenThreads: 8,
+			MaxTimerDrivenThreads:    10,
+			PressureBuilding:         true,
+		},
+		CPU: autoscalingCPUSample{
+			Observed:            true,
+			LoadAverage:         2.0,
+			AvailableProcessors: 2,
+			Actionable:          true,
+		},
+	})
+	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Status.Autoscaling, cluster.Spec.Autoscaling, collection)
+
+	if got := derefOptionalInt32(status.RecommendedReplicas); got != 3 {
+		t.Fatalf("expected corroborated queue and CPU pressure to recommend 3 replicas, got %d", got)
+	}
+	if status.Reason != autoscalingReasonQueuePressure {
+		t.Fatalf("expected queue-pressure reason when backlog and CPU corroborate, got %q", status.Reason)
+	}
+	if !strings.Contains(summarizeAutoscalingSignals(status.Signals), "simultaneous CPU saturation corroborates the queue backlog") {
+		t.Fatalf("expected corroborated queue-pressure reasoning, got %#v", status.Signals)
+	}
+}
+
+func TestBuildAutoscalingStatusHoldsForUnconfirmedCPUSaturation(t *testing.T) {
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode:        platformv1alpha1.AutoscalingModeAdvisory,
+		MinReplicas: 2,
+		MaxReplicas: 4,
+		Signals:     []platformv1alpha1.AutoscalingSignal{platformv1alpha1.AutoscalingSignalCPU},
+	}
+	cluster.Status.Replicas.Desired = 2
+	setAutoscalingSteadyStateConditions(cluster)
+
+	collection := qualifyAutoscalingSignalCollection(cluster.Status.Autoscaling, autoscalingSignalCollection{
+		SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
+			Type:      platformv1alpha1.AutoscalingSignalCPU,
+			Available: true,
+			Message:   "loadAverage=2.00 availableProcessors=2",
+		}},
+		CPU: autoscalingCPUSample{
+			Observed:            true,
+			LoadAverage:         2.0,
+			AvailableProcessors: 2,
+			Actionable:          true,
+		},
+	})
+	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Status.Autoscaling, cluster.Spec.Autoscaling, collection)
+
+	if got := derefOptionalInt32(status.RecommendedReplicas); got != 2 {
+		t.Fatalf("expected unconfirmed CPU saturation to hold at 2 replicas, got %d", got)
+	}
+	if status.Reason != autoscalingReasonScaleUpPending {
+		t.Fatalf("expected scale-up-confidence-pending reason for CPU-only saturation, got %q", status.Reason)
+	}
+	if !strings.Contains(status.Signals[0].Message, "needs one more corroborating evaluation or root-process-group backlog before scale-up") {
+		t.Fatalf("expected CPU pending explanation, got %q", status.Signals[0].Message)
 	}
 }
 
@@ -139,7 +279,7 @@ func TestBuildAutoscalingStatusUsesExternalScaleUpIntent(t *testing.T) {
 	cluster.Status.Replicas.Desired = 2
 	setAutoscalingSteadyStateConditions(cluster)
 
-	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Spec.Autoscaling, autoscalingSignalCollection{})
+	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Status.Autoscaling, cluster.Spec.Autoscaling, autoscalingSignalCollection{})
 
 	if got := derefOptionalInt32(status.RecommendedReplicas); got != 4 {
 		t.Fatalf("expected external scale-up intent to be bounded to 4 replicas, got %d", got)
@@ -174,7 +314,7 @@ func TestBuildAutoscalingStatusUsesExternalScaleDownIntentWhenEnabled(t *testing
 	cluster.Status.Replicas.Desired = 4
 	setAutoscalingSteadyStateConditions(cluster)
 
-	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Spec.Autoscaling, autoscalingSignalCollection{})
+	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Status.Autoscaling, cluster.Spec.Autoscaling, autoscalingSignalCollection{})
 
 	if got := derefOptionalInt32(status.RecommendedReplicas); got != 2 {
 		t.Fatalf("expected external scale-down intent to be bounded to min replicas 2, got %d", got)
@@ -209,7 +349,7 @@ func TestBuildAutoscalingStatusIgnoresExternalScaleDownIntent(t *testing.T) {
 	cluster.Status.Replicas.Desired = 3
 	setAutoscalingSteadyStateConditions(cluster)
 
-	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Spec.Autoscaling, autoscalingSignalCollection{})
+	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Status.Autoscaling, cluster.Spec.Autoscaling, autoscalingSignalCollection{})
 
 	if got := derefOptionalInt32(status.RecommendedReplicas); got != 3 {
 		t.Fatalf("expected ignored external scale-down to hold at 3 replicas, got %d", got)
@@ -245,7 +385,7 @@ func TestBuildAutoscalingStatusDoesNotScaleDownBelowMatchingExternalIntent(t *te
 	cluster.Status.Replicas.Desired = 3
 	setAutoscalingSteadyStateConditions(cluster)
 
-	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Spec.Autoscaling, autoscalingSignalCollection{
+	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Status.Autoscaling, cluster.Spec.Autoscaling, autoscalingSignalCollection{
 		SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
 			Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
 			Available: true,
@@ -463,6 +603,62 @@ func TestMaybeExecuteAutoscalingScaleUpDoesNotActWhenRecommendationIsBlocked(t *
 	}
 	if got := cluster.Status.Autoscaling.LastScalingDecision; !strings.Contains(got, "Autoscaling is blocked while Rollout is in progress") || !strings.Contains(got, "mode=Enforced") || !strings.Contains(got, "execution=Idle") {
 		t.Fatalf("expected blocked decision, got %q", got)
+	}
+}
+
+func TestSyncAutoscalingStatusPromotesPendingQueuePressureAfterConfirmation(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode:        platformv1alpha1.AutoscalingModeEnforced,
+		ScaleUp:     platformv1alpha1.AutoscalingScaleUpPolicy{Enabled: true},
+		MinReplicas: 2,
+		MaxReplicas: 4,
+	}
+	cluster.Status.Replicas.Desired = 2
+	setAutoscalingSteadyStateConditions(cluster)
+	statefulSet := managedStatefulSet("nifi", 2, "nifi-rev", "nifi-rev")
+
+	reconciler, _ := newTestReconciler(t, &fakeHealthChecker{}, cluster, statefulSet)
+	reconciler.APIReader = nil
+	reconciler.AutoscalingCollector = &fakeAutoscalingCollector{
+		collection: autoscalingSignalCollection{
+			SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
+				Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
+				Available: true,
+				Message:   "queuedFlowFiles=64 queuedBytes=1048576 activeTimerDrivenThreads=8/10",
+			}},
+			QueuePressure: autoscalingQueuePressureSample{
+				Observed:                 true,
+				FlowFilesQueued:          64,
+				BytesQueued:              1048576,
+				BytesQueuedObserved:      true,
+				BacklogPresent:           true,
+				ThreadCountsObserved:     true,
+				ActiveTimerDrivenThreads: 8,
+				MaxTimerDrivenThreads:    10,
+				PressureBuilding:         true,
+			},
+		},
+	}
+
+	reconciler.syncAutoscalingStatus(ctx, cluster)
+	if cluster.Status.Autoscaling.Reason != autoscalingReasonScaleUpPending {
+		t.Fatalf("expected first pressure sample to stay pending, got %#v", cluster.Status.Autoscaling)
+	}
+	if !strings.Contains(cluster.Status.Autoscaling.LastScalingDecision, "scale-up signal confidence is still forming") {
+		t.Fatalf("expected pending scale-up decision, got %q", cluster.Status.Autoscaling.LastScalingDecision)
+	}
+
+	reconciler.syncAutoscalingStatus(ctx, cluster)
+	if cluster.Status.Autoscaling.Reason != autoscalingReasonQueuePressure {
+		t.Fatalf("expected second corroborating pressure sample to recommend scale-up, got %#v", cluster.Status.Autoscaling)
+	}
+	if got := derefOptionalInt32(cluster.Status.Autoscaling.RecommendedReplicas); got != 3 {
+		t.Fatalf("expected confirmed pressure to recommend 3 replicas, got %d", got)
+	}
+	if !strings.Contains(summarizeAutoscalingSignals(cluster.Status.Autoscaling.Signals), "persisted across consecutive evaluations") {
+		t.Fatalf("expected persistent queue-pressure reasoning, got %#v", cluster.Status.Autoscaling.Signals)
 	}
 }
 
@@ -1122,7 +1318,7 @@ func TestBuildAutoscalingStatusRecommendsScaleDownForLowPressure(t *testing.T) {
 	cluster.Status.Replicas.Desired = 3
 	setAutoscalingSteadyStateConditions(cluster)
 
-	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Spec.Autoscaling, autoscalingSignalCollection{
+	status := buildAutoscalingSteadyStateStatus(cluster, cluster.Status.Autoscaling, cluster.Spec.Autoscaling, autoscalingSignalCollection{
 		SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
 			Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
 			Available: true,
@@ -1833,6 +2029,103 @@ func TestMaybeExecuteAutoscalingScaleDownUsesLatestStatusForCooldown(t *testing.
 	}
 	if got := derefInt32(updatedStatefulSet.Spec.Replicas); got != replicas {
 		t.Fatalf("expected stale reconcile input to leave replicas at %d, got %d", replicas, got)
+	}
+}
+
+func TestAutoscalingScaleDownPreparationDecisionMentionsHighestOrdinalBoundedModel(t *testing.T) {
+	cluster := managedCluster()
+	decision := autoscalingScaleDownPreparationDecision(cluster, "nifi-2")
+
+	if !strings.Contains(decision, "preparing highest ordinal pod nifi-2") {
+		t.Fatalf("expected highest ordinal pod to be named in scale-down preparation decision, got %q", decision)
+	}
+	if !strings.Contains(decision, "bounded one-step model") {
+		t.Fatalf("expected bounded one-step rationale in scale-down preparation decision, got %q", decision)
+	}
+}
+
+func TestMaybeExecuteAutoscalingScaleDownExplainsHighestOrdinalConstraintWhenCandidateMissing(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Status.Replicas.Desired = 3
+	lowPressureSince := metav1.NewTime(time.Now().UTC().Add(-10 * time.Minute))
+	cluster.Status.Autoscaling.LowPressureSince = &lowPressureSince
+	cluster.Spec.Autoscaling = platformv1alpha1.AutoscalingPolicy{
+		Mode: platformv1alpha1.AutoscalingModeEnforced,
+		ScaleDown: platformv1alpha1.AutoscalingScaleDownPolicy{
+			Enabled:             true,
+			Cooldown:            metav1.Duration{Duration: 10 * time.Minute},
+			StabilizationWindow: metav1.Duration{Duration: 2 * time.Minute},
+		},
+		MinReplicas: 1,
+		MaxReplicas: 4,
+	}
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionTargetResolved,
+		Status:             metav1.ConditionTrue,
+		Reason:             "TargetFound",
+		Message:            "Target StatefulSet was resolved successfully",
+		LastTransitionTime: metav1.Now(),
+	})
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionAvailable,
+		Status:             metav1.ConditionTrue,
+		Reason:             "RolloutHealthy",
+		Message:            "Target StatefulSet and NiFi cluster health are converged",
+		LastTransitionTime: metav1.Now(),
+	})
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionProgressing,
+		Status:             metav1.ConditionFalse,
+		Reason:             "NoDrift",
+		Message:            "No rollout is currently in progress and no watched drift is active",
+		LastTransitionTime: metav1.Now(),
+	})
+	cluster.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionDegraded,
+		Status:             metav1.ConditionFalse,
+		Reason:             "AsExpected",
+		Message:            "No degradation detected",
+		LastTransitionTime: metav1.Now(),
+	})
+
+	target := managedStatefulSet("nifi", 3, "nifi-rev", "nifi-rev")
+	reconciler, _ := newTestReconciler(t, &fakeHealthChecker{
+		healthResponses: []healthResponse{{result: healthyResult(3)}},
+	}, cluster, target)
+	reconciler.AutoscalingCollector = &fakeAutoscalingCollector{
+		collection: autoscalingSignalCollection{
+			SignalStatuses: []platformv1alpha1.AutoscalingSignalStatus{{
+				Type:      platformv1alpha1.AutoscalingSignalQueuePressure,
+				Available: true,
+				Message:   "queuedFlowFiles=0 queuedBytes=0 activeTimerDrivenThreads=1/10 backlog is low",
+			}},
+			QueuePressure: autoscalingQueuePressureSample{
+				Observed:                 true,
+				BytesQueuedObserved:      true,
+				ThreadCountsObserved:     true,
+				ActiveTimerDrivenThreads: 1,
+				MaxTimerDrivenThreads:    10,
+				LowPressure:              true,
+			},
+		},
+	}
+
+	scaled, result, err := reconciler.maybeExecuteAutoscalingScaleDown(ctx, cluster, target, nil)
+	if err != nil {
+		t.Fatalf("maybeExecuteAutoscalingScaleDown returned error: %v", err)
+	}
+	if !scaled {
+		t.Fatalf("expected missing highest ordinal candidate to be handled as an in-progress blocked scale-down step")
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected waiting-for-candidate path to requeue after %s, got %#v", rolloutPollRequeue, result)
+	}
+	if got := cluster.Status.Autoscaling.LastScalingDecision; !strings.Contains(got, "StatefulSet semantics bound one-step scale-down to that pod") {
+		t.Fatalf("expected highest ordinal constraint in last scaling decision, got %q", got)
+	}
+	if got := cluster.Status.LastOperation.Message; !strings.Contains(got, "only bounded autoscaling scale-down candidate") {
+		t.Fatalf("expected highest ordinal rationale in last operation message, got %q", got)
 	}
 }
 

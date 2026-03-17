@@ -129,9 +129,9 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleDown(ctx context.Con
 
 	targetPod, ok := highestOrdinalPod(pods)
 	if !ok {
-		message := "Waiting for the highest ordinal pod to appear before autoscaling scale-down can continue"
+		message := autoscalingScaleDownWaitingForHighestOrdinalMessage()
 		setAutoscalingExecutionStatus(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleDownPrepare, platformv1alpha1.AutoscalingExecutionStateBlocked, currentReplicas-1, "WaitingForHighestOrdinalPod", "", message)
-		cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, "NoScaleDown: waiting for the highest ordinal pod to appear")
+		cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, "NoScaleDown: waiting for the highest ordinal pod because StatefulSet semantics bound one-step scale-down to that pod")
 		cluster.Status.LastOperation = runningOperation("AutoscalingScaleDown", message)
 		r.setAutoscalingScaleDownProgressConditions(cluster, "WaitingForAutoscalingScaleDown", message)
 		return true, ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
@@ -184,9 +184,9 @@ func (r *NiFiClusterReconciler) reconcileAutoscalingScaleDown(ctx context.Contex
 	if cluster.Status.Autoscaling.Execution.Phase == platformv1alpha1.AutoscalingExecutionPhaseScaleDownPrepare {
 		targetPod, ok := highestOrdinalPod(pods)
 		if !ok {
-			message := "Waiting for the highest ordinal pod to appear before autoscaling scale-down can continue"
+			message := autoscalingScaleDownWaitingForHighestOrdinalMessage()
 			setAutoscalingExecutionStatus(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleDownPrepare, platformv1alpha1.AutoscalingExecutionStateBlocked, currentReplicas-1, "WaitingForHighestOrdinalPod", "", message)
-			cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, cluster.Status.Autoscaling, "NoScaleDown: waiting for the highest ordinal pod to appear")
+			cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, cluster.Status.Autoscaling, "NoScaleDown: waiting for the highest ordinal pod because StatefulSet semantics bound one-step scale-down to that pod")
 			cluster.Status.LastOperation = runningOperation("AutoscalingScaleDown", message)
 			r.setAutoscalingScaleDownProgressConditions(cluster, "WaitingForAutoscalingScaleDown", message)
 			return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
@@ -268,7 +268,11 @@ func autoscalingScaleDownPreparationDecision(cluster *platformv1alpha1.NiFiClust
 		cluster.Status.Autoscaling.LastScalingDecision != "" {
 		return cluster.Status.Autoscaling.LastScalingDecision
 	}
-	return autoscalingDecisionWithContext(cluster, cluster.Status.Autoscaling, fmt.Sprintf("ScaleDown: preparing pod %s for safe removal", podName))
+	return autoscalingDecisionWithContext(cluster, cluster.Status.Autoscaling, fmt.Sprintf("ScaleDown: preparing highest ordinal pod %s for safe removal within the bounded one-step model", podName))
+}
+
+func autoscalingScaleDownWaitingForHighestOrdinalMessage() string {
+	return "Waiting for the highest ordinal pod to appear because StatefulSet semantics make it the only bounded autoscaling scale-down candidate"
 }
 
 func pauseAutoscalingScaleDownForLifecycle(cluster *platformv1alpha1.NiFiCluster, blockedReason, message string) {
@@ -296,13 +300,13 @@ func (r *NiFiClusterReconciler) executeAutoscalingScaleDownStep(ctx context.Cont
 	}
 
 	now := metav1.NewTime(time.Now().UTC())
-	decision := fmt.Sprintf("ScaleDown: reduced target StatefulSet replicas from %d to %d after preparing pod %s", currentReplicas, nextReplicas, pod.Name)
+	decision := fmt.Sprintf("ScaleDown: reduced target StatefulSet replicas from %d to %d after preparing highest ordinal pod %s", currentReplicas, nextReplicas, pod.Name)
 	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
 	cluster.Status.Replicas.Desired = nextReplicas
 	cluster.Status.Autoscaling.LastScaleDownTime = &now
 	setAutoscalingExecutionStatus(cluster, platformv1alpha1.AutoscalingExecutionPhaseScaleDownSettle, platformv1alpha1.AutoscalingExecutionStateRunning, nextReplicas, "", "", fmt.Sprintf("Waiting for the autoscaling scale-down step to settle at %d replicas", nextReplicas))
 	cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, cluster.Status.Autoscaling, decision)
-	cluster.Status.LastOperation = runningOperation("AutoscalingScaleDown", fmt.Sprintf("%s because sustained low pressure made the higher ordinal removable", decision))
+	cluster.Status.LastOperation = runningOperation("AutoscalingScaleDown", fmt.Sprintf("%s because sustained low pressure made the highest ordinal removable within the bounded one-step model", decision))
 	r.setAutoscalingScaleDownProgressConditions(cluster, "AutoscalingScaleDown", fmt.Sprintf("Prepared pod %s for autoscaling scale-down and reduced StatefulSet replicas to %d", pod.Name, nextReplicas))
 	recordAutoscalingScaleAction("scaled_down")
 	if r.Recorder != nil {

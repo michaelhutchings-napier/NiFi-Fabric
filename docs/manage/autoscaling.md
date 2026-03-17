@@ -43,7 +43,7 @@ Scale-down remains one-step-at-a-time.
 That is intentional:
 
 - NiFi node removal is destructive
-- highest ordinal is removed first
+- highest ordinal is removed first because StatefulSet semantics make it the only bounded one-step removal candidate in this model
 - disconnect and offload must complete before deletion
 - bulk scale-down is not supported
 

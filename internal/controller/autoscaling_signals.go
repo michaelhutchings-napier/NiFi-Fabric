@@ -29,11 +29,15 @@ type autoscalingQueuePressureSample struct {
 	FlowFilesQueued          int64
 	BytesQueued              int64
 	BytesQueuedObserved      bool
+	BacklogPresent           bool
 	ActiveTimerDrivenThreads int32
 	MaxTimerDrivenThreads    int32
 	ThreadCountsObserved     bool
+	PressureBuilding         bool
 	Actionable               bool
+	PendingConfirmation      bool
 	LowPressure              bool
+	Interpretation           string
 }
 
 type autoscalingCPUSample struct {
@@ -41,6 +45,8 @@ type autoscalingCPUSample struct {
 	LoadAverage         float64
 	AvailableProcessors int32
 	Actionable          bool
+	PendingConfirmation bool
+	Interpretation      string
 }
 
 type LiveAutoscalingSignalCollector struct {
@@ -105,6 +111,8 @@ func (c *LiveAutoscalingSignalCollector) Collect(ctx context.Context, _ *platfor
 		collection.QueuePressure.FlowFilesQueued = rootStatus.FlowFilesQueued
 		collection.QueuePressure.BytesQueued = rootStatus.BytesQueued
 		collection.QueuePressure.BytesQueuedObserved = rootStatus.BytesQueuedObserved
+		collection.QueuePressure.BacklogPresent = rootStatus.FlowFilesQueued > 0 ||
+			(rootStatus.BytesQueuedObserved && rootStatus.BytesQueued > 0)
 		collection.QueuePressure.LowPressure = rootStatus.FlowFilesQueued == 0 &&
 			(!rootStatus.BytesQueuedObserved || rootStatus.BytesQueued == 0)
 	}
@@ -115,9 +123,13 @@ func (c *LiveAutoscalingSignalCollector) Collect(ctx context.Context, _ *platfor
 		if collection.QueuePressure.Observed &&
 			collection.QueuePressure.ThreadCountsObserved &&
 			collection.QueuePressure.MaxTimerDrivenThreads > 0 &&
-			(collection.QueuePressure.FlowFilesQueued > 0 || collection.QueuePressure.BytesQueued > 0) &&
-			collection.QueuePressure.ActiveTimerDrivenThreads >= collection.QueuePressure.MaxTimerDrivenThreads {
-			collection.QueuePressure.Actionable = true
+			collection.QueuePressure.BacklogPresent {
+			if collection.QueuePressure.ActiveTimerDrivenThreads >= collection.QueuePressure.MaxTimerDrivenThreads {
+				collection.QueuePressure.Actionable = true
+			}
+			if collection.QueuePressure.ActiveTimerDrivenThreads >= autoscalingScaleUpThreadThreshold(collection.QueuePressure.MaxTimerDrivenThreads) {
+				collection.QueuePressure.PressureBuilding = true
+			}
 		}
 	}
 	if needsCPU && systemDiagErr == nil {
@@ -131,7 +143,6 @@ func (c *LiveAutoscalingSignalCollector) Collect(ctx context.Context, _ *platfor
 	if collection.QueuePressure.LowPressure && collection.CPU.Actionable {
 		collection.QueuePressure.LowPressure = false
 	}
-
 	for _, signal := range signals {
 		switch signal {
 		case platformv1alpha1.AutoscalingSignalCPU:
@@ -260,7 +271,9 @@ func buildQueuePressureSignalStatus(sample autoscalingQueuePressureSample, queue
 		sample.MaxTimerDrivenThreads,
 	)
 	if sample.Actionable {
-		message += " backlog is actionable"
+		message += " " + emptyIfUnset(sample.Interpretation, "backlog is actionable")
+	} else if sample.PendingConfirmation {
+		message += " " + emptyIfUnset(sample.Interpretation, "backlog pressure is building and needs one more corroborating evaluation before scale-up")
 	} else if sample.LowPressure {
 		threshold := autoscalingLowPressureActiveThreadThreshold(sample.MaxTimerDrivenThreads)
 		if sample.ActiveTimerDrivenThreads > threshold {
@@ -268,6 +281,8 @@ func buildQueuePressureSignalStatus(sample autoscalingQueuePressureSample, queue
 		} else {
 			message += " backlog is low"
 		}
+	} else if sample.BacklogPresent {
+		message += " " + emptyIfUnset(sample.Interpretation, "backlog is present but executor saturation is below the scale-up threshold")
 	}
 
 	return platformv1alpha1.AutoscalingSignalStatus{
@@ -295,13 +310,97 @@ func buildCPUSignalStatus(sample autoscalingCPUSample, diagnosticsErr error) pla
 
 	message := fmt.Sprintf("loadAverage=%.2f availableProcessors=%d", sample.LoadAverage, sample.AvailableProcessors)
 	if sample.Actionable {
-		message += " saturation is actionable"
+		message += " " + emptyIfUnset(sample.Interpretation, "saturation is actionable")
+	} else if sample.PendingConfirmation {
+		message += " " + emptyIfUnset(sample.Interpretation, "saturation is high but needs one more corroborating evaluation or root-process-group backlog before scale-up")
 	}
 	return platformv1alpha1.AutoscalingSignalStatus{
 		Type:      platformv1alpha1.AutoscalingSignalCPU,
 		Available: true,
 		Message:   message,
 	}
+}
+
+func qualifyAutoscalingSignalCollection(previous platformv1alpha1.AutoscalingStatus, collection autoscalingSignalCollection) autoscalingSignalCollection {
+	queueSeenBefore := autoscalingPreviousQueuePressureObserved(previous)
+	cpuSeenBefore := autoscalingPreviousCPUSaturationObserved(previous)
+
+	if collection.QueuePressure.BacklogPresent {
+		switch {
+		case collection.QueuePressure.Actionable && collection.CPU.Actionable:
+			collection.QueuePressure.Interpretation = "backlog is actionable because simultaneous CPU saturation corroborates the queue backlog"
+		case collection.QueuePressure.Actionable && queueSeenBefore:
+			collection.QueuePressure.Interpretation = "backlog is actionable because queue pressure persisted across consecutive evaluations"
+		case collection.QueuePressure.Actionable:
+			collection.QueuePressure.Actionable = false
+			collection.QueuePressure.PendingConfirmation = true
+			collection.QueuePressure.Interpretation = "backlog pressure is building and needs one more corroborating evaluation before scale-up"
+		case collection.QueuePressure.PressureBuilding && collection.CPU.Actionable:
+			collection.QueuePressure.Actionable = true
+			collection.QueuePressure.Interpretation = "backlog is actionable because simultaneous CPU saturation corroborates the queue backlog"
+		case collection.QueuePressure.PressureBuilding && queueSeenBefore:
+			collection.QueuePressure.Actionable = true
+			collection.QueuePressure.Interpretation = "backlog is actionable because queue pressure persisted across consecutive evaluations"
+		case collection.QueuePressure.PressureBuilding:
+			collection.QueuePressure.PendingConfirmation = true
+			collection.QueuePressure.Interpretation = "backlog pressure is building and needs one more corroborating evaluation before scale-up"
+		default:
+			collection.QueuePressure.Interpretation = "backlog is present but executor saturation is below the scale-up threshold"
+		}
+	}
+
+	if collection.CPU.Actionable {
+		switch {
+		case collection.QueuePressure.BacklogPresent:
+			collection.CPU.Interpretation = "saturation is actionable because root-process-group backlog corroborates the CPU pressure"
+		case cpuSeenBefore:
+			collection.CPU.Interpretation = "saturation is actionable because CPU pressure persisted across consecutive evaluations"
+		default:
+			collection.CPU.Actionable = false
+			collection.CPU.PendingConfirmation = true
+			collection.CPU.Interpretation = "saturation is high but needs one more corroborating evaluation or root-process-group backlog before scale-up"
+		}
+	}
+
+	for i := range collection.SignalStatuses {
+		if !collection.SignalStatuses[i].Available {
+			continue
+		}
+		switch collection.SignalStatuses[i].Type {
+		case platformv1alpha1.AutoscalingSignalCPU:
+			collection.SignalStatuses[i] = buildCPUSignalStatus(collection.CPU, nil)
+		case platformv1alpha1.AutoscalingSignalQueuePressure:
+			collection.SignalStatuses[i] = buildQueuePressureSignalStatus(collection.QueuePressure, nil, nil)
+		}
+	}
+
+	return collection
+}
+
+func autoscalingPreviousQueuePressureObserved(previous platformv1alpha1.AutoscalingStatus) bool {
+	return autoscalingSignalMessageContains(previous.Signals, platformv1alpha1.AutoscalingSignalQueuePressure, "backlog is actionable") ||
+		autoscalingSignalMessageContains(previous.Signals, platformv1alpha1.AutoscalingSignalQueuePressure, "backlog pressure is building")
+}
+
+func autoscalingPreviousCPUSaturationObserved(previous platformv1alpha1.AutoscalingStatus) bool {
+	return autoscalingSignalMessageContains(previous.Signals, platformv1alpha1.AutoscalingSignalCPU, "saturation is actionable") ||
+		autoscalingSignalMessageContains(previous.Signals, platformv1alpha1.AutoscalingSignalCPU, "saturation is high but needs one more corroborating evaluation")
+}
+
+func autoscalingSignalMessageContains(signals []platformv1alpha1.AutoscalingSignalStatus, signalType platformv1alpha1.AutoscalingSignal, fragment string) bool {
+	for _, signal := range signals {
+		if signal.Type != signalType {
+			continue
+		}
+		if strings.Contains(strings.ToLower(signal.Message), strings.ToLower(fragment)) {
+			return true
+		}
+	}
+	return false
+}
+
+func autoscalingScaleUpConfidencePending(collection autoscalingSignalCollection) bool {
+	return collection.QueuePressure.PendingConfirmation || collection.CPU.PendingConfirmation
 }
 
 func formatObservedBytes(value int64, observed bool) string {

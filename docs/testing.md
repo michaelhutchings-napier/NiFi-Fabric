@@ -173,20 +173,28 @@ The focused autoscaling scale-down runtime commands are:
 
 - `make kind-autoscaling-scale-down-fast-e2e`
 - `make kind-autoscaling-scale-down-fast-e2e-reuse`
+- `make kind-autoscaling-scale-up-fast-e2e`
+- `make kind-autoscaling-scale-up-fast-e2e-reuse`
 
 What they prove:
 
+- the controller remains the only executor of actual scale-up and scale-down
+- scale-up recommendations stay bounded to explainable queue-pressure and CPU signals rather than a generic predictor
+- single-signal scale-up pressure now needs corroboration or consecutive evaluations before it becomes a stronger recommendation
+- corroborated queue plus CPU pressure can still promote an immediate one-step scale-up recommendation
 - the controller remains the only executor of actual scale-down
 - scale-down stays one-step-at-a-time
+- scale-down candidate selection remains intentionally bounded to the highest ordinal pod, and repo tests keep that rationale explicit in operator-facing decisions instead of introducing hidden scheduling logic
 - a removal step is gated on sustained low-pressure evidence instead of a single quiet sample
 - low-pressure needs repeated zero-backlog observations and then still waits through stabilization and cooldown
 - transient zero-backlog dips do not trigger removal when executor activity is still above the low-pressure threshold
 - the operator-facing decision text stays explicit about why scale-down is allowed or blocked
-- focused unit coverage now also checks blocked lifecycle visibility, ignored external downscale visibility, execution-event context, and deferred decision stability when cooldown or stabilization timestamps are carried in `lastScalingDecision`
+- focused unit coverage now also checks richer signal qualification, scale-up confidence hysteresis, blocked lifecycle visibility, ignored external downscale visibility, execution-event context, and deferred decision stability when cooldown or stabilization timestamps are carried in `lastScalingDecision`
 - repo tests also cover stuck offload, stage-specific retry or timeout reasons, stalled post-removal drain, restart-safe resume of blocked prepare or settle work, safe re-establishment after pod churn, and clean pause or resume behavior when rollout, TLS, hibernation, or restore precedence interrupts autoscaling intent
 
 What they do not prove:
 
+- a generic forecasting or prediction engine; the model remains heuristic and bounded
 - a runtime-injected stalled offload or drain failure harness on kind in this slice
 - multi-node or bulk scale-down remediation beyond the one-step controller-owned path
 

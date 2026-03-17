@@ -60,8 +60,15 @@ Primary model:
 - controller-owned autoscaling
 - `Disabled`, `Advisory`, and `Enforced` modes
 - one-step, conservative scale-down
+- scale-up stays bounded and explainable rather than predictive: queue backlog, queued bytes, timer-driven thread saturation, and CPU saturation remain the only current inputs
+- scale-up recommendations now use a small confidence layer instead of a single-sample trigger:
+- corroborated pressure can act immediately when queue pressure and CPU saturation align
+- single-signal pressure must persist across consecutive evaluations before it becomes a stronger recommendation
+- queue backlog without corroborating saturation remains visible in signal messages but does not by itself become a scale action
 - enforced scale-down depends on durable low-pressure evidence rather than a single quiet poll
 - low-pressure evidence stays intentionally simple and explainable: repeated zero-backlog observations, low executor activity when thread counts are available, extra consecutive-sample requirements when queue evidence is incomplete, stabilization, and cooldown
+- smarter drainability or capacity heuristics stay bounded by StatefulSet semantics: one-step scale-down still removes only the highest ordinal pod, so the controller does not score lower ordinals or act like a scheduler
+- recommendation reasoning stays operator-facing: blocked because confidence is still forming, strengthened because pressure persisted, or strengthened immediately because multiple signals agree
 - disconnect, offload, and post-removal settle work stay restart-safe and resumable inside the same controller-owned execution state
 - stalled destructive work prefers explicit blocked or timed-out states with stage-specific diagnostics over risky retry loops or broader remediation behavior
 - higher-precedence rollout, TLS, hibernation, and restore work can pause autoscaling execution; the autoscaling step must remain resumable after the conflict clears instead of competing with the other lifecycle path

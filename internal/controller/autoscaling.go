@@ -27,6 +27,7 @@ const (
 	autoscalingReasonAboveMaxReplicas   = "AboveMaxReplicas"
 	autoscalingReasonExternalScaleUp    = "ExternalScaleUpRequested"
 	autoscalingReasonExternalScaleDown  = "ExternalScaleDownRequested"
+	autoscalingReasonScaleUpPending     = "ScaleUpConfidencePending"
 	autoscalingReasonQueuePressure      = "QueuePressureDetected"
 	autoscalingReasonCPUSaturation      = "CPUSaturationDetected"
 	autoscalingReasonLowPressure        = "LowPressureDetected"
@@ -39,6 +40,8 @@ const (
 	defaultAutoscalingLowPressureSamples     = 3
 	autoscalingLowPressureExtraSamples       = 2
 	autoscalingLowPressureThreadDivisor      = 4
+	autoscalingScaleUpThreadDivisor          = 4
+	autoscalingScaleUpThreadNumerator        = 3
 )
 
 type autoscalingExternalEvaluation struct {
@@ -184,6 +187,9 @@ func autoscalingNoScaleDecision(cluster *platformv1alpha1.NiFiCluster, status pl
 		}
 		return autoscalingDecisionWithContext(cluster, status, "NoScaleDown: waiting for the steady-state autoscaling executor")
 	}
+	if status.Reason == autoscalingReasonScaleUpPending {
+		return autoscalingDecisionWithContext(cluster, status, fmt.Sprintf("NoScaleUp: %s", autoscalingStatusMessageForCluster(cluster, status)))
+	}
 	if currentReplicas > autoscalingMinReplicas(policy, currentReplicas) && policy.ScaleDown.Enabled {
 		if reason := autoscalingLowPressureBlockedReasonFromSignals(status.Signals); reason != "" {
 			return autoscalingDecisionWithContext(cluster, status, fmt.Sprintf("NoScaleDown: %s", reason))
@@ -233,7 +239,9 @@ func (r *NiFiClusterReconciler) buildAutoscalingStatusForTarget(ctx context.Cont
 		collection.SignalStatuses = unavailableAutoscalingSignals(signals, "autoscaling signal collector is not configured")
 	}
 
-	return buildAutoscalingSteadyStateStatus(cluster, policy, collection), collection
+	previous := r.previousAutoscalingStatus(ctx, cluster)
+	collection = qualifyAutoscalingSignalCollection(previous, collection)
+	return buildAutoscalingSteadyStateStatus(cluster, previous, policy, collection), collection
 }
 
 func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleUp(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet) (bool, ctrl.Result, error) {
@@ -264,7 +272,7 @@ func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleUp(ctx context.Conte
 		cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, "NoScaleUp: recommended replicas require a smaller cluster")
 		return false, ctrl.Result{}, nil
 	case recommendedReplicas == currentReplicas:
-		cluster.Status.Autoscaling.LastScalingDecision = autoscalingDecisionWithContext(cluster, status, "NoScale: recommended replicas are already satisfied")
+		cluster.Status.Autoscaling.LastScalingDecision = autoscalingNoScaleDecision(cluster, status)
 		return false, ctrl.Result{}, nil
 	}
 
@@ -409,7 +417,7 @@ func blockedAutoscalingStatus(cluster *platformv1alpha1.NiFiCluster) (bool, stri
 	return false, ""
 }
 
-func buildAutoscalingSteadyStateStatus(cluster *platformv1alpha1.NiFiCluster, policy platformv1alpha1.AutoscalingPolicy, collection autoscalingSignalCollection) platformv1alpha1.AutoscalingStatus {
+func buildAutoscalingSteadyStateStatus(cluster *platformv1alpha1.NiFiCluster, _ platformv1alpha1.AutoscalingStatus, policy platformv1alpha1.AutoscalingPolicy, collection autoscalingSignalCollection) platformv1alpha1.AutoscalingStatus {
 	currentReplicas := cluster.Status.Replicas.Desired
 	minReplicas := autoscalingMinReplicas(policy, currentReplicas)
 	maxReplicas := autoscalingMaxReplicas(policy, minReplicas, currentReplicas)
@@ -433,6 +441,9 @@ func buildAutoscalingSteadyStateStatus(cluster *platformv1alpha1.NiFiCluster, po
 		} else {
 			reason = autoscalingReasonExternalScaleUp
 		}
+	case autoscalingScaleUpConfidencePending(collection):
+		recommended = currentReplicas
+		reason = autoscalingReasonScaleUpPending
 	case collection.QueuePressure.Actionable:
 		recommended = currentReplicas + 1
 		reason = autoscalingReasonQueuePressure
@@ -460,6 +471,17 @@ func buildAutoscalingSteadyStateStatus(cluster *platformv1alpha1.NiFiCluster, po
 		Signals:             collection.SignalStatuses,
 		External:            external,
 	}
+}
+
+func (r *NiFiClusterReconciler) previousAutoscalingStatus(ctx context.Context, cluster *platformv1alpha1.NiFiCluster) platformv1alpha1.AutoscalingStatus {
+	if r == nil || r.APIReader == nil {
+		return cluster.Status.Autoscaling
+	}
+	latest, err := r.liveCluster(ctx, client.ObjectKeyFromObject(cluster))
+	if err != nil {
+		return cluster.Status.Autoscaling
+	}
+	return latest.Status.Autoscaling
 }
 
 func buildAutoscalingExternalEvaluation(policy platformv1alpha1.AutoscalingPolicy, currentReplicas, minReplicas, maxReplicas int32) autoscalingExternalEvaluation {
@@ -791,14 +813,16 @@ func autoscalingStatusMessage(status platformv1alpha1.AutoscalingStatus) string 
 		return fmt.Sprintf("Autoscaling recommends %d replicas because the current desired replica count is below the configured minimum", derefOptionalInt32(status.RecommendedReplicas))
 	case autoscalingReasonAboveMaxReplicas:
 		return fmt.Sprintf("Autoscaling recommends %d replicas because the current desired replica count is above the configured maximum", derefOptionalInt32(status.RecommendedReplicas))
+	case autoscalingReasonScaleUpPending:
+		return fmt.Sprintf("Autoscaling holds at %d replicas because scale-up signal confidence is still forming and needs corroboration. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summarizeAutoscalingSignals(status.Signals))
 	case autoscalingReasonExternalScaleUp:
 		return fmt.Sprintf("Autoscaling recommends %d replicas because %s", derefOptionalInt32(status.RecommendedReplicas), emptyIfUnset(status.External.Message, "external scale-up intent is active"))
 	case autoscalingReasonExternalScaleDown:
 		return fmt.Sprintf("Autoscaling recommends %d replicas because %s", derefOptionalInt32(status.RecommendedReplicas), emptyIfUnset(status.External.Message, "external scale-down intent is active"))
 	case autoscalingReasonQueuePressure:
-		return fmt.Sprintf("Autoscaling recommends %d replicas because root process-group backlog is present while NiFi timer-driven threads are saturated. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summarizeAutoscalingSignals(status.Signals))
+		return fmt.Sprintf("Autoscaling recommends %d replicas because root process-group backlog pressure is now sufficiently corroborated for scale-up. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summarizeAutoscalingSignals(status.Signals))
 	case autoscalingReasonCPUSaturation:
-		return fmt.Sprintf("Autoscaling recommends %d replicas because NiFi system diagnostics report CPU saturation. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summarizeAutoscalingSignals(status.Signals))
+		return fmt.Sprintf("Autoscaling recommends %d replicas because CPU saturation is now sufficiently corroborated for scale-up. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summarizeAutoscalingSignals(status.Signals))
 	case autoscalingReasonLowPressure:
 		return fmt.Sprintf("Autoscaling recommends %d replicas because NiFi root process-group backlog is repeatedly zero and no higher-priority scale-up pressure is active. Low-pressure evidence: %s. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), emptyIfUnset(status.LowPressure.Message, "none"), summarizeAutoscalingSignals(status.Signals))
 	case autoscalingReasonMaxReplicasReached:
@@ -890,6 +914,8 @@ func autoscalingStatusOutcome(status platformv1alpha1.AutoscalingStatus) string 
 		return "disabled"
 	case autoscalingReasonBelowMinReplicas:
 		return "increase"
+	case autoscalingReasonScaleUpPending:
+		return "hold"
 	case autoscalingReasonAboveMaxReplicas, autoscalingReasonLowPressure, autoscalingReasonExternalScaleDown:
 		return "decrease"
 	case autoscalingReasonExternalScaleUp, autoscalingReasonQueuePressure, autoscalingReasonCPUSaturation:
@@ -1146,6 +1172,23 @@ func autoscalingLowPressureActiveThreadThreshold(maxThreads int32) int32 {
 	threshold := maxThreads / autoscalingLowPressureThreadDivisor
 	if threshold < 1 {
 		return 1
+	}
+	return threshold
+}
+
+func autoscalingScaleUpThreadThreshold(maxThreads int32) int32 {
+	if maxThreads <= 0 {
+		return 1
+	}
+	threshold := (maxThreads * autoscalingScaleUpThreadNumerator) / autoscalingScaleUpThreadDivisor
+	if (maxThreads*autoscalingScaleUpThreadNumerator)%autoscalingScaleUpThreadDivisor != 0 {
+		threshold++
+	}
+	if threshold < 1 {
+		return 1
+	}
+	if threshold > maxThreads {
+		return maxThreads
 	}
 	return threshold
 }
