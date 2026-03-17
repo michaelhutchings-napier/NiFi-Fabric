@@ -18,6 +18,8 @@ jobs:
     - uses: azure/setup-helm@v4
       with:
         version: v3.20.0
+    - name: Build platform chart dependency
+      run: helm dependency build --skip-refresh charts/nifi-platform
     - name: Go test
       run: go test ./...
     - name: Helm lint

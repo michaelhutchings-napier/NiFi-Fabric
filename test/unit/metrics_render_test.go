@@ -4,7 +4,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+)
+
+var (
+	platformChartDependenciesOnce sync.Once
+	platformChartDependenciesErr  error
 )
 
 func repoRoot(t *testing.T) string {
@@ -12,13 +18,44 @@ func repoRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join("..", ".."))
 }
 
+func ensureHelmDependencies(t *testing.T, chart string) {
+	t.Helper()
+
+	if chart != "charts/nifi-platform" {
+		return
+	}
+
+	platformChartDependenciesOnce.Do(func() {
+		cmd := exec.Command("helm", "dependency", "build", "--skip-refresh", chart)
+		cmd.Dir = repoRoot(t)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			platformChartDependenciesErr = &execErrorWithOutput{err: err, output: string(out)}
+		}
+	})
+
+	if platformChartDependenciesErr != nil {
+		t.Fatalf("helm dependency build failed: %v", platformChartDependenciesErr)
+	}
+}
+
 func helmTemplate(t *testing.T, chart string, args ...string) (string, error) {
 	t.Helper()
+	ensureHelmDependencies(t, chart)
 	cmdArgs := append([]string{"template", "test", chart}, args...)
 	cmd := exec.Command("helm", cmdArgs...)
 	cmd.Dir = repoRoot(t)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+type execErrorWithOutput struct {
+	err    error
+	output string
+}
+
+func (e *execErrorWithOutput) Error() string {
+	return e.err.Error() + "\n" + e.output
 }
 
 func TestMetricsDisabledRendersNoMetricsResources(t *testing.T) {
