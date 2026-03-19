@@ -8,16 +8,14 @@ NiFi-Fabric keeps experimental scope explicit.
 
 - optional
 - managed-platform only
+- built-in controller-owned autoscaling remains the primary and recommended model
+- the richer built-in autoscaling model itself is not experimental; only the optional KEDA external-intent path is
 - targets `NiFiCluster`, not the NiFi `StatefulSet`
 - the controller remains the only executor of real scale actions
+- writes runtime-managed external replica intent through `NiFiCluster` `/scale`
+- reports controller-bounded external intent plus current handling states such as actionable, deferred, blocked, or ignored through `status.autoscaling.external`
 
 See [KEDA Integration Position](keda.md).
-
-### Controller-Owned Autoscaling Scale-Down
-
-- one-step at a time
-- safe sequencing only
-- intentionally conservative
 
 ### Exporter Metrics Mode
 

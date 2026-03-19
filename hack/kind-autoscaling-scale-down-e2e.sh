@@ -474,7 +474,7 @@ if [[ "${AUTOSCALING_CHURN_MODE}" == "true" ]]; then
   configure_disabled_autoscaling
   nudge_main_cluster_reconcile
   wait_for_cluster_spec_mode "${HELM_RELEASE}" "Disabled" 60
-  wait_for_cluster_reason "${HELM_RELEASE}" "${autoscalingReasonDisabled:-Disabled}" 30 || true
+  wait_for_cluster_reason "${HELM_RELEASE}" "${autoscalingReasonDisabled:-Disabled}" 30
 
   print_success_footer "autoscaling churn runtime proof completed" \
     "make kind-autoscaling-churn-fast-e2e-reuse" \
@@ -512,7 +512,7 @@ phase "Restoring disabled autoscaling baseline"
 configure_disabled_autoscaling
 nudge_main_cluster_reconcile
 wait_for_cluster_spec_mode "${HELM_RELEASE}" "Disabled" 60
-wait_for_cluster_reason "${HELM_RELEASE}" "${autoscalingReasonDisabled:-Disabled}" 30 || true
+wait_for_cluster_reason "${HELM_RELEASE}" "${autoscalingReasonDisabled:-Disabled}" 30
 
 print_success_footer "autoscaling scale-down runtime proof completed" \
   "make kind-autoscaling-scale-down-fast-e2e-reuse" \

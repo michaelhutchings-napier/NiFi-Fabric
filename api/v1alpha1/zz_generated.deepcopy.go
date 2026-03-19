@@ -88,6 +88,11 @@ func (in *AutoscalingExternalStatus) DeepCopyInto(out *AutoscalingExternalStatus
 		*out = new(int32)
 		**out = **in
 	}
+	if in.BoundedReplicas != nil {
+		in, out := &in.BoundedReplicas, &out.BoundedReplicas
+		*out = new(int32)
+		**out = **in
+	}
 }
 
 func (in *AutoscalingExternalStatus) DeepCopy() *AutoscalingExternalStatus {

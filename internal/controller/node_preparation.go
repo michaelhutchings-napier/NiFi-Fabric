@@ -270,7 +270,7 @@ func autoscalingScaleDownNodePreparationGuidance(operation platformv1alpha1.Node
 		operatorAction = fmt.Sprintf("verify the target node %s can offload or clear any stuck queued work before autoscaling resumes", emptyIfUnset(operation.NodeID, "for the selected pod"))
 	}
 	if retrying {
-		return fmt.Sprintf("%s. Autoscaling scale-down is blocked because %s. The controller will retry from the same highest ordinal pod; operator check: %s.", message, stageMessage, operatorAction)
+		return fmt.Sprintf("%s. Autoscaling scale-down is blocked because %s. The controller will retry from the same selected scale-down candidate pod %s; operator check: %s.", message, stageMessage, emptyIfUnset(operation.PodName, "once it is available again"), operatorAction)
 	}
 	return fmt.Sprintf("%s. Autoscaling scale-down is blocked because %s exceeded the configured preparation timeout. Operator action: %s.", message, stageMessage, operatorAction)
 }

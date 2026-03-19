@@ -400,7 +400,7 @@ func (r *NiFiClusterReconciler) finishSteadyState(ctx context.Context, cluster *
 
 func (r *NiFiClusterReconciler) steadyStateClusterHealth(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet) (ClusterHealthResult, error) {
 	if autoscalingMode(cluster.Spec.Autoscaling) == platformv1alpha1.AutoscalingModeDisabled {
-		return r.HealthChecker.WaitForClusterHealthy(ctx, cluster, target, clusterHealthTimeout(cluster))
+		return r.HealthChecker.CheckClusterHealth(ctx, cluster, target)
 	}
 	result, err := r.HealthChecker.CheckClusterHealth(ctx, cluster, target)
 	result = normalizeHibernationClusterHealth(result)

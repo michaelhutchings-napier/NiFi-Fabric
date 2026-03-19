@@ -258,5 +258,17 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if lt (int .Values.keda.maxReplicaCount) (int .Values.keda.minReplicaCount) -}}
 {{- fail "keda.maxReplicaCount must be greater than or equal to keda.minReplicaCount" -}}
 {{- end -}}
+{{- if ne (int .Values.cluster.autoscaling.external.requestedReplicas) 0 -}}
+{{- fail "keda.enabled=true requires cluster.autoscaling.external.requestedReplicas=0 because the NiFiCluster /scale field is runtime-managed by KEDA and the controller" -}}
+{{- end -}}
+{{- if lt (int .Values.keda.minReplicaCount) (int .Values.cluster.autoscaling.minReplicas) -}}
+{{- fail "keda.minReplicaCount must be greater than or equal to cluster.autoscaling.minReplicas so KEDA intent stays within the controller-owned autoscaling floor" -}}
+{{- end -}}
+{{- if and .Values.cluster.autoscaling.external.scaleDownEnabled (ne (int .Values.keda.minReplicaCount) (int .Values.cluster.autoscaling.minReplicas)) -}}
+{{- fail "keda.minReplicaCount must equal cluster.autoscaling.minReplicas when cluster.autoscaling.external.scaleDownEnabled=true so KEDA's inactive floor matches the controller-owned safe downscale floor" -}}
+{{- end -}}
+{{- if gt (int .Values.keda.maxReplicaCount) (int .Values.cluster.autoscaling.maxReplicas) -}}
+{{- fail "keda.maxReplicaCount must be less than or equal to cluster.autoscaling.maxReplicas so KEDA intent stays within the controller-owned autoscaling ceiling" -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}

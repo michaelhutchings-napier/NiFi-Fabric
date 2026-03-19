@@ -343,6 +343,9 @@ spec:
                       requestedReplicas:
                         format: int32
                         type: integer
+                      boundedReplicas:
+                        format: int32
+                        type: integer
                       actionable:
                         type: boolean
                       scaleDownIgnored:

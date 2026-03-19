@@ -7,6 +7,7 @@ NiFi-Fabric keeps the product surface small and explicit.
 - `charts/nifi-platform` is the standard install path
 - one Helm release installs the CRD, controller, RBAC, app chart, and `NiFiCluster`
 - `charts/nifi` stays available for standalone or advanced assembly
+- the supported NiFi `2.x` line is `2.0.x` through `2.8.x`, with one shared compatibility contract anchored at `2.0.0` and `2.8.0` and no version-specific controller or chart behavior fork
 
 ## Thin Controller Model
 
@@ -25,25 +26,34 @@ NiFi-Fabric keeps the product surface small and explicit.
 ## Autoscaling
 
 - built-in controller-owned autoscaler is the primary autoscaling model
-- `Advisory` mode provides recommendation-only guidance
-- `Enforced` mode supports controller-owned scale-up
+- `Advisory` mode is the production-ready controller-owned recommendation path
+- `Enforced` mode supports production-ready controller-owned scale-up
+- the shared NiFi `2.x` compatibility contract includes one bounded enforced scale-up from `2 -> 3` as the common autoscaling execution proof across the supported line
 - scale-up now uses a small bounded confidence model instead of reacting to a single strong sample:
 - root-process-group backlog and queued bytes are interpreted together with timer-driven thread saturation
 - CPU saturation can corroborate queue pressure
 - single-signal scale-up pressure must persist across consecutive evaluations before it becomes a stronger recommendation
-- one-step safe scale-down is available and intentionally conservative
+- bounded controller-owned scale-down is production-ready and remains intentionally conservative even as the policy depth has grown
 - enforced scale-down now requires durable low-pressure evidence: repeated zero-backlog observations, low executor activity when NiFi reports thread counts, extra consecutive samples when queue evidence is incomplete, and stabilization or cooldown windows
-- smarter scale-down candidate selection remains intentionally narrow: the controller still removes only the highest ordinal pod because StatefulSet semantics make that the bounded one-step removal candidate
+- smarter scale-down candidate selection is now part of the bounded supported model: the controller qualifies the actual StatefulSet `N -> N-1` removal pod from live pod state, rejects missing, terminating, or not-Ready candidates explicitly, and explains why lower ordinals were not selected
+- recommendation messages now add bounded capacity reasoning, for example what one more node is expected to relieve or why one fewer node is still expected to remain safe under the current quiet envelope
+- bounded multi-node scale-down is now supported as a sequential controller-owned episode: each removal still executes one node at a time with fresh low-pressure qualification, fresh candidate selection, fresh settle, and immediate stop on degradation or lifecycle conflict
+- broader per-node drainability ranking is still future work because the existing autoscaling inputs do not yet provide bounded trustworthy evidence that would justify scheduler-like candidate scoring beyond the current actual-removal-candidate model
 - transient zero-backlog dips are rejected when timer-driven work is still busy, and the controller records that block reason explicitly
 - operator-facing diagnostics now keep mode, external requested replicas, controller recommendation, active execution phase, blocked or failure reason, and next operator action visible in the existing autoscaling status fields
-- the signal model remains intentionally small: there is no forecasting, no ML layer, no arbitrary weighting engine, and no multi-node execution logic in this slice
+- future work stays separate from the supported model: broader per-node drainability ranking beyond the current bounded removal-candidate qualification, broader bulk policy depth beyond the current bounded sequential-episode model, and broader KEDA maturity are not part of the current support claim
+- the signal model remains intentionally small: there is no forecasting, no ML layer, no arbitrary weighting engine, and no concurrent multi-node destructive execution
 - direct autoscaler ownership of the NiFi `StatefulSet` is not the supported architecture
 
 ## Optional KEDA Integration
 
 - KEDA is optional and experimental
+- built-in controller-owned autoscaling remains the primary and recommended model
 - KEDA targets `NiFiCluster`, not the NiFi `StatefulSet`
 - the controller remains the only executor of actual scale actions
+- KEDA writes runtime-managed external replica intent through the `NiFiCluster` `/scale` surface
+- declarative values should leave `cluster.autoscaling.external.requestedReplicas` at `0` when KEDA is enabled so GitOps does not fight the runtime-managed intent field
+- `status.autoscaling.external` now shows the raw external request, the controller-bounded intent, and whether that request is currently actionable, deferred, blocked, or ignored
 
 ## TLS and cert-manager
 
@@ -97,6 +107,7 @@ NiFi-Fabric keeps the product surface small and explicit.
 ## Observability
 
 - native API metrics are the primary supported metrics mode
+- the shared NiFi `2.x` compatibility contract proves native API metrics on the `2.0.0` and `2.8.0` runtime anchors through the same chart-managed contract
 - exporter metrics mode is an optional experimental secondary path for clean `/metrics` scraping
 - exporter live proof stays chart-scoped: a companion `Deployment`, `Service`, and `ServiceMonitor`, secured upstream reachability, and a Prometheus-scrapable `/metrics` endpoint
 - exporter trust-manager live proof now covers Bundle reconciliation, mounted trust presence, and successful secured upstream reachability through the distributed bundle
@@ -116,6 +127,7 @@ NiFi-Fabric keeps the product surface small and explicit.
 ## Environment Scope
 
 - kind is the current runtime proof baseline in this repository
+- the shared NiFi `2.x` compatibility contract is intentionally kind-first and bounded
 - AKS is the primary target environment
 - OpenShift is supported as a prepared secondary target
 - current AKS and OpenShift claims remain render, overlay, and docs validation only unless a real cluster is explicitly exercised

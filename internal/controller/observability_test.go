@@ -182,6 +182,63 @@ func TestAutoscalingSignalFromStatusIncludesLifecycleContext(t *testing.T) {
 	}
 }
 
+func TestAutoscalingExternalSignalReportsDeferredExternalIntent(t *testing.T) {
+	original := managedCluster()
+
+	requested := int32(3)
+	bounded := int32(3)
+	updated := original.DeepCopy()
+	updated.Status.Autoscaling.External = platformv1alpha1.AutoscalingExternalStatus{
+		Observed:          true,
+		Source:            platformv1alpha1.AutoscalingExternalIntentSourceKEDA,
+		RequestedReplicas: &requested,
+		BoundedReplicas:   &bounded,
+		Actionable:        false,
+		Reason:            autoscalingExternalReasonScaleUpCooldownActive,
+		Message:           "external KEDA requested scale-up intent to 3 replicas through NiFiCluster /scale; the controller will wait for scale-up cooldown until 2026-03-18T20:15:00Z",
+	}
+
+	signal, ok := autoscalingExternalSignal(original, updated)
+	if !ok {
+		t.Fatalf("expected autoscaling external signal")
+	}
+	if signal.reason != "AutoscalingExternalIntentDeferred" {
+		t.Fatalf("expected deferred external signal reason, got %q", signal.reason)
+	}
+	if !strings.Contains(signal.message, "wait for scale-up cooldown") {
+		t.Fatalf("expected cooldown context in external signal message, got %q", signal.message)
+	}
+}
+
+func TestAutoscalingExternalSignalReportsIgnoredExternalIntent(t *testing.T) {
+	original := managedCluster()
+
+	requested := int32(1)
+	bounded := int32(2)
+	updated := original.DeepCopy()
+	updated.Status.Autoscaling.External = platformv1alpha1.AutoscalingExternalStatus{
+		Observed:          true,
+		Source:            platformv1alpha1.AutoscalingExternalIntentSourceKEDA,
+		RequestedReplicas: &requested,
+		BoundedReplicas:   &bounded,
+		Actionable:        false,
+		ScaleDownIgnored:  true,
+		Reason:            autoscalingExternalReasonScaleDownMinSatisfied,
+		Message:           "external KEDA requested scale-down intent to 1 replicas, but minReplicas 2 already keeps the cluster at its lowest allowed size",
+	}
+
+	signal, ok := autoscalingExternalSignal(original, updated)
+	if !ok {
+		t.Fatalf("expected autoscaling external signal")
+	}
+	if signal.reason != "AutoscalingExternalIntentIgnored" {
+		t.Fatalf("expected ignored external signal reason, got %q", signal.reason)
+	}
+	if !strings.Contains(signal.message, "lowest allowed size") {
+		t.Fatalf("expected ignored external context in signal message, got %q", signal.message)
+	}
+}
+
 func TestObserveStatusTransitionRecordsAutoscalingExecutionTransitionMetrics(t *testing.T) {
 	resetObservabilityMetrics()
 

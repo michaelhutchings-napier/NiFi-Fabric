@@ -77,11 +77,18 @@ The platform chart wires chart-owned config surfaces into `spec.restartTriggers`
 
 ## Autoscaling
 
+The current supported built-in autoscaling model is the bounded controller-owned production path:
+
+- `Advisory` remains the production-ready recommendation path
+- `Enforced` remains the production-ready execution path for bounded scale-up and bounded sequential one-node scale-down work
+- the richer built-in policy depth is part of that support claim, including confidence-based scale-up, bounded capacity reasoning, actual StatefulSet removal-candidate qualification, and sequential multi-step scale-down episodes with fresh requalification between steps
+- optional KEDA external intent is still a separate experimental integration layered onto this autoscaling surface
+
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
 | `spec.autoscaling.mode` | enum | Autoscaling mode. Values: `Disabled`, `Advisory`, `Enforced`. | No |  |
 | `spec.autoscaling.scaleUp` | object | Enforced scale-up settings. | No |  |
-| `spec.autoscaling.scaleDown` | object | Experimental safe scale-down settings. | No |  |
+| `spec.autoscaling.scaleDown` | object | Controller-owned safe scale-down settings for the bounded execution path. The controller still removes only one pod at a time, even when a bounded sequential episode plans more than one removal, and qualifies the actual StatefulSet removal pod before destructive work starts. | No |  |
 | `spec.autoscaling.external` | object | External intent surface used by optional KEDA integration. | No |  |
 | `spec.autoscaling.minReplicas` | integer | Lower bound for controller recommendations and execution. | No |  |
 | `spec.autoscaling.maxReplicas` | integer | Upper bound for controller recommendations and execution. | No |  |
@@ -98,17 +105,18 @@ The platform chart wires chart-owned config surfaces into `spec.restartTriggers`
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
-| `spec.autoscaling.scaleDown.enabled` | boolean | Enables controller-owned one-step safe scale-down when `mode=Enforced`. Experimental. | No |  |
+| `spec.autoscaling.scaleDown.enabled` | boolean | Enables controller-owned safe scale-down when `mode=Enforced`. | No |  |
 | `spec.autoscaling.scaleDown.cooldown` | duration | Minimum time between successful scale-down actions. | No |  |
 | `spec.autoscaling.scaleDown.stabilizationWindow` | duration | Required low-pressure stability window before scale-down is allowed. | No |  |
+| `spec.autoscaling.scaleDown.maxSequentialSteps` | integer | Maximum number of one-node removals the controller may complete in one bounded sequential scale-down episode. | No |  |
 
 ## AutoscalingExternal
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
 | `spec.autoscaling.external.enabled` | boolean | Enables the external intent surface. | No |  |
-| `spec.autoscaling.external.source` | enum | External source name. Current value: `KEDA`. Experimental. | No |  |
-| `spec.autoscaling.external.scaleDownEnabled` | boolean | Allows best-effort external downscale intent to be considered by the controller. Experimental. | No |  |
+| `spec.autoscaling.external.source` | enum | External source name. Current value: `KEDA`. Optional experimental input path. | No |  |
+| `spec.autoscaling.external.scaleDownEnabled` | boolean | Allows best-effort external downscale intent to be considered by the controller through the existing bounded safe scale-down path. Optional experimental input path. | No |  |
 | `spec.autoscaling.external.requestedReplicas` | integer | External requested replica count. Also backs the Kubernetes `/scale` subresource. | No |  |
 
 ## NiFiClusterStatus
@@ -184,11 +192,11 @@ The platform chart wires chart-owned config surfaces into `spec.restartTriggers`
 | `status.autoscaling.lastEvaluationTime` | timestamp | Last meaningful autoscaling evaluation time. | No |  |
 | `status.autoscaling.lowPressureSince` | timestamp | Compatibility field for low-pressure tracking. | No |  |
 | `status.autoscaling.lowPressure` | object | Durable low-pressure evidence used for safe scale-down. | No |  |
-| `status.autoscaling.lastScalingDecision` | string | Latest execution, block, defer, ignore, or failure summary. The message is operator-facing and may append compact mode, request, recommendation, and execution context. | No |  |
+| `status.autoscaling.lastScalingDecision` | string | Latest execution, block, defer, ignore, or failure summary. The message is operator-facing and may append compact mode, request, recommendation, execution context, sequential episode progress, scale-down candidate selection or rejection detail, and bounded capacity-planning context such as whether pressure is still building or current capacity appears tight. | No |  |
 | `status.autoscaling.lastScaleUpTime` | timestamp | Last successful scale-up time. | No |  |
 | `status.autoscaling.lastScaleDownTime` | timestamp | Last successful scale-down time. | No |  |
 | `status.autoscaling.execution` | object | Durable execution phase, blocked reason, or failure reason. | No |  |
-| `status.autoscaling.external` | object | Observed external intent and whether it is actionable. | No |  |
+| `status.autoscaling.external` | object | Observed external intent, controller-bounded intent, and current handling state. | No |  |
 
 ## AutoscalingExecutionStatus
 
@@ -199,8 +207,10 @@ The platform chart wires chart-owned config surfaces into `spec.restartTriggers`
 | `status.autoscaling.execution.startedAt` | timestamp | When the current autoscaling execution started. | No |  |
 | `status.autoscaling.execution.lastTransitionTime` | timestamp | Last state transition time. | No |  |
 | `status.autoscaling.execution.targetReplicas` | integer pointer | Replica target for the current execution. | No |  |
-| `status.autoscaling.execution.message` | string | Human-readable execution summary for the current settle or block checkpoint. | No |  |
-| `status.autoscaling.execution.blockedReason` | string | Short blocked reason when execution is blocked. | No |  |
+| `status.autoscaling.execution.plannedSteps` | integer | Number of one-node removals currently planned in the active bounded sequential scale-down episode. | No |  |
+| `status.autoscaling.execution.completedSteps` | integer | Number of one-node removals already completed in the active bounded sequential scale-down episode. | No |  |
+| `status.autoscaling.execution.message` | string | Human-readable execution summary for the current settle or block checkpoint, including selected-candidate or rejected-candidate reasoning and sequential episode progress during scale-down. | No |  |
+| `status.autoscaling.execution.blockedReason` | string | Short blocked reason when execution is blocked, including scale-down candidate reasons such as missing, terminating, or not-Ready removal candidates, plus bounded between-step reasons such as cooldown or stabilization pending. | No |  |
 | `status.autoscaling.execution.failureReason` | string | Short failure reason when execution fails. | No |  |
 
 ## AutoscalingExternalStatus
@@ -210,10 +220,11 @@ The platform chart wires chart-owned config surfaces into `spec.restartTriggers`
 | `status.autoscaling.external.observed` | boolean | Whether the controller observed external intent. | No |  |
 | `status.autoscaling.external.source` | enum | Observed external source. Current value: `KEDA`. | No |  |
 | `status.autoscaling.external.requestedReplicas` | integer pointer | Last observed external requested replicas. | No |  |
-| `status.autoscaling.external.actionable` | boolean | Whether the external request is currently actionable. | No |  |
+| `status.autoscaling.external.boundedReplicas` | integer pointer | Controller-bounded external intent after autoscaling min and max checks. | No |  |
+| `status.autoscaling.external.actionable` | boolean | Whether the external request is currently actionable instead of deferred or blocked. | No |  |
 | `status.autoscaling.external.scaleDownIgnored` | boolean | Whether an external scale-down request was ignored. | No |  |
-| `status.autoscaling.external.reason` | string | Short reason for current external intent handling. | No |  |
-| `status.autoscaling.external.message` | string | Human-readable summary for the external request, including whether it was bounded, ignored, or is still waiting on safe controller checks. | No |  |
+| `status.autoscaling.external.reason` | string | Short reason for current external intent handling, such as actionable, cooldown waiting, low-pressure waiting, lifecycle-blocked, or ignored. | No |  |
+| `status.autoscaling.external.message` | string | Human-readable summary for the external request, including the raw request, any controller bounds, and why execution is active, deferred, blocked, or ignored. | No |  |
 
 ## NodeOperationStatus
 

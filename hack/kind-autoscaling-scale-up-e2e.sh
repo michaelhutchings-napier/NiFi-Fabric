@@ -285,6 +285,8 @@ set_tls_diff_policy() {
 
 break_controller_pod_delete_rbac() {
   local mutated_role
+  info "TEST-INDUCED FAILURE: removing pod delete RBAC from controller ClusterRole to force a degraded rollout path"
+  info "Expected proof outcome: rollout pod deletion becomes forbidden, NiFiCluster reports Degraded, and autoscaling stays blocked instead of continuing destructive work"
   mutated_role="$(mktemp)"
   kubectl get clusterrole nifi-fabric-controller-manager -o json >"${mutated_role}"
   python3 - "${mutated_role}" <<'PY'
@@ -304,6 +306,7 @@ PY
 }
 
 restore_controller_rbac() {
+  info "Restoring controller pod delete RBAC after the test-induced degraded-path proof"
   kubectl apply -f "${ROOT_DIR}/config/rbac/role.yaml" >/dev/null
 }
 
@@ -591,15 +594,20 @@ wait_for_condition "${HELM_RELEASE}" Available True 900
 
 phase "Proving autoscaling is blocked while degraded"
 configure_enforced_autoscaling 4 4
+# This proof step intentionally injects an RBAC failure so the controller hits the degraded rollout path on purpose.
+info "Injecting a test-only RBAC failure before config drift so the next rollout pod delete is forbidden by design"
+info "Expected controller behavior: RolloutFailed event, Degraded condition, autoscaling recommendation blocked because Degraded, and no unsafe follow-on scale action"
 break_controller_pod_delete_rbac
 bash "${ROOT_DIR}/hack/trigger-config-drift.sh" --namespace "${NAMESPACE}" --configmap "${CONFIGMAP_NAME}"
 wait_for_event_reason RolloutStarted 120
+info "Waiting for the intentional forbidden pod delete to surface as degraded status and blocked autoscaling"
 wait_for_condition "${HELM_RELEASE}" Degraded True 300
 wait_for_last_operation_phase "${HELM_RELEASE}" Failed 300
 wait_for_cluster_reason "${HELM_RELEASE}" "${autoscalingReasonDegraded:-Degraded}" 180
 wait_for_cluster_recommended_empty "${HELM_RELEASE}" 60
 wait_for_cluster_decision_contains "${HELM_RELEASE}" "recommendation is unavailable because Degraded" 180
 wait_for_event_reason RolloutFailed 60 || true
+info "Observed the expected test-induced degraded state; restoring RBAC and reinstalling the main release baseline"
 restore_controller_rbac
 reinstall_main_release_after_degraded_proof
 

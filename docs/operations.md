@@ -73,23 +73,33 @@ kubectl -n nifi get nificluster nifi -o jsonpath='{.status.autoscaling.external.
 
 Reading those fields:
 
-- `spec.autoscaling.mode` is the configured control mode. `Advisory` keeps recommendation-only behavior; `Enforced` allows the controller to execute scale-up and bounded scale-down work.
+- `spec.autoscaling.mode` is the configured control mode. `Advisory` keeps recommendation-only behavior; `Enforced` allows the controller to execute scale-up and bounded sequential scale-down work.
 - `status.autoscaling.external.requestedReplicas` is the last external request the controller observed, for example from KEDA through `/scale`.
 - `status.autoscaling.recommendedReplicas` is the controller's current bounded recommendation after applying policy limits and signal evaluation.
-- `status.autoscaling.execution.phase`, `state`, `blockedReason`, `failureReason`, and `message` describe the live execution checkpoint when autoscaling is actively settling or blocked.
+- `status.autoscaling.execution.phase`, `state`, `plannedSteps`, `completedSteps`, `blockedReason`, `failureReason`, and `message` describe the live execution checkpoint when autoscaling is actively settling or blocked.
 - `status.autoscaling.lastScalingDecision` now carries the operator-facing summary for allowed, blocked, deferred, ignored, or failed decisions and appends context for mode, current size, recommendation, request, and active execution when relevant.
 - `status.nodeOperation` shows which pod and destructive preparation stage are active during safe scale-down.
+- for blocked one-step scale-down, the execution and decision text now also explain whether the actual StatefulSet removal pod was selected, rejected because it is missing, rejected because it is already terminating, or rejected because it is not Ready, and why lower ordinals were not chosen instead
+
+Support position:
+
+- `Advisory` is the production-ready bounded recommendation path
+- `Enforced` scale-up is the production-ready bounded execution path
+- `Enforced` scale-down is production-ready for the bounded controller-owned sequential one-node path, including bounded sequential multi-step episodes
+- the richer built-in policy depth is part of that supported bounded model: confidence-based scale-up, bounded capacity reasoning, actual removal-candidate qualification, and restart-safe sequential scale-down execution
+- optional KEDA external intent remains experimental and secondary to the built-in autoscaler
 
 When controller-owned scale-down is stalled, expect:
 
 - `status.autoscaling.execution.state=Blocked`
 - a stage-specific `blockedReason` such as disconnect retrying, offload timed out, drain pending, drain stalled, ready-pod pending, or health-gate timed out
+- bounded sequential episodes can also block between steps on cooldown or stabilization before the next one-node removal is re-qualified
 - precedence pauses now also surface explicitly, for example rollout, restore, or hibernation taking over a previously started scale-down step
 - `lastScalingDecision` and `execution.message` to explain why the step is blocked, whether the controller is waiting or needs operator intervention, and what to inspect next
 
 Operator checks for a stalled autoscaling removal step:
 
-- inspect the highest ordinal pod and any terminating pod with `kubectl -n nifi get pod -o wide`
+- inspect the actual StatefulSet `N -> N-1` removal pod named in `lastScalingDecision` and any terminating pod with `kubectl -n nifi get pod -o wide`
 - inspect `status.nodeOperation` and the autoscaling execution block or timeout reason on `NiFiCluster`
 - inspect controller logs and recent events for the same pod or node id
 - inspect NiFi node state through the UI or API to confirm whether the target node is stuck disconnecting, disconnected, or offloading

@@ -145,12 +145,13 @@ Implemented in this slice:
 
 - an optional `NiFiCluster` `/scale` surface backed by `spec.autoscaling.external.requestedReplicas`
 - controller status that reports external KEDA intent separately from the controller’s own recommendation and execution state
+- controller status that reports not only the raw external KEDA request but also the controller's current handling stage for that request, such as bounded scale-up, bounded best-effort downscale, ignored downscale, lifecycle-precedence blocking, low-pressure waiting, or cooldown waiting
 - optional `charts/nifi-platform` rendering for a KEDA `ScaledObject` that targets `NiFiCluster`, not the NiFi `StatefulSet`
 - a generated HPA shape that disables scale-down by default and only allows lower external `/scale` intent when `spec.autoscaling.external.scaleDownEnabled=true`
 - current Helm validation keeps the runtime path narrow by requiring managed mode plus enforced controller scale-up
-- fail-fast Helm validation for invalid combinations such as disabled autoscaling, missing triggers, or KEDA enablement outside managed mode
+- fail-fast Helm validation for invalid combinations such as disabled autoscaling, missing triggers, KEDA bounds outside the controller-owned autoscaling bounds, declarative non-zero `spec.autoscaling.external.requestedReplicas`, or KEDA enablement outside managed mode
 - a focused live kind gate, `make kind-keda-scale-up-fast-e2e`, that installs real KEDA and proves the scale-up runtime contract end to end
-- a focused live kind gate, `make kind-keda-scale-down-fast-e2e`, that proves opt-in external downscale intent still flows only through the existing safe one-step controller pipeline
+- a focused live kind gate, `make kind-keda-scale-down-fast-e2e`, that proves opt-in external downscale intent still flows only through the existing safe one-step controller pipeline and that ignored below-min downscale intent stays explicit in controller status
 
 Not implemented in this slice:
 
@@ -200,6 +201,8 @@ The external downscale proof remains intentionally narrow:
 ## GitOps Note
 
 When KEDA is enabled, `spec.autoscaling.external.requestedReplicas` becomes a runtime-managed field written through the Kubernetes `/scale` path. GitOps tooling should ignore drift on that field or treat it as controller/KEDA-owned runtime intent, not as a hand-authored desired-state field.
+
+The platform chart now reinforces that contract by requiring declarative values to leave `cluster.autoscaling.external.requestedReplicas=0` when `keda.enabled=true`.
 
 All other lifecycle ownership remains unchanged:
 

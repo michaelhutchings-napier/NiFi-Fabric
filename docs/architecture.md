@@ -59,24 +59,41 @@ Primary model:
 
 - controller-owned autoscaling
 - `Disabled`, `Advisory`, and `Enforced` modes
-- one-step, conservative scale-down
+- conservative scale-down that always executes as one-node safe steps, even when a bounded sequential episode plans more than one removal
+- advisory recommendations, enforced scale-up, and bounded controller-owned scale-down are the supported production-ready autoscaling model
 - scale-up stays bounded and explainable rather than predictive: queue backlog, queued bytes, timer-driven thread saturation, and CPU saturation remain the only current inputs
 - scale-up recommendations now use a small confidence layer instead of a single-sample trigger:
 - corroborated pressure can act immediately when queue pressure and CPU saturation align
 - single-signal pressure must persist across consecutive evaluations before it becomes a stronger recommendation
 - queue backlog without corroborating saturation remains visible in signal messages but does not by itself become a scale action
+- capacity planning now stays bounded inside those same signals: queue backlog, queued bytes, timer-driven saturation, CPU saturation, and persistence are interpreted as operator-visible evidence tiers such as pressure building, capacity tight, or capacity clearly insufficient
+- queue bytes and timer-driven saturation can now corroborate each other inside the bounded queue-pressure model, while CPU saturation remains a second corroborating signal rather than a separate executor
+- recommendation messaging is intentionally tied to the bounded next step only: what one more node is expected to relieve, what one less node is expected to preserve, and which evidence contributed most
 - enforced scale-down depends on durable low-pressure evidence rather than a single quiet poll
 - low-pressure evidence stays intentionally simple and explainable: repeated zero-backlog observations, low executor activity when thread counts are available, extra consecutive-sample requirements when queue evidence is incomplete, stabilization, and cooldown
-- smarter drainability or capacity heuristics stay bounded by StatefulSet semantics: one-step scale-down still removes only the highest ordinal pod, so the controller does not score lower ordinals or act like a scheduler
+- smarter drainability heuristics stay bounded by StatefulSet semantics: one-step scale-down still removes only the actual `N -> N-1` removal pod, so the controller does not score lower ordinals or act like a scheduler
+- candidate selection is now smarter only within that bounded contract: the controller qualifies the actual removable pod from live pod state, rejects obviously untrustworthy candidates such as missing, terminating, or not-Ready pods, and explains why lower ordinals were not selected
+- broader per-node drainability ranking is still intentionally out of scope because the bounded one-step StatefulSet model has only one removable ordinal at execution time and the current autoscaling inputs do not provide trustworthy enough evidence to justify widening into scheduler-like behavior
+- richer capacity reasoning is still bounded and message-level: the controller explains the expected effect of adding or removing one node, but it does not forecast throughput, simulate cluster capacity, or run a weighting engine
 - recommendation reasoning stays operator-facing: blocked because confidence is still forming, strengthened because pressure persisted, or strengthened immediately because multiple signals agree
 - disconnect, offload, and post-removal settle work stay restart-safe and resumable inside the same controller-owned execution state
+- bounded multi-node scale-down is now allowed only as a sequential controller-owned episode: every extra removal still runs as its own disconnect, offload, delete, and settle step with fresh low-pressure and candidate requalification after the previous step settles
+- the scale-down policy can cap how many sequential removals are allowed in one episode, and the controller stops the episode immediately when requalification, lifecycle precedence, or post-removal health no longer supports another step
 - stalled destructive work prefers explicit blocked or timed-out states with stage-specific diagnostics over risky retry loops or broader remediation behavior
 - higher-precedence rollout, TLS, hibernation, and restore work can pause autoscaling execution; the autoscaling step must remain resumable after the conflict clears instead of competing with the other lifecycle path
+- this richer bounded policy depth is part of the current production-ready built-in autoscaling model, not a separate experimental extension
+- smarter drainability selection beyond the current bounded removal-candidate qualification remains future work outside this bounded support claim
+- any future broader bulk policy would still have to preserve the same single control plane and safety model: controller-owned execution, one node removed at a time, full settle and requalification between steps, and immediate stop on degradation or lifecycle conflict
+- concurrent multi-pod disconnect, offload, or delete orchestration is not part of the supported architecture
 
 Optional experimental extension:
 
 - KEDA writes external intent to `NiFiCluster`
 - the controller still decides whether a safe scale action should happen
+- the generated `ScaledObject` targets `NiFiCluster` `/scale`, not the NiFi `StatefulSet`
+- `spec.autoscaling.external.requestedReplicas` stays runtime-managed when KEDA is enabled, so declarative values should leave it at `0`
+- Helm validation now keeps KEDA min and max bounds inside the controller-owned autoscaling min and max bounds so external intent does not continuously request out-of-policy sizes
+- `status.autoscaling.external` reports both the raw KEDA request and the controller's current handling of that request, including bounded intent, ignored downscale, cooldown or low-pressure waits, and lifecycle-precedence blocking
 
 ## Observability Architecture
 

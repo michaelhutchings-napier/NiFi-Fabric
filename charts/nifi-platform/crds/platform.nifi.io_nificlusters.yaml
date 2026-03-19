@@ -125,6 +125,9 @@ spec:
                           type: string
                         stabilizationWindow:
                           type: string
+                        maxSequentialSteps:
+                          format: int32
+                          type: integer
                     external:
                       type: object
                       properties:
@@ -325,6 +328,12 @@ spec:
                         targetReplicas:
                           format: int32
                           type: integer
+                        plannedSteps:
+                          format: int32
+                          type: integer
+                        completedSteps:
+                          format: int32
+                          type: integer
                         message:
                           type: string
                         blockedReason:
@@ -341,6 +350,9 @@ spec:
                           enum:
                             - KEDA
                         requestedReplicas:
+                          format: int32
+                          type: integer
+                        boundedReplicas:
                           format: int32
                           type: integer
                         actionable:

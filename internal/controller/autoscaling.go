@@ -16,32 +16,46 @@ import (
 )
 
 const (
-	autoscalingReasonDisabled           = "Disabled"
-	autoscalingReasonTargetNotResolved  = "TargetNotResolved"
-	autoscalingReasonUnmanagedTarget    = "UnmanagedTarget"
-	autoscalingReasonHibernated         = "Hibernated"
-	autoscalingReasonProgressing        = "Progressing"
-	autoscalingReasonDegraded           = "Degraded"
-	autoscalingReasonUnavailable        = "Unavailable"
-	autoscalingReasonBelowMinReplicas   = "BelowMinReplicas"
-	autoscalingReasonAboveMaxReplicas   = "AboveMaxReplicas"
-	autoscalingReasonExternalScaleUp    = "ExternalScaleUpRequested"
-	autoscalingReasonExternalScaleDown  = "ExternalScaleDownRequested"
-	autoscalingReasonScaleUpPending     = "ScaleUpConfidencePending"
-	autoscalingReasonQueuePressure      = "QueuePressureDetected"
-	autoscalingReasonCPUSaturation      = "CPUSaturationDetected"
-	autoscalingReasonLowPressure        = "LowPressureDetected"
-	autoscalingReasonMaxReplicasReached = "MaxReplicasReached"
-	autoscalingReasonNoActionableInput  = "NoActionableSignals"
+	autoscalingReasonDisabled                       = "Disabled"
+	autoscalingReasonTargetNotResolved              = "TargetNotResolved"
+	autoscalingReasonUnmanagedTarget                = "UnmanagedTarget"
+	autoscalingReasonHibernated                     = "Hibernated"
+	autoscalingReasonProgressing                    = "Progressing"
+	autoscalingReasonDegraded                       = "Degraded"
+	autoscalingReasonUnavailable                    = "Unavailable"
+	autoscalingReasonBelowMinReplicas               = "BelowMinReplicas"
+	autoscalingReasonAboveMaxReplicas               = "AboveMaxReplicas"
+	autoscalingReasonExternalScaleUp                = "ExternalScaleUpRequested"
+	autoscalingReasonExternalScaleDown              = "ExternalScaleDownRequested"
+	autoscalingReasonScaleUpPending                 = "ScaleUpConfidencePending"
+	autoscalingReasonQueuePressure                  = "QueuePressureDetected"
+	autoscalingReasonCPUSaturation                  = "CPUSaturationDetected"
+	autoscalingReasonLowPressure                    = "LowPressureDetected"
+	autoscalingReasonMaxReplicasReached             = "MaxReplicasReached"
+	autoscalingReasonNoActionableInput              = "NoActionableSignals"
+	autoscalingExternalReasonBlocked                = "ExternalIntentBlocked"
+	autoscalingExternalReasonBlockedDisabled        = "ExternalIntentBlockedDisabled"
+	autoscalingExternalReasonScaleUpCooldownActive  = "ExternalScaleUpCooldownActive"
+	autoscalingExternalReasonScaleDownWaitingLow    = "ExternalScaleDownWaitingForLowPressure"
+	autoscalingExternalReasonScaleDownWaitingStable = "ExternalScaleDownWaitingForStability"
+	autoscalingExternalReasonScaleDownCooldown      = "ExternalScaleDownCooldownActive"
+	autoscalingExternalReasonSatisfied              = "ExternalRecommendationSatisfied"
+	autoscalingExternalReasonScaleDownDisabled      = "ExternalScaleDownDisabled"
+	autoscalingExternalReasonScaleDownMinSatisfied  = "ExternalScaleDownMinimumSatisfied"
 
 	defaultAutoscalingScaleUpCooldown        = 5 * time.Minute
 	defaultAutoscalingScaleDownCooldown      = 10 * time.Minute
 	defaultAutoscalingScaleDownStabilization = 5 * time.Minute
+	defaultAutoscalingScaleDownMaxSteps      = 1
 	defaultAutoscalingLowPressureSamples     = 3
 	autoscalingLowPressureExtraSamples       = 2
 	autoscalingLowPressureThreadDivisor      = 4
 	autoscalingScaleUpThreadDivisor          = 4
 	autoscalingScaleUpThreadNumerator        = 3
+	autoscalingQueueBytesPerThreadPressure   = 4 * 1024 * 1024
+	autoscalingQueueBytesPerThreadSevere     = 16 * 1024 * 1024
+	autoscalingCPUPressureRatio              = 0.75
+	autoscalingCPUSevereRatio                = 1.25
 )
 
 type autoscalingExternalEvaluation struct {
@@ -222,10 +236,12 @@ func (r *NiFiClusterReconciler) buildAutoscalingStatusForTarget(ctx context.Cont
 	external := buildAutoscalingExternalEvaluation(policy, currentReplicas, minReplicas, maxReplicas).status
 	blocked, blockedReason := blockedAutoscalingStatus(cluster)
 	if blocked {
-		return platformv1alpha1.AutoscalingStatus{Reason: blockedReason, External: external}, autoscalingSignalCollection{}
+		status := platformv1alpha1.AutoscalingStatus{Reason: blockedReason, External: external}
+		return refineAutoscalingExternalHandling(cluster, status), autoscalingSignalCollection{}
 	}
 	if autoscalingMode(policy) == platformv1alpha1.AutoscalingModeDisabled {
-		return platformv1alpha1.AutoscalingStatus{Reason: autoscalingReasonDisabled, External: external}, autoscalingSignalCollection{}
+		status := platformv1alpha1.AutoscalingStatus{Reason: autoscalingReasonDisabled, External: external}
+		return refineAutoscalingExternalHandling(cluster, status), autoscalingSignalCollection{}
 	}
 
 	signals := autoscalingSignals(policy)
@@ -241,7 +257,7 @@ func (r *NiFiClusterReconciler) buildAutoscalingStatusForTarget(ctx context.Cont
 
 	previous := r.previousAutoscalingStatus(ctx, cluster)
 	collection = qualifyAutoscalingSignalCollection(previous, collection)
-	return buildAutoscalingSteadyStateStatus(cluster, previous, policy, collection), collection
+	return refineAutoscalingExternalHandling(cluster, buildAutoscalingSteadyStateStatus(cluster, previous, policy, collection)), collection
 }
 
 func (r *NiFiClusterReconciler) maybeExecuteAutoscalingScaleUp(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet) (bool, ctrl.Result, error) {
@@ -506,6 +522,7 @@ func buildAutoscalingExternalEvaluation(policy platformv1alpha1.AutoscalingPolic
 			bounded = maxReplicas
 		}
 		if bounded > currentReplicas {
+			status.BoundedReplicas = ptrTo(bounded)
 			status.Actionable = true
 			status.Reason = autoscalingReasonExternalScaleUp
 			if bounded != requested {
@@ -520,6 +537,7 @@ func buildAutoscalingExternalEvaluation(policy platformv1alpha1.AutoscalingPolic
 			}
 		}
 		status.Reason = autoscalingReasonMaxReplicasReached
+		status.BoundedReplicas = ptrTo(currentReplicas)
 		status.Message = fmt.Sprintf("external %s requested %d replicas, but the configured autoscaling maximum keeps the recommendation at %d", policy.External.Source, requested, currentReplicas)
 		return autoscalingExternalEvaluation{
 			status:                   status,
@@ -527,8 +545,9 @@ func buildAutoscalingExternalEvaluation(policy platformv1alpha1.AutoscalingPolic
 		}
 	case requested < currentReplicas:
 		if !policy.External.ScaleDownEnabled {
+			status.BoundedReplicas = ptrTo(currentReplicas)
 			status.ScaleDownIgnored = true
-			status.Reason = "ExternalScaleDownDisabled"
+			status.Reason = autoscalingExternalReasonScaleDownDisabled
 			status.Message = fmt.Sprintf("external %s requested scale-down intent to %d replicas, but external scale-down intent is disabled; controller-owned low-pressure scale-down remains the only supported path", policy.External.Source, requested)
 			return autoscalingExternalEvaluation{
 				status:                   status,
@@ -540,6 +559,7 @@ func buildAutoscalingExternalEvaluation(policy platformv1alpha1.AutoscalingPolic
 			bounded = minReplicas
 		}
 		if bounded < currentReplicas {
+			status.BoundedReplicas = ptrTo(bounded)
 			status.Actionable = true
 			status.Reason = autoscalingReasonExternalScaleDown
 			if bounded != requested {
@@ -553,20 +573,176 @@ func buildAutoscalingExternalEvaluation(policy platformv1alpha1.AutoscalingPolic
 				boundedRequestedReplicas: ptrTo(bounded),
 			}
 		}
+		status.BoundedReplicas = ptrTo(minReplicas)
 		status.ScaleDownIgnored = true
-		status.Reason = "ExternalScaleDownMinimumSatisfied"
+		status.Reason = autoscalingExternalReasonScaleDownMinSatisfied
 		status.Message = fmt.Sprintf("external %s requested scale-down intent to %d replicas, but minReplicas %d already keeps the cluster at its lowest allowed size", policy.External.Source, requested, minReplicas)
 		return autoscalingExternalEvaluation{
 			status:                   status,
 			boundedRequestedReplicas: ptrTo(minReplicas),
 		}
 	default:
-		status.Reason = "ExternalRecommendationSatisfied"
+		status.BoundedReplicas = ptrTo(currentReplicas)
+		status.Reason = autoscalingExternalReasonSatisfied
 		status.Message = fmt.Sprintf("external %s currently matches the running replica count at %d", policy.External.Source, currentReplicas)
 		return autoscalingExternalEvaluation{
 			status:                   status,
 			boundedRequestedReplicas: ptrTo(currentReplicas),
 		}
+	}
+}
+
+func refineAutoscalingExternalHandling(cluster *platformv1alpha1.NiFiCluster, status platformv1alpha1.AutoscalingStatus) platformv1alpha1.AutoscalingStatus {
+	if !status.External.Observed || status.External.RequestedReplicas == nil || cluster == nil {
+		return status
+	}
+
+	external := status.External
+	currentReplicas := cluster.Status.Replicas.Desired
+	boundedReplicas := currentReplicas
+	if external.BoundedReplicas != nil {
+		boundedReplicas = *external.BoundedReplicas
+	}
+
+	switch status.Reason {
+	case autoscalingReasonDisabled:
+		external.Actionable = false
+		external.Reason = autoscalingExternalReasonBlockedDisabled
+		external.Message = fmt.Sprintf("%s; autoscaling is currently disabled", emptyIfUnset(external.Message, autoscalingExternalRequestSummary(external, currentReplicas)))
+	case autoscalingReasonTargetNotResolved, autoscalingReasonUnmanagedTarget, autoscalingReasonHibernated, autoscalingReasonProgressing, autoscalingReasonDegraded, autoscalingReasonUnavailable:
+		external.Actionable = false
+		external.Reason = autoscalingExternalReasonBlocked
+		external.Message = fmt.Sprintf("%s; the controller is currently blocked because %s", emptyIfUnset(external.Message, autoscalingExternalRequestSummary(external, currentReplicas)), autoscalingExternalBlockedSummary(cluster, status.Reason))
+	case autoscalingReasonExternalScaleUp:
+		if boundedReplicas > currentReplicas {
+			nextEligibleTime, coolingDown := autoscalingScaleUpNextEligibleTime(cluster.Spec.Autoscaling, latestAutoscalingTimestamp(status.LastScaleUpTime, cluster.Status.Autoscaling.LastScaleUpTime))
+			if coolingDown {
+				external.Actionable = false
+				external.Reason = autoscalingExternalReasonScaleUpCooldownActive
+				external.Message = fmt.Sprintf("%s; the controller will wait for scale-up cooldown until %s", emptyIfUnset(external.Message, autoscalingExternalRequestSummary(external, currentReplicas)), nextEligibleTime.UTC().Format(time.RFC3339))
+			}
+		}
+	case autoscalingReasonExternalScaleDown:
+		if boundedReplicas < currentReplicas {
+			switch {
+			case !cluster.Spec.Autoscaling.ScaleDown.Enabled:
+				external.Actionable = false
+				external.Reason = autoscalingExternalReasonScaleDownDisabled
+				external.Message = fmt.Sprintf("%s; controller scale-down is not enabled", emptyIfUnset(external.Message, autoscalingExternalRequestSummary(external, currentReplicas)))
+			case status.LowPressureSince == nil:
+				external.Actionable = false
+				external.Reason = autoscalingExternalReasonScaleDownWaitingLow
+				external.Message = fmt.Sprintf("%s; the controller is still waiting for low pressure before any safe scale-down step", emptyIfUnset(external.Message, autoscalingExternalRequestSummary(external, currentReplicas)))
+			case !autoscalingLowPressureRequirementMet(status.LowPressure):
+				external.Actionable = false
+				external.Reason = autoscalingExternalReasonScaleDownWaitingStable
+				external.Message = fmt.Sprintf("%s; the controller still needs %d/%d consecutive low-pressure evaluations before scale-down can start", emptyIfUnset(external.Message, autoscalingExternalRequestSummary(external, currentReplicas)), status.LowPressure.ConsecutiveSamples, status.LowPressure.RequiredConsecutiveSamples)
+			default:
+				nextStableTime, stabilizing := autoscalingScaleDownNextStableTime(cluster.Spec.Autoscaling, status.LowPressureSince)
+				if stabilizing {
+					external.Actionable = false
+					external.Reason = autoscalingExternalReasonScaleDownWaitingStable
+					external.Message = fmt.Sprintf("%s; the controller is keeping the cluster stable until %s before any safe scale-down step", emptyIfUnset(external.Message, autoscalingExternalRequestSummary(external, currentReplicas)), nextStableTime.UTC().Format(time.RFC3339))
+					break
+				}
+				nextEligibleTime, coolingDown := autoscalingScaleDownNextEligibleTime(cluster.Spec.Autoscaling, latestAutoscalingTimestamp(status.LastScaleDownTime, cluster.Status.Autoscaling.LastScaleDownTime))
+				if coolingDown {
+					external.Actionable = false
+					external.Reason = autoscalingExternalReasonScaleDownCooldown
+					external.Message = fmt.Sprintf("%s; the controller will wait for scale-down cooldown until %s", emptyIfUnset(external.Message, autoscalingExternalRequestSummary(external, currentReplicas)), nextEligibleTime.UTC().Format(time.RFC3339))
+				}
+			}
+		}
+	}
+
+	status.External = external
+	return status
+}
+
+func latestAutoscalingTimestamp(primary, fallback *metav1.Time) *metav1.Time {
+	switch {
+	case primary == nil:
+		return fallback
+	case fallback == nil:
+		return primary
+	case fallback.After(primary.Time):
+		return fallback
+	default:
+		return primary
+	}
+}
+
+func autoscalingScaleUpNextEligibleTime(policy platformv1alpha1.AutoscalingPolicy, lastScaleUpTime *metav1.Time) (time.Time, bool) {
+	if lastScaleUpTime == nil {
+		return time.Time{}, false
+	}
+	nextEligibleTime := lastScaleUpTime.Time.Add(autoscalingScaleUpCooldown(policy))
+	return nextEligibleTime, time.Now().UTC().Before(nextEligibleTime)
+}
+
+func autoscalingScaleDownNextEligibleTime(policy platformv1alpha1.AutoscalingPolicy, lastScaleDownTime *metav1.Time) (time.Time, bool) {
+	if lastScaleDownTime == nil {
+		return time.Time{}, false
+	}
+	nextEligibleTime := lastScaleDownTime.Time.Add(autoscalingScaleDownCooldown(policy))
+	return nextEligibleTime, time.Now().UTC().Before(nextEligibleTime)
+}
+
+func autoscalingScaleDownNextStableTime(policy platformv1alpha1.AutoscalingPolicy, lowPressureSince *metav1.Time) (time.Time, bool) {
+	if lowPressureSince == nil {
+		return time.Time{}, false
+	}
+	nextStableTime := lowPressureSince.Time.Add(autoscalingScaleDownStabilizationWindow(policy))
+	return nextStableTime, time.Now().UTC().Before(nextStableTime)
+}
+
+func autoscalingExternalRequestSummary(external platformv1alpha1.AutoscalingExternalStatus, currentReplicas int32) string {
+	requestedReplicas := derefOptionalInt32(external.RequestedReplicas)
+	boundedReplicas := requestedReplicas
+	if external.BoundedReplicas != nil {
+		boundedReplicas = *external.BoundedReplicas
+	}
+	switch {
+	case requestedReplicas > currentReplicas:
+		if boundedReplicas != requestedReplicas {
+			return fmt.Sprintf("external %s requested %d replicas and the controller bounded that scale-up intent to %d", external.Source, requestedReplicas, boundedReplicas)
+		}
+		return fmt.Sprintf("external %s requested scale-up intent to %d replicas through NiFiCluster /scale", external.Source, boundedReplicas)
+	case requestedReplicas < currentReplicas:
+		if boundedReplicas != requestedReplicas {
+			return fmt.Sprintf("external %s requested %d replicas and the controller bounded that best-effort scale-down intent to %d", external.Source, requestedReplicas, boundedReplicas)
+		}
+		return fmt.Sprintf("external %s requested best-effort scale-down intent to %d replicas through NiFiCluster /scale", external.Source, boundedReplicas)
+	default:
+		return fmt.Sprintf("external %s currently matches the running replica count at %d", external.Source, currentReplicas)
+	}
+}
+
+func autoscalingExternalBlockedSummary(cluster *platformv1alpha1.NiFiCluster, reason string) string {
+	switch reason {
+	case autoscalingReasonTargetNotResolved:
+		if cluster.Spec.TargetRef.Name != "" {
+			return fmt.Sprintf("target StatefulSet %q is not yet resolved", cluster.Spec.TargetRef.Name)
+		}
+		return "the target StatefulSet is not yet resolved"
+	case autoscalingReasonUnmanagedTarget:
+		return "the target StatefulSet is unmanaged"
+	case autoscalingReasonHibernated:
+		return "hibernation or restore has precedence"
+	case autoscalingReasonProgressing:
+		return emptyIfUnset(autoscalingLifecycleProgressMessage(cluster), "controller-owned lifecycle work is in progress")
+	case autoscalingReasonDegraded:
+		if condition := cluster.GetCondition(platformv1alpha1.ConditionDegraded); conditionIsTrue(condition) && condition.Message != "" {
+			return fmt.Sprintf("the cluster is degraded: %s", condition.Message)
+		}
+		return "the cluster is degraded"
+	case autoscalingReasonUnavailable:
+		if condition := cluster.GetCondition(platformv1alpha1.ConditionAvailable); condition != nil && condition.Message != "" {
+			return fmt.Sprintf("the cluster is not yet available: %s", condition.Message)
+		}
+		return "the cluster is not yet available"
+	default:
+		return "controller-owned lifecycle safety checks are still blocking execution"
 	}
 }
 
@@ -603,6 +779,13 @@ func autoscalingScaleDownStabilizationWindow(policy platformv1alpha1.Autoscaling
 		return policy.ScaleDown.StabilizationWindow.Duration
 	}
 	return defaultAutoscalingScaleDownStabilization
+}
+
+func autoscalingScaleDownMaxSequentialSteps(policy platformv1alpha1.AutoscalingPolicy) int32 {
+	if policy.ScaleDown.MaxSequentialSteps > 0 {
+		return policy.ScaleDown.MaxSequentialSteps
+	}
+	return defaultAutoscalingScaleDownMaxSteps
 }
 
 func autoscalingSignals(policy platformv1alpha1.AutoscalingPolicy) []platformv1alpha1.AutoscalingSignal {
@@ -672,6 +855,7 @@ func autoscalingStatusEqual(left, right platformv1alpha1.AutoscalingStatus) bool
 	if left.External.Observed != right.External.Observed ||
 		left.External.Source != right.External.Source ||
 		!equalOptionalInt32(left.External.RequestedReplicas, right.External.RequestedReplicas) ||
+		!equalOptionalInt32(left.External.BoundedReplicas, right.External.BoundedReplicas) ||
 		left.External.Actionable != right.External.Actionable ||
 		left.External.ScaleDownIgnored != right.External.ScaleDownIgnored ||
 		left.External.Reason != right.External.Reason ||
@@ -705,6 +889,7 @@ func autoscalingStatusMeaningEqual(left, right platformv1alpha1.AutoscalingStatu
 	if left.External.Observed != right.External.Observed ||
 		left.External.Source != right.External.Source ||
 		!equalOptionalInt32(left.External.RequestedReplicas, right.External.RequestedReplicas) ||
+		!equalOptionalInt32(left.External.BoundedReplicas, right.External.BoundedReplicas) ||
 		left.External.Actionable != right.External.Actionable ||
 		left.External.ScaleDownIgnored != right.External.ScaleDownIgnored ||
 		left.External.Reason != right.External.Reason {
@@ -790,10 +975,10 @@ func autoscalingStatusMessageForCluster(cluster *platformv1alpha1.NiFiCluster, s
 			}
 		}
 	}
-	return autoscalingStatusMessage(status)
+	return autoscalingStatusMessage(cluster, status)
 }
 
-func autoscalingStatusMessage(status platformv1alpha1.AutoscalingStatus) string {
+func autoscalingStatusMessage(cluster *platformv1alpha1.NiFiCluster, status platformv1alpha1.AutoscalingStatus) string {
 	switch status.Reason {
 	case autoscalingReasonDisabled:
 		return appendAutoscalingExternalMessage("Autoscaling is disabled", status)
@@ -810,21 +995,21 @@ func autoscalingStatusMessage(status platformv1alpha1.AutoscalingStatus) string 
 	case autoscalingReasonUnavailable:
 		return appendAutoscalingExternalMessage("Autoscaling is blocked until the cluster is available", status)
 	case autoscalingReasonBelowMinReplicas:
-		return fmt.Sprintf("Autoscaling recommends %d replicas because the current desired replica count is below the configured minimum", derefOptionalInt32(status.RecommendedReplicas))
+		return fmt.Sprintf("Autoscaling recommends %d replicas because the current desired replica count is below the configured minimum. %s", derefOptionalInt32(status.RecommendedReplicas), autoscalingCapacityReasoning(cluster, status))
 	case autoscalingReasonAboveMaxReplicas:
-		return fmt.Sprintf("Autoscaling recommends %d replicas because the current desired replica count is above the configured maximum", derefOptionalInt32(status.RecommendedReplicas))
+		return fmt.Sprintf("Autoscaling recommends %d replicas because the current desired replica count is above the configured maximum. %s", derefOptionalInt32(status.RecommendedReplicas), autoscalingCapacityReasoning(cluster, status))
 	case autoscalingReasonScaleUpPending:
-		return fmt.Sprintf("Autoscaling holds at %d replicas because scale-up signal confidence is still forming and needs corroboration. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summarizeAutoscalingSignals(status.Signals))
+		return fmt.Sprintf("Autoscaling holds at %d replicas because scale-up signal confidence is still forming and needs corroboration. %s Signals: %s", derefOptionalInt32(status.RecommendedReplicas), autoscalingPendingCapacityReasoning(status), summarizeAutoscalingSignals(status.Signals))
 	case autoscalingReasonExternalScaleUp:
 		return fmt.Sprintf("Autoscaling recommends %d replicas because %s", derefOptionalInt32(status.RecommendedReplicas), emptyIfUnset(status.External.Message, "external scale-up intent is active"))
 	case autoscalingReasonExternalScaleDown:
 		return fmt.Sprintf("Autoscaling recommends %d replicas because %s", derefOptionalInt32(status.RecommendedReplicas), emptyIfUnset(status.External.Message, "external scale-down intent is active"))
 	case autoscalingReasonQueuePressure:
-		return fmt.Sprintf("Autoscaling recommends %d replicas because root process-group backlog pressure is now sufficiently corroborated for scale-up. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summarizeAutoscalingSignals(status.Signals))
+		return fmt.Sprintf("Autoscaling recommends %d replicas because root process-group backlog pressure is now sufficiently corroborated for scale-up. %s Signals: %s", derefOptionalInt32(status.RecommendedReplicas), autoscalingCapacityReasoning(cluster, status), summarizeAutoscalingSignals(status.Signals))
 	case autoscalingReasonCPUSaturation:
-		return fmt.Sprintf("Autoscaling recommends %d replicas because CPU saturation is now sufficiently corroborated for scale-up. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summarizeAutoscalingSignals(status.Signals))
+		return fmt.Sprintf("Autoscaling recommends %d replicas because CPU saturation is now sufficiently corroborated for scale-up. %s Signals: %s", derefOptionalInt32(status.RecommendedReplicas), autoscalingCapacityReasoning(cluster, status), summarizeAutoscalingSignals(status.Signals))
 	case autoscalingReasonLowPressure:
-		return fmt.Sprintf("Autoscaling recommends %d replicas because NiFi root process-group backlog is repeatedly zero and no higher-priority scale-up pressure is active. Low-pressure evidence: %s. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), emptyIfUnset(status.LowPressure.Message, "none"), summarizeAutoscalingSignals(status.Signals))
+		return fmt.Sprintf("Autoscaling recommends %d replicas because NiFi root process-group backlog is repeatedly zero and no higher-priority scale-up pressure is active. %s Low-pressure evidence: %s. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), autoscalingCapacityReasoning(cluster, status), emptyIfUnset(status.LowPressure.Message, "none"), summarizeAutoscalingSignals(status.Signals))
 	case autoscalingReasonMaxReplicasReached:
 		if status.External.Message != "" {
 			return fmt.Sprintf("Autoscaling holds at %d replicas because %s", derefOptionalInt32(status.RecommendedReplicas), status.External.Message)
@@ -843,6 +1028,81 @@ func autoscalingStatusMessage(status platformv1alpha1.AutoscalingStatus) string 
 		}
 		return fmt.Sprintf("Autoscaling recommends %d replicas; no actionable signals are currently driving a scale-up. Signals: %s", derefOptionalInt32(status.RecommendedReplicas), summary)
 	}
+}
+
+func autoscalingCapacityReasoning(cluster *platformv1alpha1.NiFiCluster, status platformv1alpha1.AutoscalingStatus) string {
+	if cluster == nil || status.RecommendedReplicas == nil {
+		return ""
+	}
+
+	currentReplicas := cluster.Status.Replicas.Desired
+	recommendedReplicas := derefOptionalInt32(status.RecommendedReplicas)
+	delta := recommendedReplicas - currentReplicas
+
+	switch status.Reason {
+	case autoscalingReasonBelowMinReplicas:
+		if delta > 0 {
+			return fmt.Sprintf("This restores the configured baseline capacity by adding %d replica(s).", delta)
+		}
+	case autoscalingReasonAboveMaxReplicas:
+		if delta < 0 {
+			return fmt.Sprintf("This returns the cluster to the configured maximum by removing %d replica(s).", -delta)
+		}
+	case autoscalingReasonQueuePressure:
+		if delta > 0 {
+			switch {
+			case autoscalingSignalsContain(status.Signals, platformv1alpha1.AutoscalingSignalQueuePressure, "capacity is clearly insufficient"):
+				return "One additional node is expected to add executor headroom immediately because queued bytes per timer-driven thread and executor saturation both show the current capacity is clearly insufficient."
+			case autoscalingSignalsContain(status.Signals, platformv1alpha1.AutoscalingSignalQueuePressure, "simultaneous CPU saturation corroborates"):
+				return "One additional node is expected to add executor headroom and help drain the current backlog because queue pressure and CPU saturation now agree that the cluster is capacity-constrained."
+			default:
+				return "One additional node is expected to add executor headroom and help drain the current backlog within the bounded one-step model."
+			}
+		}
+	case autoscalingReasonCPUSaturation:
+		if delta > 0 {
+			if autoscalingSignalsContain(status.Signals, platformv1alpha1.AutoscalingSignalCPU, "materially above processor capacity") {
+				return "One additional node is expected to add CPU headroom because sustained load remains materially above the current processor budget."
+			}
+			return "One additional node is expected to add CPU headroom and reduce sustained saturation within the bounded one-step model."
+		}
+	case autoscalingReasonLowPressure:
+		if delta < 0 {
+			if autoscalingSignalsContain(status.Signals, platformv1alpha1.AutoscalingSignalQueuePressure, "backlog is low") {
+				return "One fewer node is expected to remain within the current low-pressure envelope because backlog is repeatedly quiet and timer-driven work is staying below the low-pressure threshold."
+			}
+			return "One fewer node is expected to remain within the current low-pressure envelope based on the observed quiet backlog and executor activity."
+		}
+	}
+
+	return ""
+}
+
+func autoscalingPendingCapacityReasoning(status platformv1alpha1.AutoscalingStatus) string {
+	switch {
+	case autoscalingSignalsContain(status.Signals, platformv1alpha1.AutoscalingSignalQueuePressure, "queued bytes per timer-driven thread and executor usage are both elevated"):
+		return "The strongest current evidence is elevated queued bytes per timer-driven thread plus growing executor usage, but the controller still wants one more corroborating evaluation before acting."
+	case autoscalingSignalsContain(status.Signals, platformv1alpha1.AutoscalingSignalQueuePressure, "actionable threshold"):
+		return "The strongest current evidence is that timer-driven executor saturation hit the actionable threshold, but the controller still wants one more corroborating evaluation before acting."
+	case autoscalingSignalsContain(status.Signals, platformv1alpha1.AutoscalingSignalCPU, "actionable threshold"):
+		return "The strongest current evidence is CPU pressure above the actionable threshold, but the controller still wants one more corroborating evaluation or backlog confirmation before acting."
+	case autoscalingSignalsContain(status.Signals, platformv1alpha1.AutoscalingSignalCPU, "CPU pressure is building"):
+		return "The strongest current evidence is rising CPU pressure, but it remains below the controller's actionable threshold."
+	default:
+		return ""
+	}
+}
+
+func autoscalingSignalsContain(signals []platformv1alpha1.AutoscalingSignalStatus, signalType platformv1alpha1.AutoscalingSignal, fragment string) bool {
+	for _, signal := range signals {
+		if signal.Type != signalType {
+			continue
+		}
+		if strings.Contains(strings.ToLower(signal.Message), strings.ToLower(fragment)) {
+			return true
+		}
+	}
+	return false
 }
 
 func appendAutoscalingExternalMessage(base string, status platformv1alpha1.AutoscalingStatus) string {
@@ -890,11 +1150,18 @@ func autoscalingDecisionContext(cluster *platformv1alpha1.NiFiCluster, status pl
 	if status.External.RequestedReplicas != nil {
 		parts = append(parts, fmt.Sprintf("requested=%d", *status.External.RequestedReplicas))
 	}
+	if status.External.BoundedReplicas != nil && (status.External.RequestedReplicas == nil || *status.External.BoundedReplicas != *status.External.RequestedReplicas) {
+		parts = append(parts, fmt.Sprintf("externalBounded=%d", *status.External.BoundedReplicas))
+	}
 	execution := cluster.Status.Autoscaling.Execution
 	if execution.Phase != "" && execution.State != "" {
 		parts = append(parts, fmt.Sprintf("execution=%s/%s", execution.Phase, execution.State))
 		if execution.TargetReplicas != nil {
 			parts = append(parts, fmt.Sprintf("target=%d", *execution.TargetReplicas))
+		}
+		plannedSteps, completedSteps := autoscalingScaleDownEpisodeProgress(execution)
+		if plannedSteps > 0 {
+			parts = append(parts, fmt.Sprintf("episode=%d/%d", completedSteps, plannedSteps))
 		}
 	} else {
 		parts = append(parts, "execution=Idle")
@@ -979,6 +1246,12 @@ func mergeAutoscalingExecutionStatus(current, persisted platformv1alpha1.Autosca
 		}
 		if merged.TargetReplicas == nil && persisted.TargetReplicas != nil {
 			merged.TargetReplicas = ptrTo(*persisted.TargetReplicas)
+		}
+		if merged.PlannedSteps == 0 {
+			merged.PlannedSteps = persisted.PlannedSteps
+		}
+		if merged.CompletedSteps == 0 {
+			merged.CompletedSteps = persisted.CompletedSteps
 		}
 		if merged.Message == "" {
 			merged.Message = persisted.Message

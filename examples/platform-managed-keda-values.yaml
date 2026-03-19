@@ -15,7 +15,8 @@ cluster:
       enabled: true
       source: KEDA
       scaleDownEnabled: false
-      requestedReplicas: 2
+      # Leave requestedReplicas runtime-managed through NiFiCluster /scale.
+      # Do not hand-author it in GitOps values when KEDA is enabled.
     minReplicas: 2
     maxReplicas: 5
     signals:

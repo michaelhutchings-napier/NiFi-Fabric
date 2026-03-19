@@ -14,14 +14,16 @@ NiFi-Fabric uses several layers of verification:
 
 Focused runtime proof in this repository includes:
 
+- a shared NiFi `2.x` compatibility contract anchored at `2.0.0` and `2.8.0`
 - standard managed platform install on kind
 - cert-manager integration on kind
 - OIDC and LDAP focused auth paths on kind
 - native API metrics on kind
 - exporter metrics on kind
 - optional trust-manager shared CA distribution on kind
-- controller-owned autoscaling focused flows on NiFi `2.8.0`
+- controller-owned autoscaling focused flows on NiFi `2.8.0`, plus bounded scale-up inside the shared NiFi `2.x` matrix
 - optional experimental KEDA intent-source flows on NiFi `2.8.0`
+- the focused KEDA proofs also check controller-visible external intent diagnostics such as bounded replicas plus deferred or ignored handling
 - GitHub, GitLab, and Bitbucket Flow Registry Client focused flows on NiFi `2.8.0`
 - a GitHub versioned-flow save-to-registry workflow on NiFi `2.8.0`
 - a bounded GitHub versioned-flow selection workflow on NiFi `2.8.0`
@@ -38,12 +40,17 @@ Current auth and exposure hardening notes:
 
 The platform chart path is part of the ongoing confidence suite through:
 
+- `make kind-nifi-compatibility-fast-e2e`
+- `make kind-nifi-compatibility-fast-e2e-reuse`
 - `make kind-platform-managed-fast-e2e`
 - `make kind-platform-managed-cert-manager-fast-e2e`
 - `make kind-platform-managed-trust-manager-fast-e2e`
 
 What these focused gates prove:
 
+- the shared NiFi `2.x` compatibility contract reuses one common `charts/nifi-platform` contract across the `2.0.0` and `2.8.0` runtime anchors
+- the common contract proves secured cluster health, basic platform readiness, native API metrics, and one bounded controller-owned enforced scale-up from `2 -> 3`
+- the harness only changes the NiFi image tag inline; there is no version-specific proof-logic fork today
 - `charts/nifi-platform` installs the CRD, controller, app chart, and managed `NiFiCluster` in one Helm release
 - no manual `kubectl apply` step is required for the standard platform-chart path
 - the chart-installed `NiFiCluster` becomes healthy
@@ -51,6 +58,14 @@ What these focused gates prove:
 - the cert-manager platform overlay works through the same one-release chart path when cert-manager is present
 - the optional trust-manager overlay reconciles a shared CA bundle into the NiFi namespace and keeps the managed cluster healthy
 - the focused trust-manager proof bootstraps cert-manager first because the current upstream trust-manager chart uses cert-manager resources for its webhook certificate path
+
+What the shared compatibility contract does not try to prove:
+
+- cert-manager integration across every matrix version
+- OIDC or LDAP across every matrix version
+- site-to-site sender paths across every matrix version
+- broader autoscaling scale-down, churn, or KEDA paths across every matrix version
+- Flow Registry Client and versioned-flow workflows across every matrix version
 
 ## What Is Render-Validated or Prepared
 
@@ -179,24 +194,34 @@ The focused autoscaling scale-down runtime commands are:
 What they prove:
 
 - the controller remains the only executor of actual scale-up and scale-down
+- the focused proof covers the bounded production-ready autoscaling model rather than a generic scheduler or predictor
 - scale-up recommendations stay bounded to explainable queue-pressure and CPU signals rather than a generic predictor
 - single-signal scale-up pressure now needs corroboration or consecutive evaluations before it becomes a stronger recommendation
 - corroborated queue plus CPU pressure can still promote an immediate one-step scale-up recommendation
 - the controller remains the only executor of actual scale-down
-- scale-down stays one-step-at-a-time
-- scale-down candidate selection remains intentionally bounded to the highest ordinal pod, and repo tests keep that rationale explicit in operator-facing decisions instead of introducing hidden scheduling logic
+- scale-down stays one-node-at-a-time even when a bounded sequential episode includes more than one removal
+- scale-down candidate selection now qualifies the actual StatefulSet `N -> N-1` removal pod from live pod state instead of trusting the highest observed pod blindly
+- bounded multi-node scale-down now executes only as sequential one-node episodes, and repo tests cover continue, cooldown-blocked continuation, restart-safe resume, and stop-on-requalification-loss behavior between steps
+- repo tests now cover selected-candidate, missing-candidate, terminating-candidate, and not-Ready-candidate reasoning without widening into hidden scheduling logic
 - a removal step is gated on sustained low-pressure evidence instead of a single quiet sample
 - low-pressure needs repeated zero-backlog observations and then still waits through stabilization and cooldown
 - transient zero-backlog dips do not trigger removal when executor activity is still above the low-pressure threshold
 - the operator-facing decision text stays explicit about why scale-down is allowed or blocked
 - focused unit coverage now also checks richer signal qualification, scale-up confidence hysteresis, blocked lifecycle visibility, ignored external downscale visibility, execution-event context, and deferred decision stability when cooldown or stabilization timestamps are carried in `lastScalingDecision`
 - repo tests also cover stuck offload, stage-specific retry or timeout reasons, stalled post-removal drain, restart-safe resume of blocked prepare or settle work, safe re-establishment after pod churn, and clean pause or resume behavior when rollout, TLS, hibernation, or restore precedence interrupts autoscaling intent
+- the degraded-path proof in `kind-autoscaling-scale-up-fast-e2e` intentionally removes controller pod-delete RBAC for one step so the proof can verify that rollout failure degrades the cluster and blocks autoscaling; that forbidden delete is test-induced, not a product regression
+
+Current support reading for those proofs:
+
+- the focused autoscaling proofs back the production-ready built-in bounded model, including richer signal qualification, bounded capacity reasoning, actual removal-candidate qualification, and bounded sequential multi-step scale-down
+- the separate KEDA proofs back the optional external-intent integration only; they do not change the primary support position of the built-in controller-owned autoscaler
 
 What they do not prove:
 
 - a generic forecasting or prediction engine; the model remains heuristic and bounded
 - a runtime-injected stalled offload or drain failure harness on kind in this slice
-- multi-node or bulk scale-down remediation beyond the one-step controller-owned path
+- broader bulk policy depth beyond the current bounded sequential-episode model
+- broader per-node drainability ranking beyond the current bounded removal-candidate qualification and broader KEDA maturity beyond the current bounded support claim
 
 ## Bounded Restore Workflow Proof
 

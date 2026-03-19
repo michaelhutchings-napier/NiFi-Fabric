@@ -83,9 +83,12 @@ cluster:
       enabled: false
       cooldown: 10m
       stabilizationWindow: 5m
+      maxSequentialSteps: 1
     external:
       # -- Controller-owned external autoscaling intent surface.
       # Used by the experimental KEDA integration when enabled.
+      # Leave requestedReplicas at 0 in declarative values when KEDA is enabled;
+      # KEDA and the controller manage it at runtime through NiFiCluster /scale.
       enabled: false
       source: ""
       scaleDownEnabled: false
@@ -163,6 +166,7 @@ trustManager:
 # -- Optional experimental KEDA integration for managed mode.
 # KEDA targets `NiFiCluster`, not the NiFi StatefulSet.
 # The controller remains the only executor of actual scale actions.
+# KEDA min/max counts must stay within the controller-owned autoscaling min/max bounds.
 # @default -- {"enabled":false,"pollingInterval":30,"cooldownPeriod":300,"minReplicaCount":1,"maxReplicaCount":3,"triggers":[]}
 keda:
   enabled: false

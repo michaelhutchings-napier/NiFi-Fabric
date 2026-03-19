@@ -122,6 +122,7 @@ type AutoscalingScaleDownPolicy struct {
 	Enabled             bool            `json:"enabled,omitempty"`
 	Cooldown            metav1.Duration `json:"cooldown,omitempty"`
 	StabilizationWindow metav1.Duration `json:"stabilizationWindow,omitempty"`
+	MaxSequentialSteps  int32           `json:"maxSequentialSteps,omitempty"`
 }
 
 type NiFiClusterSpec struct {
@@ -232,6 +233,8 @@ type AutoscalingExecutionStatus struct {
 	StartedAt          *metav1.Time              `json:"startedAt,omitempty"`
 	LastTransitionTime *metav1.Time              `json:"lastTransitionTime,omitempty"`
 	TargetReplicas     *int32                    `json:"targetReplicas,omitempty"`
+	PlannedSteps       int32                     `json:"plannedSteps,omitempty"`
+	CompletedSteps     int32                     `json:"completedSteps,omitempty"`
 	Message            string                    `json:"message,omitempty"`
 	BlockedReason      string                    `json:"blockedReason,omitempty"`
 	FailureReason      string                    `json:"failureReason,omitempty"`
@@ -241,6 +244,7 @@ type AutoscalingExternalStatus struct {
 	Observed          bool                            `json:"observed,omitempty"`
 	Source            AutoscalingExternalIntentSource `json:"source,omitempty"`
 	RequestedReplicas *int32                          `json:"requestedReplicas,omitempty"`
+	BoundedReplicas   *int32                          `json:"boundedReplicas,omitempty"`
 	Actionable        bool                            `json:"actionable,omitempty"`
 	ScaleDownIgnored  bool                            `json:"scaleDownIgnored,omitempty"`
 	Reason            string                          `json:"reason,omitempty"`

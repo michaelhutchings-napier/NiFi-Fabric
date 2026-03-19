@@ -180,6 +180,48 @@ event_messages_for_reason() {
     -o jsonpath='{range .items[*]}{.message}{"\n"}{end}' 2>/dev/null || true
 }
 
+wait_for_external_scale_up_status() {
+  local timeout_seconds="${1:-300}"
+  local deadline=$(( $(date +%s) + timeout_seconds ))
+  local requested=""
+  local bounded=""
+  local observed=""
+  local actionable=""
+  local reason=""
+  local desired=""
+  local autoscaling_reason=""
+  local execution_phase=""
+
+  while true; do
+    requested="$(cluster_jsonpath '{.status.autoscaling.external.requestedReplicas}' | tr -d '\n')"
+    bounded="$(cluster_jsonpath '{.status.autoscaling.external.boundedReplicas}' | tr -d '\n')"
+    observed="$(cluster_jsonpath '{.status.autoscaling.external.observed}' | tr -d '\n')"
+    actionable="$(cluster_jsonpath '{.status.autoscaling.external.actionable}' | tr -d '\n')"
+    reason="$(cluster_jsonpath '{.status.autoscaling.external.reason}' | tr -d '\n')"
+    desired="$(sts_jsonpath '{.spec.replicas}' | tr -d '\n')"
+    autoscaling_reason="$(cluster_jsonpath '{.status.autoscaling.reason}' | tr -d '\n')"
+    execution_phase="$(cluster_jsonpath '{.status.autoscaling.execution.phase}' | tr -d '\n')"
+
+    if [[ "${requested}" == "3" && "${bounded}" == "3" && "${observed}" == "true" ]]; then
+      if [[ "${actionable}" == "true" && "${reason}" == "ExternalScaleUpRequested" ]]; then
+        return 0
+      fi
+      if [[ "${reason}" == "ExternalIntentBlocked" && "${autoscaling_reason}" == "Progressing" && -n "${execution_phase}" ]]; then
+        return 0
+      fi
+      if [[ "${reason}" == "ExternalRecommendationSatisfied" && "${desired}" == "3" ]]; then
+        return 0
+      fi
+    fi
+
+    if (( $(date +%s) >= deadline )); then
+      echo "timed out waiting for visible KEDA scale-up intent handling: requested=${requested:-<empty>} bounded=${bounded:-<empty>} observed=${observed:-<empty>} actionable=${actionable:-<empty>} reason=${reason:-<empty>} autoscalingReason=${autoscaling_reason:-<empty>} executionPhase=${execution_phase:-<empty>} desired=${desired:-<empty>}" >&2
+      return 1
+    fi
+    sleep 5
+  done
+}
+
 install_keda() {
   local helm_args=()
   if [[ -n "${KEDA_CHART_VERSION}" ]]; then
@@ -275,7 +317,7 @@ dump_diagnostics() {
   helm -n "${KEDA_NAMESPACE}" status "${KEDA_RELEASE}" || true
   echo
   echo "NiFiCluster autoscaling summary:"
-  kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o jsonpath='{.metadata.name}{" externalRequested="}{.spec.autoscaling.external.requestedReplicas}{" statusExternalRequested="}{.status.autoscaling.external.requestedReplicas}{" statusExternalObserved="}{.status.autoscaling.external.observed}{" statusExternalActionable="}{.status.autoscaling.external.actionable}{" statusExternalScaleDownIgnored="}{.status.autoscaling.external.scaleDownIgnored}{" reason="}{.status.autoscaling.reason}{" decision="}{.status.autoscaling.lastScalingDecision}{" executionPhase="}{.status.autoscaling.execution.phase}{" executionState="}{.status.autoscaling.execution.state}{" desired="}{.status.replicas.desired}{" ready="}{.status.replicas.ready}{"\n"}' 2>/dev/null || true
+  kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o jsonpath='{.metadata.name}{" externalRequested="}{.spec.autoscaling.external.requestedReplicas}{" statusExternalRequested="}{.status.autoscaling.external.requestedReplicas}{" statusExternalBounded="}{.status.autoscaling.external.boundedReplicas}{" statusExternalObserved="}{.status.autoscaling.external.observed}{" statusExternalActionable="}{.status.autoscaling.external.actionable}{" statusExternalScaleDownIgnored="}{.status.autoscaling.external.scaleDownIgnored}{" externalReason="}{.status.autoscaling.external.reason}{" reason="}{.status.autoscaling.reason}{" decision="}{.status.autoscaling.lastScalingDecision}{" executionPhase="}{.status.autoscaling.execution.phase}{" executionState="}{.status.autoscaling.execution.state}{" desired="}{.status.replicas.desired}{" ready="}{.status.replicas.ready}{"\n"}' 2>/dev/null || true
   echo
   echo "Scale subresource:"
   kubectl get --raw "/apis/platform.nifi.io/v1alpha1/namespaces/${NAMESPACE}/nificlusters/${HELM_RELEASE}/scale" || true
@@ -373,8 +415,7 @@ arm_scaledobject_for_scale_up_window
 phase "Proving KEDA writes scale intent through NiFiCluster /scale"
 wait_for_output "scale subresource desired replicas from KEDA" "3" 300 scale_subresource_replicas spec
 wait_for_output "external requested replicas from KEDA" "3" 300 cluster_jsonpath '{.spec.autoscaling.external.requestedReplicas}'
-wait_for_output "status external requested replicas from KEDA" "3" 300 cluster_jsonpath '{.status.autoscaling.external.requestedReplicas}'
-wait_for_output "status external intent observed" "true" 300 cluster_jsonpath '{.status.autoscaling.external.observed}'
+wait_for_external_scale_up_status 300
 wait_for_contains "external KEDA status message" "KEDA" 300 cluster_jsonpath '{.status.autoscaling.external.message}'
 
 phase "Proving the controller remains the sole executor of safe scale-up"

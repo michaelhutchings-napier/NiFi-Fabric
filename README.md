@@ -117,10 +117,12 @@ Reference and support:
 
 ## Compatibility Summary
 
-NiFi-Fabric targets Apache NiFi `2.0.0` through `2.8.x`.
+NiFi-Fabric targets Apache NiFi `2.0.x` through `2.8.x`.
 
-- focused runtime proof today covers `apache/nifi:2.0.0` and `apache/nifi:2.8.0`
-- other NiFi `2.x` versions are expected to work unless noted, but are not yet runtime-proven in this repository
+- the supported NiFi `2.x` line is `2.0.x` through `2.8.x`
+- the repo keeps one bounded focused runtime compatibility contract anchored at `apache/nifi:2.0.0` and `apache/nifi:2.8.0`
+- that shared contract uses `charts/nifi-platform` plus secured health, basic auth readiness, native API metrics, and one bounded controller-owned scale-up from `2 -> 3`
+- the broader `2.0.x` through `2.8.x` support claim follows the same common feature set and your offline validation, not a forked per-version test flow
 - NiFi `1.x` is not supported
 - AKS is a primary target, but current repo proof is still kind-first
 - OpenShift is supported as a prepared secondary target and remains conservative until real-cluster proof is recorded
@@ -133,10 +135,20 @@ See [Compatibility](docs/compatibility.md) for the detailed matrix.
 - `charts/nifi-platform` is the standard product install
 - `charts/nifi` is the standalone-capable app chart
 - built-in controller-owned autoscaling is the primary autoscaling model
+- advisory autoscaling is production-ready as the bounded controller-owned recommendation path
+- enforced scale-up is production-ready as the bounded controller-owned execution path
+- enforced scale-down is production-ready for the bounded controller-owned sequential one-node path, including bounded sequential multi-step episodes
 - KEDA is optional, experimental, and secondary as an external intent source
+- when KEDA is enabled, it targets `NiFiCluster` `/scale` as a runtime-managed intent path; users should not hand-author `spec.autoscaling.external.requestedReplicas` in Helm values or expect KEDA to own the NiFi `StatefulSet`
+- KEDA external intent now reports the raw request, the controller-bounded intent, and the current handling state through `status.autoscaling.external.*`, including actionable, deferred, blocked, or ignored states
 - scale-up recommendations now stay bounded and explainable: root-process-group backlog, queued bytes, timer-driven thread saturation, and CPU saturation are still the only current inputs, but single-signal pressure now needs corroboration or consecutive evaluations before it becomes a stronger recommendation
-- enforced scale-down stays one-step-at-a-time and now requires durable low-pressure evidence before the controller removes any node
-- smarter scale-down candidate selection remains intentionally bounded: under StatefulSet semantics the highest ordinal remains the only supported one-step removal candidate, so the controller explains that constraint explicitly instead of pretending to run a generic scheduler
+- autoscaling recommendation messages now also explain the expected bounded capacity effect of the next step, such as adding executor headroom for backlog pressure, adding CPU headroom for sustained saturation, or removing one node only when the current quiet envelope remains convincing
+- the controller now distinguishes bounded capacity evidence tiers such as pressure building, capacity tight, and capacity clearly insufficient using the same small signal set: backlog pressure, queued bytes, timer-driven thread saturation, CPU saturation, and persistence across evaluations
+- enforced scale-down stays one-node-at-a-time and now requires durable low-pressure evidence before the controller removes any node
+- smarter scale-down candidate selection is now part of the supported bounded model: the controller qualifies the actual StatefulSet `N -> N-1` removal pod from live pod state and blocks with explicit candidate reasons when that pod is missing, terminating, or not Ready
+- lower ordinals are now rejected explicitly rather than silently treated as fallback candidates, because one-step StatefulSet scale-down still cannot safely widen deletion to a different pod
+- bounded multi-node scale-down is now supported as a sequential controller-owned episode: each additional removal still runs as its own disconnect, offload, delete, and settle step with fresh requalification and no concurrent destructive work
+- `spec.autoscaling.scaleDown.maxSequentialSteps` caps how many one-node removals the controller may complete in a single scale-down episode, and execution status now reports planned and completed episode steps while the episode is active
 - when scale-down disconnect, offload, or post-removal settle work stalls, the controller now keeps the step blocked and restart-safe with stage-specific diagnostics instead of silently retrying risky destructive work
 - autoscaling diagnostics now make the requested, recommended, and executing states explicit through `status.autoscaling.external.*`, `status.autoscaling.recommendedReplicas`, `status.autoscaling.execution.*`, and context-rich `lastScalingDecision`
 - mutable-flow authorization bootstrap stays chart-first and controller-free
@@ -158,7 +170,6 @@ See [Compatibility](docs/compatibility.md) for the detailed matrix.
 
 These features are available but intentionally marked experimental:
 
-- controller-owned enforced autoscaling scale-down
 - KEDA integration
 
 - site-to-site metrics export
@@ -216,6 +227,26 @@ Operators still provide, out of band:
 
 The focused kind proof can mint a short-lived NiFi access token for the metrics Secret. Production deployments still need an operator-managed credential or rotation path that stays valid for steady-state scraping.
 
+## NiFi 2.x Compatibility Matrix
+
+The repo now carries one shared focused NiFi `2.x` compatibility contract:
+
+- `make kind-nifi-compatibility-fast-e2e`
+- `make kind-nifi-compatibility-fast-e2e-reuse`
+
+That contract is anchored at `apache/nifi:2.0.0` and `apache/nifi:2.8.0`, and the broader supported line remains `2.0.x` through `2.8.x`:
+
+- install through `charts/nifi-platform`
+- secured cluster startup and basic single-user readiness
+- native API metrics through the dedicated metrics `Service` and named `ServiceMonitor` resources
+- one bounded controller-owned enforced scale-up from `2 -> 3`
+
+Current boundary:
+
+- the compatibility contract is intentionally bounded to the common baseline contract above
+- site-to-site sender paths are not part of this matrix
+- deeper focused auth, cert-manager, Flow Registry Client, restore, and broader autoscaling proofs remain on their dedicated targeted gates
+
 ## Install Surface Note
 
 The supported install surfaces are:
@@ -232,9 +263,11 @@ NiFi-Fabric documentation is intentionally conservative in a few areas:
 
 - AKS and OpenShift guidance is published, but real-cluster runtime proof is not yet claimed here
 - KEDA is documented as experimental even though focused kind proof is green
-- autoscaling scale-down remains intentionally one-step-at-a-time and experimental
+- KEDA examples and validation now intentionally keep `spec.autoscaling.external.requestedReplicas` runtime-managed at `0` in declarative values so KEDA and GitOps do not appear to be competing autoscalers
+- autoscaling scale-down remains intentionally one-node-at-a-time, bounded to the controller-owned model, and limited to the actual StatefulSet removal pod for each step even when multiple sequential removals are planned
 - enforced scale-down now waits for repeated zero-backlog observations, low executor activity when thread counts are available, and stabilization or cooldown windows before a removal step is allowed
 - in-progress autoscaling scale-down now remains restart-safe across blocked prepare or settle work, re-establishes preparation safely after pod churn, and pauses cleanly when higher-precedence rollout, TLS, hibernation, or restore work takes over
+- broader per-node drainability ranking, broader bulk policy depth beyond the current bounded sequential-episode model, and broader KEDA maturity remain future work until the project has bounded trustworthy evidence that would justify anything beyond the current actual-removal-candidate qualification model
 - site-to-site metrics export remains optional, experimental, and intentionally bounded to the typed metrics-export path
 - site-to-site status export remains optional, experimental, and intentionally bounded to the typed status-export path
 - site-to-site provenance export remains optional, experimental, and intentionally bounded to the typed provenance-export path

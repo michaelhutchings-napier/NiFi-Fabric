@@ -1602,8 +1602,8 @@ func TestReconcileRecordsBaselineReplicasWhileRunning(t *testing.T) {
 	if updatedCluster.Status.Hibernation.BaselineReplicas != replicas {
 		t.Fatalf("expected baselineReplicas=%d, got %d", replicas, updatedCluster.Status.Hibernation.BaselineReplicas)
 	}
-	if healthChecker.healthCalls != 1 || healthChecker.checkCalls != 0 {
-		t.Fatalf("expected disabled steady state to use WaitForClusterHealthy only, got wait=%d check=%d", healthChecker.healthCalls, healthChecker.checkCalls)
+	if healthChecker.checkCalls != 1 || healthChecker.healthCalls != 0 {
+		t.Fatalf("expected disabled steady state to use one-shot health sampling only, got wait=%d check=%d", healthChecker.healthCalls, healthChecker.checkCalls)
 	}
 }
 
@@ -1639,8 +1639,63 @@ func TestReconcileDoesNotShrinkBaselineReplicasDuringPartialRestore(t *testing.T
 	if updatedCluster.Status.Hibernation.BaselineReplicas != 3 {
 		t.Fatalf("expected baselineReplicas to remain 3, got %d", updatedCluster.Status.Hibernation.BaselineReplicas)
 	}
-	if healthChecker.healthCalls != 1 || healthChecker.checkCalls != 0 {
-		t.Fatalf("expected disabled steady state to use WaitForClusterHealthy only, got wait=%d check=%d", healthChecker.healthCalls, healthChecker.checkCalls)
+	if healthChecker.checkCalls != 1 || healthChecker.healthCalls != 0 {
+		t.Fatalf("expected disabled steady state to use one-shot health sampling only, got wait=%d check=%d", healthChecker.healthCalls, healthChecker.checkCalls)
+	}
+}
+
+func TestReconcileDisabledAutoscalingPublishesDisabledReasonWhileHealthGateWaits(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+	cluster.Status.Autoscaling = platformv1alpha1.AutoscalingStatus{
+		Reason:              autoscalingReasonLowPressure,
+		LastScalingDecision: "NoScaleDown: cooldown is active until 2026-03-17T21:36:19Z",
+	}
+
+	replicas := int32(2)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+	}
+
+	healthChecker := &fakeHealthChecker{
+		checkResponses: []healthResponse{{
+			result: ClusterHealthResult{
+				ExpectedReplicas: 2,
+				ReadyPods:        2,
+				ReachablePods:    2,
+				ConvergedPods:    0,
+				Pods: []PodHealth{
+					{PodName: "nifi-0", Ready: true, APIReachable: true, Clustered: true, ConnectedToCluster: true, ConnectedNodeCount: 2, TotalNodeCount: 3},
+					{PodName: "nifi-1", Ready: true, APIReachable: true, Clustered: true, ConnectedToCluster: true, ConnectedNodeCount: 2, TotalNodeCount: 3},
+				},
+			},
+			err: errors.New("steady-state health gate is still waiting"),
+		}},
+	}
+	reconciler, k8sClient := newTestReconciler(t, healthChecker, cluster, statefulSet, &pods[0], &pods[1])
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected disabled cluster waiting on health gate to requeue, got %s", result.RequeueAfter)
+	}
+	if healthChecker.checkCalls != 1 || healthChecker.healthCalls != 0 {
+		t.Fatalf("expected disabled steady state to use one-shot health sampling only, got wait=%d check=%d", healthChecker.healthCalls, healthChecker.checkCalls)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if got := updatedCluster.Status.Autoscaling.Reason; got != autoscalingReasonDisabled {
+		t.Fatalf("expected autoscaling reason %q, got %q", autoscalingReasonDisabled, got)
+	}
+	if got := updatedCluster.Status.Autoscaling.LastScalingDecision; !strings.Contains(got, "mode=Disabled") {
+		t.Fatalf("expected disabled autoscaling decision context, got %q", got)
 	}
 }
 

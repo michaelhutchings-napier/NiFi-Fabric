@@ -29,11 +29,14 @@ type autoscalingQueuePressureSample struct {
 	FlowFilesQueued          int64
 	BytesQueued              int64
 	BytesQueuedObserved      bool
+	BytesPerThread           int64
 	BacklogPresent           bool
 	ActiveTimerDrivenThreads int32
 	MaxTimerDrivenThreads    int32
 	ThreadCountsObserved     bool
 	PressureBuilding         bool
+	CapacityTight            bool
+	CapacityClearlyShort     bool
 	Actionable               bool
 	PendingConfirmation      bool
 	LowPressure              bool
@@ -41,12 +44,15 @@ type autoscalingQueuePressureSample struct {
 }
 
 type autoscalingCPUSample struct {
-	Observed            bool
-	LoadAverage         float64
-	AvailableProcessors int32
-	Actionable          bool
-	PendingConfirmation bool
-	Interpretation      string
+	Observed             bool
+	LoadAverage          float64
+	AvailableProcessors  int32
+	PressureBuilding     bool
+	CapacityTight        bool
+	CapacityClearlyShort bool
+	Actionable           bool
+	PendingConfirmation  bool
+	Interpretation       string
 }
 
 type LiveAutoscalingSignalCollector struct {
@@ -120,24 +126,51 @@ func (c *LiveAutoscalingSignalCollector) Collect(ctx context.Context, _ *platfor
 		collection.QueuePressure.ActiveTimerDrivenThreads = systemDiagnostics.ActiveTimerDrivenThreads
 		collection.QueuePressure.MaxTimerDrivenThreads = systemDiagnostics.MaxTimerDrivenThreads
 		collection.QueuePressure.ThreadCountsObserved = systemDiagnostics.ThreadCountsObserved
+		if collection.QueuePressure.BytesQueuedObserved {
+			collection.QueuePressure.BytesPerThread = autoscalingQueueBytesPerThread(collection.QueuePressure.BytesQueued, collection.QueuePressure.MaxTimerDrivenThreads)
+		}
 		if collection.QueuePressure.Observed &&
 			collection.QueuePressure.ThreadCountsObserved &&
 			collection.QueuePressure.MaxTimerDrivenThreads > 0 &&
 			collection.QueuePressure.BacklogPresent {
 			if collection.QueuePressure.ActiveTimerDrivenThreads >= collection.QueuePressure.MaxTimerDrivenThreads {
 				collection.QueuePressure.Actionable = true
+				collection.QueuePressure.CapacityTight = true
 			}
 			if collection.QueuePressure.ActiveTimerDrivenThreads >= autoscalingScaleUpThreadThreshold(collection.QueuePressure.MaxTimerDrivenThreads) {
 				collection.QueuePressure.PressureBuilding = true
+				collection.QueuePressure.CapacityTight = true
 			}
 		}
+	}
+	if collection.QueuePressure.BacklogPresent && collection.QueuePressure.BytesQueuedObserved {
+		if collection.QueuePressure.BytesPerThread >= autoscalingQueueBytesPerThreadPressure {
+			collection.QueuePressure.PressureBuilding = true
+			collection.QueuePressure.CapacityTight = true
+		}
+		if collection.QueuePressure.BytesPerThread >= autoscalingQueueBytesPerThreadSevere {
+			collection.QueuePressure.CapacityClearlyShort = true
+		}
+	}
+	if collection.QueuePressure.Actionable && collection.QueuePressure.BytesQueuedObserved && collection.QueuePressure.BytesPerThread >= autoscalingQueueBytesPerThreadPressure {
+		collection.QueuePressure.CapacityClearlyShort = true
 	}
 	if needsCPU && systemDiagErr == nil {
 		collection.CPU.Observed = systemDiagnostics.CPULoadObserved && systemDiagnostics.AvailableProcessors > 0
 		collection.CPU.LoadAverage = systemDiagnostics.CPULoadAverage
 		collection.CPU.AvailableProcessors = systemDiagnostics.AvailableProcessors
-		if collection.CPU.Observed && collection.CPU.LoadAverage >= float64(collection.CPU.AvailableProcessors) {
-			collection.CPU.Actionable = true
+		if collection.CPU.Observed {
+			if collection.CPU.LoadAverage >= autoscalingCPUPressureThreshold(collection.CPU.AvailableProcessors) {
+				collection.CPU.PressureBuilding = true
+				collection.CPU.CapacityTight = true
+			}
+			if collection.CPU.LoadAverage >= float64(collection.CPU.AvailableProcessors) {
+				collection.CPU.Actionable = true
+				collection.CPU.CapacityTight = true
+			}
+			if collection.CPU.LoadAverage >= autoscalingCPUSevereThreshold(collection.CPU.AvailableProcessors) {
+				collection.CPU.CapacityClearlyShort = true
+			}
 		}
 	}
 	if collection.QueuePressure.LowPressure && collection.CPU.Actionable {
@@ -264,9 +297,10 @@ func buildQueuePressureSignalStatus(sample autoscalingQueuePressureSample, queue
 	}
 
 	message := fmt.Sprintf(
-		"queuedFlowFiles=%d queuedBytes=%s activeTimerDrivenThreads=%d/%d",
+		"queuedFlowFiles=%d queuedBytes=%s bytesPerThread=%s activeTimerDrivenThreads=%d/%d",
 		sample.FlowFilesQueued,
 		formatObservedBytes(sample.BytesQueued, sample.BytesQueuedObserved),
+		formatObservedBytes(sample.BytesPerThread, sample.BytesQueuedObserved && sample.MaxTimerDrivenThreads > 0),
 		sample.ActiveTimerDrivenThreads,
 		sample.MaxTimerDrivenThreads,
 	)
@@ -308,11 +342,13 @@ func buildCPUSignalStatus(sample autoscalingCPUSample, diagnosticsErr error) pla
 		}
 	}
 
-	message := fmt.Sprintf("loadAverage=%.2f availableProcessors=%d", sample.LoadAverage, sample.AvailableProcessors)
+	message := fmt.Sprintf("loadAverage=%.2f availableProcessors=%d pressureThreshold=%.2f severeThreshold=%.2f", sample.LoadAverage, sample.AvailableProcessors, autoscalingCPUPressureThreshold(sample.AvailableProcessors), autoscalingCPUSevereThreshold(sample.AvailableProcessors))
 	if sample.Actionable {
 		message += " " + emptyIfUnset(sample.Interpretation, "saturation is actionable")
 	} else if sample.PendingConfirmation {
 		message += " " + emptyIfUnset(sample.Interpretation, "saturation is high but needs one more corroborating evaluation or root-process-group backlog before scale-up")
+	} else if sample.PressureBuilding {
+		message += " " + emptyIfUnset(sample.Interpretation, "CPU pressure is building but has not yet crossed the actionable threshold")
 	}
 	return platformv1alpha1.AutoscalingSignalStatus{
 		Type:      platformv1alpha1.AutoscalingSignalCPU,
@@ -324,42 +360,77 @@ func buildCPUSignalStatus(sample autoscalingCPUSample, diagnosticsErr error) pla
 func qualifyAutoscalingSignalCollection(previous platformv1alpha1.AutoscalingStatus, collection autoscalingSignalCollection) autoscalingSignalCollection {
 	queueSeenBefore := autoscalingPreviousQueuePressureObserved(previous)
 	cpuSeenBefore := autoscalingPreviousCPUSaturationObserved(previous)
+	if collection.QueuePressure.BytesPerThread == 0 && collection.QueuePressure.BytesQueuedObserved && collection.QueuePressure.MaxTimerDrivenThreads > 0 {
+		collection.QueuePressure.BytesPerThread = autoscalingQueueBytesPerThread(collection.QueuePressure.BytesQueued, collection.QueuePressure.MaxTimerDrivenThreads)
+	}
+	if collection.QueuePressure.BacklogPresent && collection.QueuePressure.BytesQueuedObserved {
+		if collection.QueuePressure.BytesPerThread >= autoscalingQueueBytesPerThreadPressure {
+			collection.QueuePressure.PressureBuilding = true
+			collection.QueuePressure.CapacityTight = true
+		}
+		if collection.QueuePressure.BytesPerThread >= autoscalingQueueBytesPerThreadSevere {
+			collection.QueuePressure.CapacityClearlyShort = true
+		}
+	}
+	if collection.CPU.Observed {
+		if collection.CPU.LoadAverage >= autoscalingCPUPressureThreshold(collection.CPU.AvailableProcessors) {
+			collection.CPU.PressureBuilding = true
+			collection.CPU.CapacityTight = true
+		}
+		if collection.CPU.LoadAverage >= autoscalingCPUSevereThreshold(collection.CPU.AvailableProcessors) {
+			collection.CPU.CapacityClearlyShort = true
+		}
+	}
 
 	if collection.QueuePressure.BacklogPresent {
 		switch {
+		case collection.QueuePressure.Actionable && collection.QueuePressure.CapacityClearlyShort && collection.CPU.Actionable:
+			collection.QueuePressure.Interpretation = "capacity is clearly insufficient because queue backlog, queued bytes per timer-driven thread, and CPU saturation all align on the current sample"
+		case collection.QueuePressure.Actionable && collection.QueuePressure.CapacityClearlyShort:
+			collection.QueuePressure.Interpretation = "capacity is clearly insufficient because queued bytes remain high per timer-driven thread and executor saturation is full on the current sample"
 		case collection.QueuePressure.Actionable && collection.CPU.Actionable:
-			collection.QueuePressure.Interpretation = "backlog is actionable because simultaneous CPU saturation corroborates the queue backlog"
+			collection.QueuePressure.Interpretation = "backlog is actionable because simultaneous CPU saturation corroborates the queue backlog and indicates current executor capacity is tight"
 		case collection.QueuePressure.Actionable && queueSeenBefore:
-			collection.QueuePressure.Interpretation = "backlog is actionable because queue pressure persisted across consecutive evaluations"
+			collection.QueuePressure.Interpretation = "backlog is actionable because queue pressure persisted across consecutive evaluations and indicates current executor capacity remains tight"
 		case collection.QueuePressure.Actionable:
 			collection.QueuePressure.Actionable = false
 			collection.QueuePressure.PendingConfirmation = true
-			collection.QueuePressure.Interpretation = "backlog pressure is building and needs one more corroborating evaluation before scale-up"
+			collection.QueuePressure.Interpretation = "executor saturation hit the actionable threshold, but the controller still wants one more corroborating evaluation before scale-up"
+		case collection.QueuePressure.PressureBuilding && collection.QueuePressure.CapacityClearlyShort && queueSeenBefore:
+			collection.QueuePressure.Actionable = true
+			collection.QueuePressure.Interpretation = "backlog is actionable because queued bytes remain materially elevated per timer-driven thread across consecutive evaluations and indicate current executor capacity is tight"
 		case collection.QueuePressure.PressureBuilding && collection.CPU.Actionable:
 			collection.QueuePressure.Actionable = true
-			collection.QueuePressure.Interpretation = "backlog is actionable because simultaneous CPU saturation corroborates the queue backlog"
+			collection.QueuePressure.Interpretation = "backlog is actionable because simultaneous CPU saturation corroborates the queue backlog and indicates current executor capacity is tight"
 		case collection.QueuePressure.PressureBuilding && queueSeenBefore:
 			collection.QueuePressure.Actionable = true
-			collection.QueuePressure.Interpretation = "backlog is actionable because queue pressure persisted across consecutive evaluations"
+			collection.QueuePressure.Interpretation = "backlog is actionable because queue pressure persisted across consecutive evaluations and indicates current executor capacity remains tight"
+		case collection.QueuePressure.PressureBuilding && collection.QueuePressure.CapacityTight:
+			collection.QueuePressure.PendingConfirmation = true
+			collection.QueuePressure.Interpretation = "backlog pressure is building because queued bytes per timer-driven thread and executor usage are both elevated, but the controller still wants one more corroborating evaluation before scale-up"
 		case collection.QueuePressure.PressureBuilding:
 			collection.QueuePressure.PendingConfirmation = true
 			collection.QueuePressure.Interpretation = "backlog pressure is building and needs one more corroborating evaluation before scale-up"
 		default:
-			collection.QueuePressure.Interpretation = "backlog is present but executor saturation is below the scale-up threshold"
+			collection.QueuePressure.Interpretation = "backlog is present but queued bytes and executor saturation do not yet show a convincing capacity shortfall"
 		}
 	}
 
 	if collection.CPU.Actionable {
 		switch {
 		case collection.QueuePressure.BacklogPresent:
-			collection.CPU.Interpretation = "saturation is actionable because root-process-group backlog corroborates the CPU pressure"
+			collection.CPU.Interpretation = "saturation is actionable because root-process-group backlog corroborates the CPU pressure and indicates current node capacity is tight"
+		case collection.CPU.CapacityClearlyShort && cpuSeenBefore:
+			collection.CPU.Interpretation = "saturation is actionable because CPU pressure remained materially above processor capacity across consecutive evaluations"
 		case cpuSeenBefore:
-			collection.CPU.Interpretation = "saturation is actionable because CPU pressure persisted across consecutive evaluations"
+			collection.CPU.Interpretation = "saturation is actionable because CPU pressure persisted across consecutive evaluations and indicates current node capacity remains tight"
 		default:
 			collection.CPU.Actionable = false
 			collection.CPU.PendingConfirmation = true
-			collection.CPU.Interpretation = "saturation is high but needs one more corroborating evaluation or root-process-group backlog before scale-up"
+			collection.CPU.Interpretation = "CPU pressure crossed the actionable threshold but still needs one more corroborating evaluation or root-process-group backlog before scale-up"
 		}
+	} else if collection.CPU.PressureBuilding {
+		collection.CPU.Interpretation = "CPU pressure is building but remains below the actionable threshold for controller-driven scale-up"
 	}
 
 	for i := range collection.SignalStatuses {
@@ -401,6 +472,27 @@ func autoscalingSignalMessageContains(signals []platformv1alpha1.AutoscalingSign
 
 func autoscalingScaleUpConfidencePending(collection autoscalingSignalCollection) bool {
 	return collection.QueuePressure.PendingConfirmation || collection.CPU.PendingConfirmation
+}
+
+func autoscalingQueueBytesPerThread(bytesQueued int64, maxThreads int32) int64 {
+	if bytesQueued <= 0 || maxThreads <= 0 {
+		return 0
+	}
+	return bytesQueued / int64(maxThreads)
+}
+
+func autoscalingCPUPressureThreshold(availableProcessors int32) float64 {
+	if availableProcessors <= 0 {
+		return 0
+	}
+	return float64(availableProcessors) * autoscalingCPUPressureRatio
+}
+
+func autoscalingCPUSevereThreshold(availableProcessors int32) float64 {
+	if availableProcessors <= 0 {
+		return 0
+	}
+	return float64(availableProcessors) * autoscalingCPUSevereRatio
 }
 
 func formatObservedBytes(value int64, observed bool) string {

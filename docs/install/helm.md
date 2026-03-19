@@ -52,6 +52,17 @@ Common starting overlays:
 - `examples/platform-managed-cert-manager-values.yaml`
 - `examples/platform-fast-values.yaml` for smaller focused evaluations only
 
+The shared NiFi `2.x` compatibility contract composes:
+
+- `examples/platform-managed-values.yaml`
+- `examples/platform-managed-metrics-native-values.yaml`
+- `examples/platform-fast-values.yaml`
+- an inline NiFi image tag selection inside the focused harness
+
+Focused matrix command:
+
+- `make kind-nifi-compatibility-fast-e2e`
+
 ## Cert-Manager Install Variant
 
 ```bash

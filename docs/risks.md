@@ -30,6 +30,8 @@ Current autoscaling note:
 - stuck disconnect, offload, or post-removal settle work now surfaces more explicitly, but the controller still prefers safe blocking and operator intervention over aggressive remediation
 - blocked scale-down execution is restart-safe and resumable; failed execution still requires operator attention before trusting another destructive step
 - operators should still size cooldowns, stabilization windows, and minimum replicas for their workload rather than expecting aggressive node removal
+- bulk or multi-node removal remains deferred because removing another node before the previous step has fully settled would weaken the current safety model
+- any future bulk policy would still need to stop immediately on degraded state, blocked execution, missing candidate resolution, or higher-precedence lifecycle work rather than pushing through a larger target
 
 Current DR note:
 

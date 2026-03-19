@@ -202,6 +202,9 @@ func collectLifecycleSignals(original, updated *platformv1alpha1.NiFiCluster) []
 	if signal, ok := autoscalingSignalFromStatus(original, updated); ok {
 		signals = append(signals, signal)
 	}
+	if signal, ok := autoscalingExternalSignal(original, updated); ok {
+		signals = append(signals, signal)
+	}
 	if signal, ok := autoscalingExecutionSignal(original, updated); ok {
 		signals = append(signals, signal)
 	}
@@ -555,6 +558,47 @@ func autoscalingExecutionSignal(original, updated *platformv1alpha1.NiFiCluster)
 		reason:   reason,
 		message:  autoscalingExecutionSignalMessage(updated),
 	}, true
+}
+
+func autoscalingExternalSignal(original, updated *platformv1alpha1.NiFiCluster) (lifecycleSignal, bool) {
+	oldExternal := original.Status.Autoscaling.External
+	newExternal := updated.Status.Autoscaling.External
+	if autoscalingExternalMeaningEqual(oldExternal, newExternal) {
+		return lifecycleSignal{}, false
+	}
+	if !newExternal.Observed {
+		return lifecycleSignal{}, false
+	}
+
+	reason := "AutoscalingExternalIntentUpdated"
+	event := "external_updated"
+	switch {
+	case newExternal.ScaleDownIgnored:
+		reason = "AutoscalingExternalIntentIgnored"
+		event = "external_ignored"
+	case !newExternal.Actionable:
+		reason = "AutoscalingExternalIntentDeferred"
+		event = "external_deferred"
+	}
+
+	return lifecycleSignal{
+		category: "autoscaling",
+		event:    event,
+		level:    corev1.EventTypeNormal,
+		reason:   reason,
+		message:  emptyIfUnset(newExternal.Message, autoscalingStatusMessageForCluster(updated, updated.Status.Autoscaling)),
+	}, true
+}
+
+func autoscalingExternalMeaningEqual(left, right platformv1alpha1.AutoscalingExternalStatus) bool {
+	return left.Observed == right.Observed &&
+		left.Source == right.Source &&
+		equalOptionalInt32(left.RequestedReplicas, right.RequestedReplicas) &&
+		equalOptionalInt32(left.BoundedReplicas, right.BoundedReplicas) &&
+		left.Actionable == right.Actionable &&
+		left.ScaleDownIgnored == right.ScaleDownIgnored &&
+		left.Reason == right.Reason &&
+		left.Message == right.Message
 }
 
 func autoscalingExecutionSignalMessage(cluster *platformv1alpha1.NiFiCluster) string {

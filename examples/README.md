@@ -136,8 +136,10 @@ KEDA note:
 - use it only with `charts/nifi-platform`, for example: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-values.yaml -f examples/platform-managed-keda-values.yaml`
 - add `-f examples/platform-managed-keda-scale-down-values.yaml` only when you want KEDA to write best-effort lower `/scale` intent for the controller to evaluate
 - it renders a `ScaledObject` that targets `NiFiCluster`, not the NiFi `StatefulSet`
+- the overlay intentionally leaves `cluster.autoscaling.external.requestedReplicas` at its runtime-managed default of `0`; KEDA updates that field later through `/scale`
 - it does not add any KEDA resources or values to `charts/nifi`
 - the controller still performs all actual scale-up and scale-down execution
+- the controller now reports the raw KEDA request, controller-bounded intent, and ignored or deferred handling through `status.autoscaling.external.*`
 - the focused live runtime proof commands are `make kind-keda-scale-up-fast-e2e` and `make kind-keda-scale-down-fast-e2e`
 - see [../docs/keda.md](../docs/keda.md) for the current recommendation and ownership model
 
@@ -271,11 +273,20 @@ There are also bounded versioned-flow import overlays:
   - Compose it with [managed/values.yaml](managed/values.yaml), [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml), [github-flow-registry-kind-values.yaml](github-flow-registry-kind-values.yaml), [github-flow-registry-workflow-values.yaml](github-flow-registry-workflow-values.yaml), and [test-fast-values.yaml](test-fast-values.yaml).
   - The focused runtime commands are `make kind-versioned-flow-selection-fast-e2e` and `make kind-versioned-flow-selection-fast-e2e-reuse`.
 
-There is also one focused NiFi version compatibility overlay:
+There is also one shared NiFi `2.x` compatibility contract for `charts/nifi-platform`.
+
+For the focused runtime anchors:
+
+- Compose with [platform-managed-values.yaml](platform-managed-values.yaml), [platform-managed-metrics-native-values.yaml](platform-managed-metrics-native-values.yaml), and [platform-fast-values.yaml](platform-fast-values.yaml).
+- The shared runtime command is `make kind-nifi-compatibility-fast-e2e`.
+- The harness keeps proof logic shared and only changes the image tag inline per case.
+- The runtime anchors are `apache/nifi:2.0.0` and `apache/nifi:2.8.0`.
+
+The older app-chart-focused NiFi `2.8.0` overlay still exists:
 
 - [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml)
-  - Overrides the chart image tag to `apache/nifi:2.8.0`.
-  - Uses `replicaCount: 2` for the focused multi-node kind compatibility proof.
+  - Overrides the `charts/nifi` image tag to `apache/nifi:2.8.0`.
+  - Uses `replicaCount: 2` for the older focused multi-node app-chart proof.
   - Compose with either [standalone/values.yaml](standalone/values.yaml) or [managed/values.yaml](managed/values.yaml).
   - It also composes with the existing OIDC overlays for the focused `apache/nifi:2.8.0` OIDC proof path.
   - The focused managed proof commands are `make kind-nifi-2-8-e2e` and `make kind-nifi-2-8-fast-e2e`.

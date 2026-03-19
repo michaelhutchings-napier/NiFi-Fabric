@@ -57,12 +57,13 @@ These values render the managed `NiFiCluster` resource when `mode=managed`.
 | `cluster.autoscaling.mode` | enum | Autoscaling mode. Values: `Disabled`, `Advisory`, `Enforced`. | No | `Disabled` |
 | `cluster.autoscaling.scaleUp.enabled` | boolean | Enables controller-owned scale-up in enforced mode. | No | `false` |
 | `cluster.autoscaling.scaleUp.cooldown` | duration | Minimum time between scale-up actions. | No | `5m` |
-| `cluster.autoscaling.scaleDown.enabled` | boolean | Enables controller-owned one-step safe scale-down. Experimental. | No | `false` |
+| `cluster.autoscaling.scaleDown.enabled` | boolean | Enables controller-owned safe scale-down for the bounded execution path. | No | `false` |
 | `cluster.autoscaling.scaleDown.cooldown` | duration | Minimum time between scale-down actions. | No | `10m` |
 | `cluster.autoscaling.scaleDown.stabilizationWindow` | duration | Required low-pressure stability before scale-down. | No | `5m` |
-| `cluster.autoscaling.external.enabled` | boolean | Enables the external intent surface used by optional KEDA integration. Experimental. | No | `false` |
-| `cluster.autoscaling.external.source` | string | External source name. Current supported value is `KEDA`. Experimental. | No | `""` |
-| `cluster.autoscaling.external.scaleDownEnabled` | boolean | Allows best-effort external downscale intent to be considered. Experimental. | No | `false` |
+| `cluster.autoscaling.scaleDown.maxSequentialSteps` | integer | Maximum number of one-node removals the controller may complete in one bounded sequential scale-down episode. | No | `1` |
+| `cluster.autoscaling.external.enabled` | boolean | Enables the external intent surface used by optional KEDA integration. Experimental optional input path. | No | `false` |
+| `cluster.autoscaling.external.source` | string | External source name. Current supported value is `KEDA`. Experimental optional input path. | No | `""` |
+| `cluster.autoscaling.external.scaleDownEnabled` | boolean | Allows best-effort external downscale intent to be considered through the existing bounded controller-owned scale-down path. Experimental optional input path. | No | `false` |
 | `cluster.autoscaling.external.requestedReplicas` | integer | External requested replicas observed through `/scale`. | No | `0` |
 | `cluster.autoscaling.minReplicas` | integer | Lower autoscaling bound. | No | `0` |
 | `cluster.autoscaling.maxReplicas` | integer | Upper autoscaling bound. | No | `0` |
