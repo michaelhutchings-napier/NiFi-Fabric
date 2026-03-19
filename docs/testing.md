@@ -22,8 +22,10 @@ Focused runtime proof in this repository includes:
 - exporter metrics on kind
 - optional trust-manager shared CA distribution on kind
 - controller-owned autoscaling focused flows on NiFi `2.8.0`, plus bounded scale-up inside the shared NiFi `2.x` matrix
-- optional experimental KEDA intent-source flows on NiFi `2.8.0`
-- the focused KEDA proofs also check controller-visible external intent diagnostics such as bounded replicas plus deferred or ignored handling
+- KEDA external intent focused flows on NiFi `2.8.0`, including the GA scale-up path plus the bounded opt-in downscale path
+- the focused KEDA proofs also check controller-visible external intent diagnostics such as bounded replicas plus blocked, deferred, or ignored handling
+- the docs now include KEDA-specific starter operations coverage for ignored, blocked, deferred, and GitOps-conflicted external intent
+- focused repo tests now prove KEDA conflict handling across rollout, TLS observation, restore, hibernation, degraded state, already-running destructive work, and controller restart
 - GitHub, GitLab, and Bitbucket Flow Registry Client focused flows on NiFi `2.8.0`
 - a GitHub versioned-flow save-to-registry workflow on NiFi `2.8.0`
 - a bounded GitHub versioned-flow selection workflow on NiFi `2.8.0`
@@ -214,14 +216,26 @@ What they prove:
 Current support reading for those proofs:
 
 - the focused autoscaling proofs back the production-ready built-in bounded model, including richer signal qualification, bounded capacity reasoning, actual removal-candidate qualification, and bounded sequential multi-step scale-down
-- the separate KEDA proofs back the optional external-intent integration only; they do not change the primary support position of the built-in controller-owned autoscaler
+- the separate KEDA kind proofs plus repo tests justify GA for the bounded KEDA external scale-up intent path; they do not change the primary support position of the built-in controller-owned autoscaler
+- the same KEDA kind proofs plus repo tests now also justify GA for controller-mediated external downscale intent through the bounded safe scale-down path
+- repo tests add the KEDA conflict and restart-safe support story without broadening KEDA into a second executor or requiring a heavier runtime gate for every precedence case
+
+What the KEDA proof set now covers together:
+
+- KEDA writes external intent through `NiFiCluster` `/scale`
+- the controller remains the only executor of real scale actions
+- rollout, TLS, restore, hibernation, degraded state, and already-running destructive work block KEDA intent cleanly
+- lifecycle precedence is reported as blocked external intent, while cooldown or low-pressure waiting remains deferred external intent
+- the runtime-managed KEDA request survives controller restart and converges only after the conflict clears
+- GA claim: external scale-up intent through the bounded controller-owned execution path
+- GA claim: controller-mediated external downscale intent through the bounded safe scale-down path, still reusing the normal low-pressure, cooldown, stabilization, and safe node-removal checks after a conflict clears
 
 What they do not prove:
 
 - a generic forecasting or prediction engine; the model remains heuristic and bounded
 - a runtime-injected stalled offload or drain failure harness on kind in this slice
 - broader bulk policy depth beyond the current bounded sequential-episode model
-- broader per-node drainability ranking beyond the current bounded removal-candidate qualification and broader KEDA maturity beyond the current bounded support claim
+- broader per-node drainability ranking beyond the current bounded removal-candidate qualification
 
 ## Bounded Restore Workflow Proof
 

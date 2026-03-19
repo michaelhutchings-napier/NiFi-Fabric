@@ -728,7 +728,13 @@ func autoscalingExternalBlockedSummary(cluster *platformv1alpha1.NiFiCluster, re
 	case autoscalingReasonUnmanagedTarget:
 		return "the target StatefulSet is unmanaged"
 	case autoscalingReasonHibernated:
-		return "hibernation or restore has precedence"
+		if cluster.Spec.DesiredState == platformv1alpha1.DesiredStateHibernated {
+			return "desiredState is Hibernated"
+		}
+		if condition := cluster.GetCondition(platformv1alpha1.ConditionHibernated); conditionIsTrue(condition) && condition.Message != "" {
+			return fmt.Sprintf("the cluster is hibernated: %s", condition.Message)
+		}
+		return "the cluster is hibernated"
 	case autoscalingReasonProgressing:
 		return emptyIfUnset(autoscalingLifecycleProgressMessage(cluster), "controller-owned lifecycle work is in progress")
 	case autoscalingReasonDegraded:

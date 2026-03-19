@@ -576,6 +576,9 @@ func autoscalingExternalSignal(original, updated *platformv1alpha1.NiFiCluster) 
 	case newExternal.ScaleDownIgnored:
 		reason = "AutoscalingExternalIntentIgnored"
 		event = "external_ignored"
+	case newExternal.Reason == autoscalingExternalReasonBlocked || newExternal.Reason == autoscalingExternalReasonBlockedDisabled:
+		reason = "AutoscalingExternalIntentBlocked"
+		event = "external_blocked"
 	case !newExternal.Actionable:
 		reason = "AutoscalingExternalIntentDeferred"
 		event = "external_deferred"

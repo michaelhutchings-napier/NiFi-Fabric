@@ -1,4 +1,4 @@
-# Experimental platform-chart overlay for controller-mediated KEDA integration.
+# GA platform-chart overlay for controller-mediated KEDA external scale-up intent.
 #
 # Requires a managed install of charts/nifi-platform plus a separate KEDA installation
 # in the cluster. The generated ScaledObject targets NiFiCluster, not the NiFi StatefulSet.

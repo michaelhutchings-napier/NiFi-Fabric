@@ -41,19 +41,21 @@ NiFi-Fabric keeps the product surface small and explicit.
 - broader per-node drainability ranking is still future work because the existing autoscaling inputs do not yet provide bounded trustworthy evidence that would justify scheduler-like candidate scoring beyond the current actual-removal-candidate model
 - transient zero-backlog dips are rejected when timer-driven work is still busy, and the controller records that block reason explicitly
 - operator-facing diagnostics now keep mode, external requested replicas, controller recommendation, active execution phase, blocked or failure reason, and next operator action visible in the existing autoscaling status fields
-- future work stays separate from the supported model: broader per-node drainability ranking beyond the current bounded removal-candidate qualification, broader bulk policy depth beyond the current bounded sequential-episode model, and broader KEDA maturity are not part of the current support claim
+- future work stays separate from the supported model: broader per-node drainability ranking beyond the current bounded removal-candidate qualification and broader bulk policy depth beyond the current bounded sequential-episode model are not part of the current support claim
 - the signal model remains intentionally small: there is no forecasting, no ML layer, no arbitrary weighting engine, and no concurrent multi-node destructive execution
 - direct autoscaler ownership of the NiFi `StatefulSet` is not the supported architecture
 
 ## Optional KEDA Integration
 
-- KEDA is optional and experimental
+- KEDA external scale-up intent is GA as an optional external intent source
 - built-in controller-owned autoscaling remains the primary and recommended model
 - KEDA targets `NiFiCluster`, not the NiFi `StatefulSet`
 - the controller remains the only executor of actual scale actions
 - KEDA writes runtime-managed external replica intent through the `NiFiCluster` `/scale` surface
 - declarative values should leave `cluster.autoscaling.external.requestedReplicas` at `0` when KEDA is enabled so GitOps does not fight the runtime-managed intent field
 - `status.autoscaling.external` now shows the raw external request, the controller-bounded intent, and whether that request is currently actionable, deferred, blocked, or ignored
+- controller-mediated KEDA downscale intent is now GA through the same bounded external surface; the controller may still refuse, defer, block, ignore, or later resume the request under the existing safe scale-down rules
+- the starter operations package documents how to interpret received, ignored, blocked, deferred, and GitOps-conflicted KEDA intent without adding a separate KEDA control plane
 
 ## TLS and cert-manager
 

@@ -210,6 +210,37 @@ func TestAutoscalingExternalSignalReportsDeferredExternalIntent(t *testing.T) {
 	}
 }
 
+func TestAutoscalingExternalSignalReportsBlockedExternalIntent(t *testing.T) {
+	original := managedCluster()
+
+	requested := int32(4)
+	bounded := int32(4)
+	updated := original.DeepCopy()
+	updated.Status.Autoscaling.External = platformv1alpha1.AutoscalingExternalStatus{
+		Observed:          true,
+		Source:            platformv1alpha1.AutoscalingExternalIntentSourceKEDA,
+		RequestedReplicas: &requested,
+		BoundedReplicas:   &bounded,
+		Actionable:        false,
+		Reason:            autoscalingExternalReasonBlocked,
+		Message:           "external KEDA requested scale-up intent to 4 replicas through NiFiCluster /scale; the controller is currently blocked because Rollout is running: Config drift rollout is in progress",
+	}
+
+	signal, ok := autoscalingExternalSignal(original, updated)
+	if !ok {
+		t.Fatalf("expected autoscaling external signal")
+	}
+	if signal.reason != "AutoscalingExternalIntentBlocked" {
+		t.Fatalf("expected blocked external signal reason, got %q", signal.reason)
+	}
+	if signal.event != "external_blocked" {
+		t.Fatalf("expected blocked external event, got %q", signal.event)
+	}
+	if !strings.Contains(signal.message, "Rollout is running") {
+		t.Fatalf("expected blocked lifecycle context in signal message, got %q", signal.message)
+	}
+}
+
 func TestAutoscalingExternalSignalReportsIgnoredExternalIntent(t *testing.T) {
 	original := managedCluster()
 

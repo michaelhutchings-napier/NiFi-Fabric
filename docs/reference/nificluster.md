@@ -82,7 +82,7 @@ The current supported built-in autoscaling model is the bounded controller-owned
 - `Advisory` remains the production-ready recommendation path
 - `Enforced` remains the production-ready execution path for bounded scale-up and bounded sequential one-node scale-down work
 - the richer built-in policy depth is part of that support claim, including confidence-based scale-up, bounded capacity reasoning, actual StatefulSet removal-candidate qualification, and sequential multi-step scale-down episodes with fresh requalification between steps
-- optional KEDA external intent is still a separate experimental integration layered onto this autoscaling surface
+- optional KEDA external intent is a supported bounded integration layered onto this autoscaling surface
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
@@ -115,8 +115,8 @@ The current supported built-in autoscaling model is the bounded controller-owned
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
 | `spec.autoscaling.external.enabled` | boolean | Enables the external intent surface. | No |  |
-| `spec.autoscaling.external.source` | enum | External source name. Current value: `KEDA`. Optional experimental input path. | No |  |
-| `spec.autoscaling.external.scaleDownEnabled` | boolean | Allows best-effort external downscale intent to be considered by the controller through the existing bounded safe scale-down path. Optional experimental input path. | No |  |
+| `spec.autoscaling.external.source` | enum | External source name. Current value: `KEDA`. Optional supported external intent input path. | No |  |
+| `spec.autoscaling.external.scaleDownEnabled` | boolean | Allows best-effort external downscale intent to be considered by the controller through the existing bounded safe scale-down path. Optional supported external intent input path. | No |  |
 | `spec.autoscaling.external.requestedReplicas` | integer | External requested replica count. Also backs the Kubernetes `/scale` subresource. | No |  |
 
 ## NiFiClusterStatus

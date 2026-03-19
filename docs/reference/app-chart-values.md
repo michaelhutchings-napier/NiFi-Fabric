@@ -16,6 +16,9 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | `image.repository` | string | NiFi image repository. | No | `apache/nifi` |
 | `image.tag` | string | NiFi image tag. | No | `2.0.0` |
 | `image.pullPolicy` | string | NiFi image pull policy. | No | `IfNotPresent` |
+| `imagePullSecrets[]` | object list | Optional image pull secrets for chart-managed pods. | No | `[]` |
+| `automountServiceAccountToken` | boolean | Automounts the ServiceAccount token into chart-managed pods. Leave this `false` unless a sidecar or pod extension needs Kubernetes API access. | No | `false` |
+| `enableServiceLinks` | boolean | Enables Kubernetes service environment variable injection into chart-managed pods. | No | `false` |
 | `controllerManaged.enabled` | boolean | Enables the managed `OnDelete` workload shape used by the controller path. | No | `false` |
 
 ## Identity, Service, and Exposure
@@ -203,19 +206,35 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | `persistence.contentRepository.size` | string | Content repository PVC size. | No | `4Gi` |
 | `persistence.provenanceRepository.size` | string | Provenance repository PVC size. | No | `4Gi` |
 | `resources.*` | object | NiFi container resource requests and limits. | No | `{}` |
+| `env[]` | object list | Extra environment variables appended to the main NiFi container. | No | `[]` |
+| `envFrom[]` | object list | Extra environment sources appended to the main NiFi container. | No | `[]` |
+| `extraVolumes[]` | object list | Extra pod volumes appended to the NiFi pod. | No | `[]` |
+| `extraVolumeMounts[]` | object list | Extra volume mounts appended to the main NiFi container. | No | `[]` |
 
 ## Scheduling and Security
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
+| `podLabels` | object | Additional labels attached to the NiFi pod template. | No | `{}` |
+| `podAnnotations` | object | Additional annotations attached to the NiFi pod template. | No | `{}` |
 | `affinity` | object | Pod affinity and anti-affinity rules. | No | `{}` |
 | `tolerations[]` | object list | Pod tolerations. | No | `[]` |
 | `nodeSelector` | object | Pod node selector. | No | `{}` |
 | `topologySpreadConstraints[]` | object list | Pod topology spread constraints. | No | `[]` |
+| `hostAliases[]` | object list | Pod host aliases for the NiFi workload. | No | `[]` |
+| `priorityClassName` | string | Pod priority class name for the NiFi workload. | No | `""` |
+| `terminationGracePeriodSeconds` | integer | Pod termination grace period for NiFi pods before force-kill. | No | `120` |
+| `extraInitContainers[]` | object list | Extra raw Kubernetes init containers appended after the built-in `init-conf` bootstrap container. | No | `[]` |
+| `extraInitContainersSecurityContext.*` | object | Default container security context merged into `extraInitContainers[]` entries, on top of the standard NiFi container defaults. | No | `{}` |
+| `sidecars[]` | object list | Extra raw Kubernetes sidecar containers appended after the main `nifi` container. | No | `[]` |
+| `sidecarsSecurityContext.*` | object | Default container security context merged into `sidecars[]` entries, on top of the standard NiFi container defaults. | No | `{}` |
 | `podSecurityContext.fsGroup` | integer | Pod file-system group. | No | `1000` |
 | `securityContext.runAsUser` | integer | Container user ID. | No | `1000` |
 | `securityContext.runAsGroup` | integer | Container group ID. | No | `1000` |
 | `securityContext.runAsNonRoot` | boolean | Requires non-root execution. | No | `true` |
+| `securityContext.allowPrivilegeEscalation` | boolean | Disables privilege escalation for chart-managed containers by default. | No | `false` |
+| `securityContext.capabilities.drop[]` | string list | Linux capabilities dropped by default for chart-managed containers. | No | `["ALL"]` |
+| `securityContext.seccompProfile.type` | string | Default seccomp profile type for chart-managed containers. | No | `RuntimeDefault` |
 
 ## NiFi Runtime and Health Checks
 

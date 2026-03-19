@@ -41,7 +41,7 @@ NiFi-Fabric keeps Helm in charge of ordinary Kubernetes resources and keeps the 
 - thin controller model
 - safe rollout, hibernation, and restore
 - controller-owned autoscaling
-- optional experimental KEDA integration
+- optional KEDA integration
 - supported cert-manager integration
 - optional trust-manager CA bundle distribution
 - OIDC and LDAP support for managed deployments

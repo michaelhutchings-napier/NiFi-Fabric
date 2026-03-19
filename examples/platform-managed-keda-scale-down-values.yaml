@@ -1,4 +1,4 @@
-# Optional overlay that lets KEDA write best-effort external downscale intent
+# Optional overlay that enables the GA controller-mediated external downscale path.
 # through NiFiCluster /scale. The controller still owns all real scale execution
 # and may block or defer the downscale until the existing safe pipeline allows it.
 cluster:

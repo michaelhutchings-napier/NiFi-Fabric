@@ -15,6 +15,7 @@ NiFi-Fabric is built around a small, explainable split of responsibilities.
 
 - standard Kubernetes resources
 - the NiFi `StatefulSet`
+- the managed controller `Deployment`
 - Services, PVCs, ingress or Route resources
 - Secret references
 - cert-manager `Certificate` resources when that mode is enabled
@@ -86,14 +87,26 @@ Primary model:
 - any future broader bulk policy would still have to preserve the same single control plane and safety model: controller-owned execution, one node removed at a time, full settle and requalification between steps, and immediate stop on degradation or lifecycle conflict
 - concurrent multi-pod disconnect, offload, or delete orchestration is not part of the supported architecture
 
-Optional experimental extension:
+Optional supported extension:
 
-- KEDA writes external intent to `NiFiCluster`
+- GA boundary: KEDA writes external scale-up intent to `NiFiCluster`
 - the controller still decides whether a safe scale action should happen
 - the generated `ScaledObject` targets `NiFiCluster` `/scale`, not the NiFi `StatefulSet`
 - `spec.autoscaling.external.requestedReplicas` stays runtime-managed when KEDA is enabled, so declarative values should leave it at `0`
 - Helm validation now keeps KEDA min and max bounds inside the controller-owned autoscaling min and max bounds so external intent does not continuously request out-of-policy sizes
-- `status.autoscaling.external` reports both the raw KEDA request and the controller's current handling of that request, including bounded intent, ignored downscale, cooldown or low-pressure waits, and lifecycle-precedence blocking
+- `status.autoscaling.external` reports both the raw KEDA request and the controller's current handling of that request, including bounded intent, ignored downscale, deferred cooldown or low-pressure waits, and lifecycle-precedence blocking
+- controller restart safety stays in the same control plane: the KEDA request persists on `NiFiCluster`, and the controller rebuilds handling state from that persisted input instead of handing execution to KEDA or HPA
+- lifecycle precedence stays explicit and conservative: rollout, TLS, hibernation, restore, degraded state, and already-running destructive autoscaling work may block KEDA intent, and controller-mediated external downscale still must re-qualify the normal safe path after the conflict clears
+
+Optional pod-shape extension:
+
+- the app chart may append user-defined `extraInitContainers` and `sidecars` to the NiFi pod without changing the controller or introducing a second lifecycle model
+- the app chart may also add bounded raw pod-shape knobs such as `imagePullSecrets`, `podLabels`, `podAnnotations`, `hostAliases`, `priorityClassName`, main-container `env` / `envFrom`, and extra pod `volumes` / main-container `volumeMounts` without changing controller behavior
+- chart-managed pods default `automountServiceAccountToken` and `enableServiceLinks` to `false`; user-defined extensions that genuinely need a Kubernetes API token or service-link env vars must opt in explicitly
+- the built-in `init-conf` container remains product-owned and always runs first so the NiFi bootstrap path stays intact
+- `podSecurityContext` remains pod-wide, while the main NiFi container and built-in init container use the standard container `securityContext` defaults and user-defined extra containers inherit those defaults unless their own `securityContext` overrides them; the base posture is non-root, no privilege escalation, all Linux capabilities dropped, and `RuntimeDefault` seccomp, while `readOnlyRootFilesystem` stays opt-in until it is runtime-proven cleanly
+- sidecars and extra init containers are a Kubernetes pod-composition escape hatch, not a new product feature plane; they must not assume controller ownership, custom status handling, or lifecycle precedence beyond normal pod behavior
+- the managed controller `Deployment` follows the same conservative baseline security posture as other chart-managed pods: explicit container `securityContext`, no privilege escalation, all capabilities dropped, `RuntimeDefault` seccomp, and opt-in ServiceAccount token mounting or service-link env injection when a customer genuinely needs them
 
 ## Observability Architecture
 

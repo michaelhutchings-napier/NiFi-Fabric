@@ -159,7 +159,12 @@ oc -n nifi-system patch deployment nifi-fabric-controller-manager \
   -p='[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]'
 ```
 
-`NiFi-Fabric` does not yet expose a first-class `imagePullSecrets` value in the chart or controller deployment. Use images the cluster can already pull, or patch manifests in your evaluation environment.
+`NiFi-Fabric` now exposes first-class image pull secret values for both the controller and the managed NiFi workload:
+
+- `controller.imagePullSecrets[]`
+- `nifi.imagePullSecrets[]`
+
+If OpenShift nodes cannot pull directly from your registry, set those values in your OpenShift overlay instead of patching the deployed manifests.
 
 ## External Secret Vs Cert-Manager
 

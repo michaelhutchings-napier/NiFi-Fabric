@@ -37,6 +37,21 @@ controller:
     repository: nifi-fabric-controller
     tag: dev
     pullPolicy: IfNotPresent
+  imagePullSecrets: []
+  automountServiceAccountToken: false
+  enableServiceLinks: false
+  podSecurityContext:
+    fsGroup: 65532
+  securityContext:
+    runAsUser: 65532
+    runAsGroup: 65532
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+      - ALL
+    seccompProfile:
+      type: RuntimeDefault
   args:
   - --leader-elect
   resources:
@@ -86,7 +101,7 @@ cluster:
       maxSequentialSteps: 1
     external:
       # -- Controller-owned external autoscaling intent surface.
-      # Used by the experimental KEDA integration when enabled.
+      # Used by the optional KEDA integration when enabled.
       # Leave requestedReplicas at 0 in declarative values when KEDA is enabled;
       # KEDA and the controller manage it at runtime through NiFiCluster /scale.
       enabled: false
@@ -159,11 +174,11 @@ trustManager:
         memory: 128Mi
 
 # ------------------------------------------------------------------------------
-# Experimental KEDA Integration
+# Optional KEDA Integration
 # Docs: ../../docs/keda.md
 # ------------------------------------------------------------------------------
 
-# -- Optional experimental KEDA integration for managed mode.
+# -- Optional supported KEDA integration for managed mode.
 # KEDA targets `NiFiCluster`, not the NiFi StatefulSet.
 # The controller remains the only executor of actual scale actions.
 # KEDA min/max counts must stay within the controller-owned autoscaling min/max bounds.

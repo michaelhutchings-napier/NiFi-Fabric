@@ -138,9 +138,14 @@ See [Compatibility](docs/compatibility.md) for the detailed matrix.
 - advisory autoscaling is production-ready as the bounded controller-owned recommendation path
 - enforced scale-up is production-ready as the bounded controller-owned execution path
 - enforced scale-down is production-ready for the bounded controller-owned sequential one-node path, including bounded sequential multi-step episodes
-- KEDA is optional, experimental, and secondary as an external intent source
+- KEDA external scale-up intent is GA as an optional, secondary integration on top of the built-in controller-owned autoscaler
 - when KEDA is enabled, it targets `NiFiCluster` `/scale` as a runtime-managed intent path; users should not hand-author `spec.autoscaling.external.requestedReplicas` in Helm values or expect KEDA to own the NiFi `StatefulSet`
 - KEDA external intent now reports the raw request, the controller-bounded intent, and the current handling state through `status.autoscaling.external.*`, including actionable, deferred, blocked, or ignored states
+- focused repo tests now prove that rollout, TLS, restore, hibernation, degraded state, and already-running destructive work can block KEDA intent cleanly without letting it bypass controller-owned lifecycle safety
+- KEDA intent now has an explicit restart-safe support story: the runtime-managed `/scale` request survives controller restart, stays visible in status, and converges only after the higher-precedence conflict clears
+- controller-mediated KEDA external downscale is now GA through the same bounded safe scale-down path: the request may be accepted, blocked, deferred, ignored, or resumed later, but it never bypasses low-pressure qualification, lifecycle precedence, or one-step-at-a-time node removal
+- the starter operations package now includes KEDA-specific runbooks and alert guidance for received, ignored, blocked, deferred, and GitOps-conflicted external intent
+- controller events now distinguish `AutoscalingExternalIntentBlocked`, `AutoscalingExternalIntentDeferred`, and `AutoscalingExternalIntentIgnored` so operators can tell lifecycle precedence apart from cooldown or low-pressure waiting
 - scale-up recommendations now stay bounded and explainable: root-process-group backlog, queued bytes, timer-driven thread saturation, and CPU saturation are still the only current inputs, but single-signal pressure now needs corroboration or consecutive evaluations before it becomes a stronger recommendation
 - autoscaling recommendation messages now also explain the expected bounded capacity effect of the next step, such as adding executor headroom for backlog pressure, adding CPU headroom for sustained saturation, or removing one node only when the current quiet envelope remains convincing
 - the controller now distinguishes bounded capacity evidence tiers such as pressure building, capacity tight, and capacity clearly insufficient using the same small signal set: backlog pressure, queued bytes, timer-driven thread saturation, CPU saturation, and persistence across evaluations
@@ -169,8 +174,6 @@ See [Compatibility](docs/compatibility.md) for the detailed matrix.
 ## Experimental Features
 
 These features are available but intentionally marked experimental:
-
-- KEDA integration
 
 - site-to-site metrics export
 - site-to-site status export
@@ -247,6 +250,21 @@ Current boundary:
 - site-to-site sender paths are not part of this matrix
 - deeper focused auth, cert-manager, Flow Registry Client, restore, and broader autoscaling proofs remain on their dedicated targeted gates
 
+## KEDA Confidence Boundary
+
+The repo now carries two layers of KEDA confidence:
+
+- focused kind runtime proof for the bounded external scale-up path and the opt-in best-effort external downscale path
+- focused repo tests for conflict and supportability behavior such as rollout, TLS, restore, hibernation, degraded-state, destructive-work, and controller-restart interactions
+
+Current boundary:
+
+- GA: external scale-up intent written by KEDA through `NiFiCluster` `/scale`, with controller-owned bounded execution and lifecycle precedence
+- GA: controller-mediated external downscale intent through the same bounded safe scale-down path
+- KEDA still does not execute scale actions directly
+- scale-up may converge after a conflict clears, but only through the normal controller-owned one-step path
+- external downscale still does not guarantee pod removal after a conflict clears; the existing safe scale-down checks must re-qualify before any node is removed
+
 ## Install Surface Note
 
 The supported install surfaces are:
@@ -262,12 +280,12 @@ Helm remains the primary recommendation because it stays the source of truth for
 NiFi-Fabric documentation is intentionally conservative in a few areas:
 
 - AKS and OpenShift guidance is published, but real-cluster runtime proof is not yet claimed here
-- KEDA is documented as experimental even though focused kind proof is green
 - KEDA examples and validation now intentionally keep `spec.autoscaling.external.requestedReplicas` runtime-managed at `0` in declarative values so KEDA and GitOps do not appear to be competing autoscalers
+- KEDA support remains intentionally narrow: external intent through `NiFiCluster` `/scale`, controller-owned execution only, and no direct `StatefulSet` ownership
 - autoscaling scale-down remains intentionally one-node-at-a-time, bounded to the controller-owned model, and limited to the actual StatefulSet removal pod for each step even when multiple sequential removals are planned
 - enforced scale-down now waits for repeated zero-backlog observations, low executor activity when thread counts are available, and stabilization or cooldown windows before a removal step is allowed
 - in-progress autoscaling scale-down now remains restart-safe across blocked prepare or settle work, re-establishes preparation safely after pod churn, and pauses cleanly when higher-precedence rollout, TLS, hibernation, or restore work takes over
-- broader per-node drainability ranking, broader bulk policy depth beyond the current bounded sequential-episode model, and broader KEDA maturity remain future work until the project has bounded trustworthy evidence that would justify anything beyond the current actual-removal-candidate qualification model
+- broader per-node drainability ranking and broader bulk policy depth beyond the current bounded sequential-episode model remain future work until the project has bounded trustworthy evidence that would justify anything beyond the current actual-removal-candidate qualification model
 - site-to-site metrics export remains optional, experimental, and intentionally bounded to the typed metrics-export path
 - site-to-site status export remains optional, experimental, and intentionally bounded to the typed status-export path
 - site-to-site provenance export remains optional, experimental, and intentionally bounded to the typed provenance-export path

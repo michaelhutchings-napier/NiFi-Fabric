@@ -20,7 +20,7 @@ What the starter rules cover directly:
 What stays guidance-first instead of hard-coded rules:
 
 - long-running restore blockage
-- KEDA external intent ignored versus actionable
+- KEDA external intent ignored, blocked, deferred, or GitOps-conflicted
 - native API scrape target `up` alerts
 
 Those cases are still important, but the exact query shape depends on whether your environment exports `NiFiCluster` custom-resource status through kube-state-metrics and how your Prometheus jobs label the app-chart metrics targets.
@@ -35,5 +35,25 @@ Recommended operator follow-up:
 KEDA note:
 
 - the product already records autoscaling recommendation and execution signals
+- controller-mediated KEDA external downscale is now part of the supported path, but it still uses the same bounded safe scale-down semantics
 - the current starter file does not hard-code a KEDA-specific alert because external-intent labels are not exposed as a stable controller metric today
-- use the runbook and `status.autoscaling.external` as the first operator check when KEDA intent appears blocked or ignored
+- use the runbook and `status.autoscaling.external` as the first operator check when KEDA intent appears blocked, deferred, ignored, or conflicted by GitOps
+
+KEDA guidance-first alert targets:
+
+- `intent ignored for too long`
+  Watch `status.autoscaling.external.observed`, `status.autoscaling.external.actionable`, `status.autoscaling.external.scaleDownIgnored`, `status.autoscaling.external.reason`, and `status.autoscaling.lastScalingDecision`. Alert only when the same ignored state persists beyond one normal polling or cooldown window for your environment.
+- `intent blocked for too long`
+  Watch `status.autoscaling.execution.state`, `status.autoscaling.execution.blockedReason`, `status.autoscaling.external.reason`, and `status.autoscaling.lastScalingDecision`. This is the right alert when KEDA asked for capacity but a real controller step stayed blocked too long.
+- `intent blocked by lifecycle precedence for too long`
+  Watch the same external-intent fields together with rollout, TLS, hibernation, restore, or degraded signals. This should page only after the higher-precedence activity has exceeded your accepted maintenance or recovery window.
+- `downscale refused repeatedly`
+  Watch repeated `scaleDownIgnored=true` states, repeated `ExternalScaleDownMinimumSatisfied`-style reasons, or repeated controller events showing that KEDA asked below floor or while external downscale was not actionable.
+- `runtime-managed field drift or GitOps conflict`
+  Alert from your GitOps controller, policy engine, or drift tooling when `spec.autoscaling.external.requestedReplicas` is repeatedly reconciled away from the runtime value. The product starter rules do not hard-code this because the signal comes from your GitOps stack, not from a stable built-in NiFi-Fabric metric.
+
+Recommended implementation sources:
+
+- if you export `NiFiCluster` status through kube-state-metrics, build environment-specific alerts from the `status.autoscaling.external.*`, `status.autoscaling.execution.*`, and lifecycle status fields
+- if you do not export CR status, prefer controller-event or log-based alerts for blocked or ignored intent and GitOps-native alerts for drift on the runtime-managed field
+- keep KEDA alerts separate from the standard built-in autoscaling alert route so operators can distinguish external intent handling from controller-native recommendation or execution issues

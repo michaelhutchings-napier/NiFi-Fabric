@@ -128,23 +128,103 @@ Respond:
 - for exporter mode, verify upstream reachability, mounted auth and CA material, and exporter self-metrics
 - keep exporter alerts and dashboards clearly marked experimental if you use that mode in production
 
-## KEDA External Intent Ignored
+## KEDA Wants X, Controller Did Y
 
 Signals:
 
+- `spec.autoscaling.external.requestedReplicas`
 - `status.autoscaling.external`
+- `status.autoscaling.execution`
+- `status.autoscaling.lastScalingDecision`
 - `status.autoscaling.reason`
+- `ScaledObject` and HPA status
 - controller events and logs around autoscaling recommendation or execution
 
 Check:
 
 ```bash
-kubectl -n nifi get nificluster nifi -o jsonpath='{.status.autoscaling.external.observed}{"\n"}{.status.autoscaling.external.source}{"\n"}{.status.autoscaling.external.requestedReplicas}{"\n"}{.status.autoscaling.external.actionable}{"\n"}{.status.autoscaling.external.scaleDownIgnored}{"\n"}{.status.autoscaling.external.reason}{"\n"}{.status.autoscaling.external.message}{"\n"}'
+kubectl -n nifi get nificluster nifi -o jsonpath='{.spec.autoscaling.external.requestedReplicas}{"\n"}{.status.autoscaling.external.observed}{"\n"}{.status.autoscaling.external.source}{"\n"}{.status.autoscaling.external.requestedReplicas}{"\n"}{.status.autoscaling.external.boundedReplicas}{"\n"}{.status.autoscaling.external.actionable}{"\n"}{.status.autoscaling.external.scaleDownIgnored}{"\n"}{.status.autoscaling.external.reason}{"\n"}{.status.autoscaling.external.message}{"\n"}{.status.autoscaling.execution.phase}{" "}{.status.autoscaling.execution.state}{" "}{.status.autoscaling.execution.blockedReason}{" "}{.status.autoscaling.execution.failureReason}{"\n"}{.status.autoscaling.lastScalingDecision}{"\n"}'
+kubectl -n nifi get scaledobject nifi-keda -o yaml
+kubectl -n nifi get hpa
 kubectl -n nifi-system logs deployment/nifi-controller-manager --tail=200
 ```
 
 Respond:
 
-- confirm whether the request was observed but intentionally ignored because lifecycle safety took precedence
-- treat blocked or ignored external intent as secondary to rollout, TLS, and hibernation safety
-- keep KEDA-specific routing separate from the standard platform alert path because KEDA remains experimental
+- confirm whether the controller actually observed the KEDA request
+- compare the raw runtime-managed request, the controller-bounded request, and the final controller decision before assuming the controller is wrong
+- if the controller bounded the request, inspect autoscaling min and max first
+- if the controller deferred or blocked the request, inspect higher-precedence lifecycle work before changing autoscaling settings
+- treat `lastScalingDecision` as the support summary for why KEDA wanted one size and the controller applied another
+
+## KEDA Downscale Request Ignored or Blocked
+
+Signals:
+
+- `status.autoscaling.external.scaleDownIgnored`
+- `status.autoscaling.external.reason`
+- `status.autoscaling.lastScalingDecision`
+- `spec.autoscaling.external.scaleDownEnabled`
+- `spec.autoscaling.minReplicas`
+
+Check:
+
+```bash
+kubectl -n nifi get nificluster nifi -o jsonpath='{.spec.autoscaling.external.scaleDownEnabled}{"\n"}{.spec.autoscaling.minReplicas}{"\n"}{.status.autoscaling.external.requestedReplicas}{"\n"}{.status.autoscaling.external.boundedReplicas}{"\n"}{.status.autoscaling.external.scaleDownIgnored}{"\n"}{.status.autoscaling.external.reason}{"\n"}{.status.autoscaling.external.message}{"\n"}{.status.autoscaling.lastScalingDecision}{"\n"}'
+kubectl -n nifi describe nificluster nifi
+kubectl -n nifi-system logs deployment/nifi-controller-manager --tail=200
+```
+
+Respond:
+
+- if `scaleDownEnabled=false`, treat refusal as expected bounded behavior
+- if the requested size is already at or below `minReplicas`, treat refusal as expected floor enforcement
+- if external downscale was enabled but execution still blocked, treat that as supported controller-mediated behavior and inspect the normal controller-owned safe scale-down checks rather than KEDA itself
+- do not expect KEDA or the generated HPA to remove a pod directly
+
+## KEDA Scale Request Blocked by Lifecycle Precedence
+
+Signals:
+
+- `status.autoscaling.external.reason`
+- `status.autoscaling.execution.state`
+- `status.autoscaling.lastScalingDecision`
+- rollout, TLS, hibernation, restore, and degraded status fields
+
+Check:
+
+```bash
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.autoscaling.external.reason}{"\n"}{.status.autoscaling.external.message}{"\n"}{.status.autoscaling.execution.state}{" "}{.status.autoscaling.execution.blockedReason}{" "}{.status.autoscaling.execution.message}{"\n"}{.status.autoscaling.lastScalingDecision}{"\n"}{.status.rollout.trigger}{"\n"}{.status.lastOperation.type}{" "}{.status.lastOperation.phase}{" "}{.status.lastOperation.message}{"\n"}{range .status.conditions[*]}{.type}{": "}{.reason}{" "}{.status}{"\n"}{end}'
+kubectl -n nifi describe nificluster nifi
+kubectl -n nifi-system logs deployment/nifi-controller-manager --tail=200
+```
+
+Respond:
+
+- confirm whether rollout, TLS restart, hibernation, restore, or degraded-state handling took precedence over the KEDA request
+- let the higher-precedence controller work finish before forcing autoscaling changes
+- if the cluster stays blocked longer than your accepted recovery window, escalate it as a lifecycle issue first and a KEDA issue second
+
+## GitOps Keeps Reverting Runtime-Managed External Intent
+
+Signals:
+
+- `spec.autoscaling.external.requestedReplicas` repeatedly returns to `0` or another declared value
+- `status.autoscaling.external.requestedReplicas` continues to show KEDA-originated requests
+- GitOps controller or policy-engine drift reports
+- controller logs showing repeated observed external intent without durable steady-state
+
+Check:
+
+```bash
+helm -n nifi get values nifi
+kubectl -n nifi get nificluster nifi -o yaml
+kubectl -n nifi-system logs deployment/nifi-controller-manager --tail=200
+```
+
+Respond:
+
+- keep declarative values at `cluster.autoscaling.external.requestedReplicas=0` when `keda.enabled=true`
+- configure your GitOps reconciler to ignore or accept drift on `spec.autoscaling.external.requestedReplicas`
+- do not hand-author the runtime-managed field in Helm values, Kustomize patches, or policy defaults
+- if the GitOps tool cannot ignore that field, do not claim KEDA is enabled for that environment until the reconcile policy is fixed

@@ -71,6 +71,16 @@ kubectl -n nifi get nificluster nifi -o jsonpath='{.spec.autoscaling.mode}{"\n"}
 kubectl -n nifi get nificluster nifi -o jsonpath='{.status.autoscaling.external.reason}{" "}{.status.autoscaling.external.message}{"\n"}{.status.autoscaling.execution.message}{"\n"}{.status.nodeOperation.podName}{" "}{.status.nodeOperation.stage}{"\n"}'
 ```
 
+KEDA intent quick check:
+
+```bash
+kubectl -n nifi get nificluster nifi -o jsonpath='{.spec.autoscaling.external.requestedReplicas}{"\n"}{.status.autoscaling.external.observed}{"\n"}{.status.autoscaling.external.source}{"\n"}{.status.autoscaling.external.requestedReplicas}{"\n"}{.status.autoscaling.external.boundedReplicas}{"\n"}{.status.autoscaling.external.actionable}{"\n"}{.status.autoscaling.external.scaleDownIgnored}{"\n"}{.status.autoscaling.external.reason}{"\n"}{.status.autoscaling.external.message}{"\n"}{.status.autoscaling.lastScalingDecision}{"\n"}'
+kubectl -n nifi get scaledobject nifi-keda -o yaml
+kubectl -n nifi get hpa
+kubectl -n nifi get events --field-selector involvedObject.kind=NiFiCluster,involvedObject.name=nifi --sort-by=.lastTimestamp | rg 'AutoscalingExternalIntent|AutoscalingExecution'
+kubectl -n nifi-system logs deployment/nifi-controller-manager --tail=200
+```
+
 Reading those fields:
 
 - `spec.autoscaling.mode` is the configured control mode. `Advisory` keeps recommendation-only behavior; `Enforced` allows the controller to execute scale-up and bounded sequential scale-down work.
@@ -80,6 +90,12 @@ Reading those fields:
 - `status.autoscaling.lastScalingDecision` now carries the operator-facing summary for allowed, blocked, deferred, ignored, or failed decisions and appends context for mode, current size, recommendation, request, and active execution when relevant.
 - `status.nodeOperation` shows which pod and destructive preparation stage are active during safe scale-down.
 - for blocked one-step scale-down, the execution and decision text now also explain whether the actual StatefulSet removal pod was selected, rejected because it is missing, rejected because it is already terminating, or rejected because it is not Ready, and why lower ordinals were not chosen instead
+- when KEDA is enabled, `spec.autoscaling.external.requestedReplicas` is the runtime-managed `/scale` input and `status.autoscaling.external.requestedReplicas` is the last value the controller actually observed
+- if KEDA wants one size and the controller applies another, trust `status.autoscaling.external.*`, `status.autoscaling.execution.*`, and `lastScalingDecision` over the raw KEDA request alone
+- if `scaleDownIgnored=true`, the controller received the KEDA downscale request but intentionally refused it under the bounded safe rules
+- `AutoscalingExternalIntentBlocked` events mean controller-owned lifecycle or destructive work took precedence; `AutoscalingExternalIntentDeferred` means the request is still waiting on cooldown, low-pressure evidence, or stabilization without a higher-precedence conflict
+- if the external request keeps snapping back to `0` or another declarative value, suspect GitOps reconciliation fighting the runtime-managed field
+- controller restart should not erase the KEDA request; after restart, verify the persisted `/scale` input plus rebuilt `status.autoscaling.external.*` before assuming intent was lost
 
 Support position:
 
@@ -87,7 +103,9 @@ Support position:
 - `Enforced` scale-up is the production-ready bounded execution path
 - `Enforced` scale-down is production-ready for the bounded controller-owned sequential one-node path, including bounded sequential multi-step episodes
 - the richer built-in policy depth is part of that supported bounded model: confidence-based scale-up, bounded capacity reasoning, actual removal-candidate qualification, and restart-safe sequential scale-down execution
-- optional KEDA external intent remains experimental and secondary to the built-in autoscaler
+- GA: KEDA external scale-up intent is supported and secondary to the built-in autoscaler
+- KEDA support remains bounded to external intent through `NiFiCluster` `/scale`; KEDA is not the executor and does not own `StatefulSet.spec.replicas`
+- GA: opt-in KEDA external downscale is supported only through controller mediation and the normal safe scale-down policy
 
 When controller-owned scale-down is stalled, expect:
 
@@ -105,6 +123,15 @@ Operator checks for a stalled autoscaling removal step:
 - inspect NiFi node state through the UI or API to confirm whether the target node is stuck disconnecting, disconnected, or offloading
 - if the blocked reason shows a higher-precedence lifecycle pause, inspect the rollout, TLS, hibernation, or restore status first; autoscaling should resume only after that work clears
 - treat failed execution as operator-owned intervention; blocked execution remains resumable on the next reconcile or controller restart
+
+KEDA operator expectations:
+
+- KEDA may publish a request that the controller later bounds, defers, blocks, or ignores
+- rollout, TLS, hibernation, restore, degraded state, cooldown, and low-pressure rules still take precedence over KEDA intent
+- already-running destructive autoscaling work can also block a new KEDA request until that controller-owned step settles or resumes safely
+- KEDA external scale-up and controller-mediated external downscale are the GA paths; downscale still remains conservative, so the controller may keep the current size when the request is disabled, below floor, unsafe, or still waiting on the normal safe checks
+- after a controller restart, the persisted KEDA request should remain visible on `NiFiCluster` and the controller should rebuild the same blocked, deferred, or actionable interpretation on the next reconcile
+- GitOps users must treat `spec.autoscaling.external.requestedReplicas` as runtime-managed when KEDA is enabled
 
 ## Backup and DR
 

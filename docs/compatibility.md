@@ -31,7 +31,7 @@ The supported NiFi `2.x` line shares this common feature set:
 | autoscaling advisory | Yes |
 | autoscaling enforced scale-up | Yes |
 | autoscaling enforced scale-down | Yes |
-| KEDA integration | Yes, still experimental |
+| KEDA integration | Yes |
 
 The table above is intentionally the common set only. Version-specific focused integrations that are currently documented on NiFi `2.8.0`, such as Flow Registry Client workflows, stay documented separately instead of being implied across the whole line.
 
@@ -91,7 +91,7 @@ The shared harness does not need version-specific values files. It only switches
 | Autoscaling advisory | Focused-runtime-proven | Primary controller-owned recommendation path. |
 | Autoscaling enforced scale-up | Focused-runtime-proven | Primary controller-owned execution path and part of the shared NiFi `2.x` compatibility contract as a bounded `2 -> 3` proof. |
 | Autoscaling enforced scale-down | Focused-runtime-proven | Production-ready for the bounded one-step, conservative, controller-owned path, with deeper dedicated proof outside the shared version matrix. |
-| KEDA integration | Focused-runtime-proven, experimental | Optional external intent source only. |
+| KEDA integration | Focused-runtime-proven | GA for bounded external scale-up and controller-mediated external downscale intent through `NiFiCluster` `/scale`. The controller remains the sole executor. |
 | GitHub Flow Registry Client | Focused-runtime-proven | NiFi `2.8.0`. |
 | GitLab Flow Registry Client | Focused-runtime-proven | NiFi `2.8.0`. |
 | Bitbucket Flow Registry Client | Focused-runtime-proven | NiFi `2.8.0`. |
@@ -111,5 +111,4 @@ The shared harness does not need version-specific values files. It only switches
 - no claim is made beyond Apache NiFi `2.0.x` through `2.8.x`
 - no claim is made that version-specific integrations such as Flow Registry Client workflows are supported across the whole line unless this page says so explicitly
 - richer ingress-backed OIDC browser-flow proof is still conservative on kind
-- KEDA remains experimental even with green focused proof
 - smarter drainability selection, richer capacity reasoning, and bulk or multi-node autoscaling policies remain future work

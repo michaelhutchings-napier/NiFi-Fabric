@@ -78,7 +78,12 @@ kubectl -n nifi-system patch deployment nifi-fabric-controller-manager \
   -p='[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]'
 ```
 
-`NiFi-Fabric` does not yet expose a first-class `imagePullSecrets` value in the chart or controller deployment. For now, use images that AKS nodes can already pull, or patch manifests in your evaluation environment.
+`NiFi-Fabric` now exposes first-class image pull secret values for both the controller and the managed NiFi workload:
+
+- `controller.imagePullSecrets[]`
+- `nifi.imagePullSecrets[]`
+
+If AKS nodes cannot pull directly from your registry, set those values in your AKS overlay instead of patching the deployed manifests.
 
 ## Storage Assumptions
 

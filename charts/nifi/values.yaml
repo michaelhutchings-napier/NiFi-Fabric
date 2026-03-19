@@ -24,6 +24,20 @@ image:
   tag: "2.0.0"
   pullPolicy: IfNotPresent
 
+# -- Optional image pull secrets for chart-managed pods.
+# @default -- []
+imagePullSecrets: []
+
+# -- Automounts the ServiceAccount token into chart-managed pods.
+# Leave this `false` unless a user-defined sidecar or pod extension needs Kubernetes API access.
+# @default -- false
+automountServiceAccountToken: false
+
+# -- Enables Kubernetes service environment variable injection into chart-managed pods.
+# The chart uses explicit Service and pod DNS names instead of relying on service-link env vars.
+# @default -- false
+enableServiceLinks: false
+
 # -- Enables the managed OnDelete workload shape expected by the controller path.
 # Set this to `true` when the workload is controlled through `charts/nifi-platform`.
 # @default -- {"enabled":false}
@@ -602,10 +616,35 @@ persistence:
 # @default -- {}
 resources: {}
 
+# -- Extra environment variables appended to the main NiFi container.
+# @default -- []
+env: []
+
+# -- Extra environment sources appended to the main NiFi container.
+# @default -- []
+envFrom: []
+
+# -- Extra volumes appended to the NiFi pod.
+# These can be mounted by the main NiFi container, sidecars, or extra init containers.
+# @default -- []
+extraVolumes: []
+
+# -- Extra volume mounts appended to the main NiFi container.
+# @default -- []
+extraVolumeMounts: []
+
 # ------------------------------------------------------------------------------
 # Scheduling and Security
 # Docs: ../../docs/reference/app-chart-values.md
 # ------------------------------------------------------------------------------
+
+# -- Additional labels attached to the NiFi pod template.
+# @default -- {}
+podLabels: {}
+
+# -- Additional annotations attached to the NiFi pod template.
+# @default -- {}
+podAnnotations: {}
 
 # -- Pod scheduling preferences.
 # @default -- {}
@@ -623,17 +662,80 @@ nodeSelector: {}
 # @default -- []
 topologySpreadConstraints: []
 
+# -- Pod host aliases for the NiFi workload.
+# @default -- []
+hostAliases: []
+
+# -- Pod priority class name for the NiFi workload.
+# @default -- ""
+priorityClassName: ""
+
+# -- Pod termination grace period in seconds for NiFi pods.
+# Give the JVM time to stop cleanly before kubelet force-kills the container.
+# @default -- 120
+terminationGracePeriodSeconds: 120
+
+# -- Extra init containers appended after the built-in `init-conf` bootstrap container.
+# Each item is a raw Kubernetes `Container` spec.
+# Use an explicit per-container `securityContext` here when needed.
+# @default -- []
+# extraInitContainers:
+# - name: trust-preflight
+#   image: busybox:1.36
+#   command:
+#   - sh
+#   - -c
+#   - echo prepare shared files
+#   securityContext:
+#     runAsUser: 1000
+#     runAsGroup: 1000
+#     runAsNonRoot: true
+extraInitContainers: []
+
+# -- Default container security context merged into each `extraInitContainers[]` entry.
+# Entry-level `securityContext` fields override these defaults.
+# @default -- {}
+extraInitContainersSecurityContext: {}
+
+# -- Sidecar containers appended after the main `nifi` container.
+# Each item is a raw Kubernetes `Container` spec.
+# Use an explicit per-container `securityContext` here when needed.
+# @default -- []
+# sidecars:
+# - name: log-shipper
+#   image: busybox:1.36
+#   command:
+#   - sh
+#   - -c
+#   - tail -F /var/log/app.log
+#   securityContext:
+#     runAsUser: 1000
+#     runAsGroup: 1000
+#     runAsNonRoot: true
+sidecars: []
+
+# -- Default container security context merged into each `sidecars[]` entry.
+# Entry-level `securityContext` fields override these defaults.
+# @default -- {}
+sidecarsSecurityContext: {}
+
 # -- Pod security context.
 # @default -- {"fsGroup":1000}
 podSecurityContext:
   fsGroup: 1000
 
 # -- Container security context.
-# @default -- {"runAsUser":1000,"runAsGroup":1000,"runAsNonRoot":true}
+# @default -- {"runAsUser":1000,"runAsGroup":1000,"runAsNonRoot":true,"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"seccompProfile":{"type":"RuntimeDefault"}}
 securityContext:
   runAsUser: 1000
   runAsGroup: 1000
   runAsNonRoot: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  seccompProfile:
+    type: RuntimeDefault
 
 # ------------------------------------------------------------------------------
 # NiFi Runtime and Health Checks

@@ -131,15 +131,15 @@ Metrics note:
 
 KEDA note:
 
-- [platform-managed-keda-values.yaml](platform-managed-keda-values.yaml) is an optional experimental overlay for KEDA-triggered external scale-up intent in managed mode
-- [platform-managed-keda-scale-down-values.yaml](platform-managed-keda-scale-down-values.yaml) adds opt-in experimental controller-mediated external downscale intent on top of the managed KEDA overlay
+- [platform-managed-keda-values.yaml](platform-managed-keda-values.yaml) is the optional GA overlay for KEDA-triggered external scale-up intent in managed mode
+- [platform-managed-keda-scale-down-values.yaml](platform-managed-keda-scale-down-values.yaml) adds the GA controller-mediated external downscale path on top of the managed KEDA overlay
 - use it only with `charts/nifi-platform`, for example: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-values.yaml -f examples/platform-managed-keda-values.yaml`
 - add `-f examples/platform-managed-keda-scale-down-values.yaml` only when you want KEDA to write best-effort lower `/scale` intent for the controller to evaluate
 - it renders a `ScaledObject` that targets `NiFiCluster`, not the NiFi `StatefulSet`
 - the overlay intentionally leaves `cluster.autoscaling.external.requestedReplicas` at its runtime-managed default of `0`; KEDA updates that field later through `/scale`
 - it does not add any KEDA resources or values to `charts/nifi`
 - the controller still performs all actual scale-up and scale-down execution
-- the controller now reports the raw KEDA request, controller-bounded intent, and ignored or deferred handling through `status.autoscaling.external.*`
+- the controller now reports the raw KEDA request, controller-bounded intent, and blocked, ignored, or deferred handling through `status.autoscaling.external.*`
 - the focused live runtime proof commands are `make kind-keda-scale-up-fast-e2e` and `make kind-keda-scale-down-fast-e2e`
 - see [../docs/keda.md](../docs/keda.md) for the current recommendation and ownership model
 

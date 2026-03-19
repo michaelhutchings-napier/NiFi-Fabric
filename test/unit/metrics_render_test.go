@@ -103,6 +103,32 @@ func TestPlatformManagedNativeMetricsExampleRendersMultipleServiceMonitors(t *te
 	}
 }
 
+func TestPlatformManagedExporterRenderIncludesPodHardeningDefaults(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi-platform",
+		"-f", "examples/platform-managed-values.yaml",
+		"-f", "examples/platform-managed-metrics-exporter-values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		"name: test-nifi-metrics-exporter",
+		"automountServiceAccountToken: false",
+		"enableServiceLinks: false",
+		"allowPrivilegeEscalation: false",
+		"drop:",
+		"- ALL",
+		"seccompProfile:",
+		"type: RuntimeDefault",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
 func TestNativeMetricsAuthValidationFailsWithoutSecretRef(t *testing.T) {
 	output, err := helmTemplate(
 		t,

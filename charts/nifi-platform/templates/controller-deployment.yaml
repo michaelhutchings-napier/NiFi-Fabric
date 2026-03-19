@@ -19,10 +19,20 @@ spec:
         app.kubernetes.io/component: controller
     spec:
       serviceAccountName: {{ include "nifi-platform.controllerServiceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.controller.automountServiceAccountToken }}
+      enableServiceLinks: {{ .Values.controller.enableServiceLinks }}
+      securityContext:
+        {{- toYaml .Values.controller.podSecurityContext | nindent 8 }}
+      {{- with .Values.controller.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: manager
           image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag }}"
           imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.controller.securityContext | nindent 12 }}
           args:
             {{- range .Values.controller.args }}
             - {{ . | quote }}

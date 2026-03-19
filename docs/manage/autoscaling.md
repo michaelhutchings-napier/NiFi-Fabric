@@ -35,7 +35,7 @@ Use `NiFiCluster.spec.autoscaling` or platform chart values under:
 - advisory autoscaling: production-ready bounded controller-owned recommendation path
 - enforced scale-up: production-ready bounded controller-owned execution path
 - enforced scale-down: production-ready for the bounded controller-owned sequential one-node path, including bounded sequential multi-step episodes
-- KEDA integration: optional, experimental input path only
+- KEDA integration: optional supported external intent path
 
 The current production-ready bounded model includes:
 
@@ -87,7 +87,6 @@ Future work remains separate from the support claim:
 
 - smarter drainability selection
 - broader bulk policy depth beyond the bounded sequential episode model
-- broader KEDA maturity
 
 Why broader bulk policy depth is still deferred:
 
@@ -131,7 +130,7 @@ Typical operator interpretation:
 
 ## Optional KEDA Integration
 
-KEDA is optional and experimental.
+KEDA external scale-up intent is GA as an optional external intent source.
 
 Built-in controller-owned autoscaling remains the primary and recommended model.
 
@@ -143,6 +142,6 @@ When KEDA is enabled:
 - `spec.autoscaling.external.requestedReplicas` is a runtime-managed `/scale` field and should stay at `0` in declarative Helm values
 - the controller may bound, defer, or ignore that external request based on the existing autoscaling and lifecycle safety rules
 - `status.autoscaling.external.reason` and `status.autoscaling.external.message` now say whether the request is actionable now, deferred by cooldown or low pressure, blocked by lifecycle precedence, or ignored
-- optional external downscale intent is still best-effort controller input only, not direct execution
-
-See [Experimental Features](../experimental-features.md) and [KEDA Integration Position](../keda.md).
+- controller-mediated external downscale intent is now GA through the same safe controller-owned path; it is still not direct execution and may be blocked, deferred, ignored, or resumed only when the normal safe checks allow it
+- use the KEDA-specific runbooks when operators need to explain why KEDA wanted one size and the controller applied another
+See [KEDA Integration Position](../keda.md) and [Operations Runbooks](../operations/runbooks.md).

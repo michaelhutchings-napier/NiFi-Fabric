@@ -539,7 +539,7 @@ wait_for_output "ignored below-min external scaleDownIgnored" "true" 120 cluster
 wait_for_contains "ignored below-min external downscale event" "minReplicas 2 already keeps the cluster at its lowest allowed size" 120 event_messages_for_reason AutoscalingRecommendationUpdated
 wait_for_output "StatefulSet replicas remain unchanged after ignored below-min external downscale" "2" 60 sts_jsonpath '{.spec.replicas}'
 
-print_success_footer "experimental KEDA scale-down runtime proof completed" \
+print_success_footer "controller-mediated KEDA scale-down runtime proof completed" \
   "make kind-keda-scale-down-fast-e2e-reuse" \
   "kubectl -n ${NAMESPACE} get scaledobject ${HELM_RELEASE}-keda -o yaml" \
   "kubectl -n ${NAMESPACE} get nificluster ${HELM_RELEASE} -o yaml" \

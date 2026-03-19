@@ -8,6 +8,7 @@ NiFi-Fabric keeps the roadmap small and explicit.
 - standalone app install with `charts/nifi`
 - thin controller model for rollout, TLS handling, hibernation, and restore
 - built-in controller-owned autoscaling, including advisory recommendations, enforced scale-up, richer bounded capacity reasoning, actual StatefulSet removal-candidate qualification, and bounded sequential multi-step scale-down
+- optional KEDA external intent through `NiFiCluster` `/scale`, with controller-owned execution and starter operational support
 - supported external Secret and cert-manager TLS paths
 - first-class OIDC and LDAP auth options
 - native API metrics as the primary metrics mode
@@ -15,7 +16,7 @@ NiFi-Fabric keeps the roadmap small and explicit.
 
 ## Experimental
 
-- KEDA as an optional external autoscaling intent source
+- exporter metrics as an optional secondary metrics mode
 
 ## Prepared-Only
 
@@ -30,4 +31,3 @@ NiFi-Fabric keeps the roadmap small and explicit.
 - broader metrics-family proof where it stays smaller than a full metrics platform
 - broader per-node drainability ranking only if it stays explainable, bounded, and justified by trustworthy evidence beyond the current actual-removal-candidate qualification model
 - broader bulk autoscaling policy depth beyond the current bounded sequential-episode model only if it remains sequential controller-owned one-node steps with fresh settle and requalification after every removal
-- broader KEDA maturity if the optional external-intent path proves valuable

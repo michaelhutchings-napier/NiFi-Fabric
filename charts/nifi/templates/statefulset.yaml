@@ -17,6 +17,9 @@ spec:
     metadata:
       labels:
         {{- include "nifi.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         {{- if .Values.observability.siteToSiteStatus.enabled }}
@@ -31,8 +34,22 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ include "nifi.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
+      enableServiceLinks: {{ .Values.enableServiceLinks }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -53,6 +70,8 @@ spec:
       - name: init-conf
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
         env:
         - name: POD_NAME
           valueFrom:
@@ -353,6 +372,14 @@ spec:
           mountPath: {{ .Values.tls.additionalTrustBundle.mountPath }}
           readOnly: true
         {{- end }}
+      {{- with .Values.extraInitContainers }}
+      {{- range . }}
+        {{- $container := deepCopy . }}
+        {{- $securityContext := mergeOverwrite (deepCopy $.Values.securityContext) (deepCopy $.Values.extraInitContainersSecurityContext) (default (dict) .securityContext) }}
+        {{- $_ := set $container "securityContext" $securityContext }}
+        {{- toYaml $container | nindent 6 }}
+      {{- end }}
+      {{- end }}
       containers:
       - name: nifi
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -524,6 +551,13 @@ spec:
         {{- end }}
         {{- end }}
         {{- end }}
+        {{- with .Values.env }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.envFrom }}
+        envFrom:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         ports:
         - name: https
           containerPort: {{ .Values.ports.https }}
@@ -629,6 +663,17 @@ spec:
           mountPath: {{ .Values.versionedFlowImports.mountPath }}
           readOnly: true
         {{- end }}
+        {{- with .Values.extraVolumeMounts }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.sidecars }}
+      {{- range . }}
+        {{- $container := deepCopy . }}
+        {{- $securityContext := mergeOverwrite (deepCopy $.Values.securityContext) (deepCopy $.Values.sidecarsSecurityContext) (default (dict) .securityContext) }}
+        {{- $_ := set $container "securityContext" $securityContext }}
+        {{- toYaml $container | nindent 6 }}
+      {{- end }}
+      {{- end }}
       volumes:
       - name: config-template
         configMap:
@@ -721,6 +766,9 @@ spec:
       - name: versioned-flow-imports
         configMap:
           name: {{ include "nifi.versionedFlowImportsConfigName" . }}
+      {{- end }}
+      {{- with .Values.extraVolumes }}
+      {{- toYaml . | nindent 6 }}
       {{- end }}
       {{- if not .Values.persistence.enabled }}
       - name: database-repository

@@ -24,6 +24,16 @@ For install steps, see [Install with Helm](../install/helm.md). For managed life
 | `controller.image.repository` | string | Controller image repository. | No | `nifi-fabric-controller` |
 | `controller.image.tag` | string | Controller image tag. | No | `dev` |
 | `controller.image.pullPolicy` | string | Controller image pull policy. | No | `IfNotPresent` |
+| `controller.imagePullSecrets[]` | object list | Image pull secrets for the controller Deployment. | No | `[]` |
+| `controller.automountServiceAccountToken` | boolean | Automounts the ServiceAccount token into the controller pod. | No | `false` |
+| `controller.enableServiceLinks` | boolean | Enables Kubernetes service environment variable injection into the controller pod. | No | `false` |
+| `controller.podSecurityContext.fsGroup` | integer | Pod file-system group for the controller pod. | No | `65532` |
+| `controller.securityContext.runAsUser` | integer | Controller container user ID. | No | `65532` |
+| `controller.securityContext.runAsGroup` | integer | Controller container group ID. | No | `65532` |
+| `controller.securityContext.runAsNonRoot` | boolean | Requires non-root execution for the controller container. | No | `true` |
+| `controller.securityContext.allowPrivilegeEscalation` | boolean | Disables privilege escalation for the controller container by default. | No | `false` |
+| `controller.securityContext.capabilities.drop[]` | string list | Linux capabilities dropped by default for the controller container. | No | `["ALL"]` |
+| `controller.securityContext.seccompProfile.type` | string | Default seccomp profile type for the controller container. | No | `RuntimeDefault` |
 | `controller.args[]` | string list | Extra controller arguments. | No | `["--leader-elect"]` |
 | `controller.resources.requests.cpu` | string | Controller CPU request. | No | `100m` |
 | `controller.resources.requests.memory` | string | Controller memory request. | No | `128Mi` |
@@ -61,9 +71,9 @@ These values render the managed `NiFiCluster` resource when `mode=managed`.
 | `cluster.autoscaling.scaleDown.cooldown` | duration | Minimum time between scale-down actions. | No | `10m` |
 | `cluster.autoscaling.scaleDown.stabilizationWindow` | duration | Required low-pressure stability before scale-down. | No | `5m` |
 | `cluster.autoscaling.scaleDown.maxSequentialSteps` | integer | Maximum number of one-node removals the controller may complete in one bounded sequential scale-down episode. | No | `1` |
-| `cluster.autoscaling.external.enabled` | boolean | Enables the external intent surface used by optional KEDA integration. Experimental optional input path. | No | `false` |
-| `cluster.autoscaling.external.source` | string | External source name. Current supported value is `KEDA`. Experimental optional input path. | No | `""` |
-| `cluster.autoscaling.external.scaleDownEnabled` | boolean | Allows best-effort external downscale intent to be considered through the existing bounded controller-owned scale-down path. Experimental optional input path. | No | `false` |
+| `cluster.autoscaling.external.enabled` | boolean | Enables the external intent surface used by optional KEDA integration. | No | `false` |
+| `cluster.autoscaling.external.source` | string | External source name. Current supported value is `KEDA`. | No | `""` |
+| `cluster.autoscaling.external.scaleDownEnabled` | boolean | Allows best-effort external downscale intent to be considered through the existing bounded controller-owned scale-down path. | No | `false` |
 | `cluster.autoscaling.external.requestedReplicas` | integer | External requested replicas observed through `/scale`. | No | `0` |
 | `cluster.autoscaling.minReplicas` | integer | Lower autoscaling bound. | No | `0` |
 | `cluster.autoscaling.maxReplicas` | integer | Upper autoscaling bound. | No | `0` |
@@ -110,9 +120,9 @@ The same bundle can be consumed by:
 | `trustManager.mirrorTLSSecret.image.pullPolicy` | string | Mirror helper image pull policy. | No | `IfNotPresent` |
 | `trustManager.mirrorTLSSecret.resources.*` | object | Mirror helper Job and CronJob resources. | No | see values file |
 
-## Experimental KEDA Integration
+## Optional KEDA Integration
 
-`keda.*` is optional and experimental. For behavior details, see [KEDA integration](../keda.md).
+`keda.*` is optional and supported as an external intent input path. For behavior details, see [KEDA integration](../keda.md).
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
@@ -131,6 +141,9 @@ The same bundle can be consumed by:
 | --- | --- | --- | --- | --- |
 | `nifi.replicaCount` | integer | NiFi pod count for the nested app chart. | No | chart-derived |
 | `nifi.image.*` | object | NiFi image repository, tag, and pull policy. | No | chart-derived |
+| `nifi.imagePullSecrets[]` | object list | Image pull secrets for chart-managed nested NiFi pods. | No | chart-derived |
+| `nifi.automountServiceAccountToken` | boolean | Automounts the ServiceAccount token into chart-managed nested NiFi pods. | No | chart-derived |
+| `nifi.enableServiceLinks` | boolean | Enables Kubernetes service environment variable injection into chart-managed nested NiFi pods. | No | chart-derived |
 | `nifi.tls.*` | object | TLS source, Secret keys, cert-manager integration, and optional extra trust bundle import. | No | chart-derived |
 | `nifi.auth.*` | object | NiFi authentication provider settings. | No | chart-derived |
 | `nifi.authz.*` | object | NiFi authorization bootstrap, bounded mutable-flow capability bundles, and policy settings. | No | chart-derived |
@@ -139,5 +152,19 @@ The same bundle can be consumed by:
 | `nifi.observability.metrics.*` | object | Metrics subsystem settings, including optional trust-manager bundle consumption. | No | chart-derived |
 | `nifi.persistence.*` | object | Repository storage settings. | No | chart-derived |
 | `nifi.resources.*` | object | NiFi pod resources. | No | chart-derived |
+| `nifi.env[]` | object list | Extra environment variables appended to the main nested NiFi container. | No | chart-derived |
+| `nifi.envFrom[]` | object list | Extra environment sources appended to the main nested NiFi container. | No | chart-derived |
+| `nifi.extraVolumes[]` | object list | Extra pod volumes appended to the nested NiFi pod. | No | chart-derived |
+| `nifi.extraVolumeMounts[]` | object list | Extra volume mounts appended to the main nested NiFi container. | No | chart-derived |
+| `nifi.podLabels` | object | Additional labels attached to the nested NiFi pod template. | No | chart-derived |
+| `nifi.podAnnotations` | object | Additional annotations attached to the nested NiFi pod template. | No | chart-derived |
+| `nifi.hostAliases[]` | object list | Pod host aliases for the nested NiFi workload. | No | chart-derived |
+| `nifi.priorityClassName` | string | Pod priority class name for the nested NiFi workload. | No | chart-derived |
+| `nifi.terminationGracePeriodSeconds` | integer | NiFi pod termination grace period before force-kill. | No | chart-derived |
+| `nifi.extraInitContainers[]` | object list | Extra raw Kubernetes init containers for the nested NiFi pod. | No | chart-derived |
+| `nifi.extraInitContainersSecurityContext.*` | object | Default security context merged into nested extra init containers. | No | chart-derived |
+| `nifi.sidecars[]` | object list | Extra raw Kubernetes sidecar containers for the nested NiFi pod. | No | chart-derived |
+| `nifi.sidecarsSecurityContext.*` | object | Default security context merged into nested sidecars. | No | chart-derived |
+| `nifi.securityContext.*` | object | Base container security context for chart-managed nested NiFi containers, including the default non-root, no-privilege-escalation, drop-all-capabilities, and `RuntimeDefault` seccomp posture. | No | chart-derived |
 
 Use [App Chart Values Reference](app-chart-values.md) for the detailed app-chart field map.
