@@ -29,9 +29,10 @@ image:
 imagePullSecrets: []
 
 # -- Automounts the ServiceAccount token into chart-managed pods.
-# Leave this `false` unless a user-defined sidecar or pod extension needs Kubernetes API access.
-# @default -- false
-automountServiceAccountToken: false
+# This stays enabled by default because clustered NiFi uses the Kubernetes API for leader-election coordination.
+# Set it to `false` only if you fully understand the impact on clustered NiFi behavior and any pod extensions.
+# @default -- true
+automountServiceAccountToken: true
 
 # -- Enables Kubernetes service environment variable injection into chart-managed pods.
 # The chart uses explicit Service and pod DNS names instead of relying on service-link env vars.
@@ -62,6 +63,40 @@ service:
   type: ClusterIP
   annotations: {}
   sessionAffinity: None
+
+# -- Optional bounded Linkerd compatibility settings for the NiFi workload.
+# This injects only the NiFi StatefulSet pods and adds the minimum opaque-port annotations
+# needed for the supported meshed NiFi profile. The controller remains mesh-agnostic.
+# @default -- {"enabled":false,"inject":"enabled","opaquePorts":{"cluster":true,"loadBalance":true,"https":false,"additional":[]}}
+linkerd:
+  enabled: false
+  inject: enabled
+  opaquePorts:
+    cluster: true
+    loadBalance: true
+    https: false
+    additional: []
+
+# -- Optional bounded Istio sidecar-mode compatibility settings for the NiFi workload.
+# This injects only the NiFi StatefulSet pods and adds the minimum pod annotations used by
+# the documented supported sidecar-mode profile. The controller remains mesh-agnostic.
+# @default -- {"enabled":false,"inject":true,"rewriteAppHTTPProbers":true,"holdApplicationUntilProxyStarts":true,"annotations":{}}
+istio:
+  enabled: false
+  inject: true
+  rewriteAppHTTPProbers: true
+  holdApplicationUntilProxyStarts: true
+  annotations: {}
+
+# -- Optional bounded Istio Ambient compatibility settings for the NiFi workload.
+# This enrolls only the NiFi StatefulSet pods into Ambient through pod-template labels.
+# The supported profile is L4-only, keeps the controller outside Ambient, and does not add
+# sidecars, waypoint configuration, or mesh-specific controller behavior.
+# @default -- {"enabled":false,"dataplaneMode":"ambient","labels":{}}
+ambient:
+  enabled: false
+  dataplaneMode: ambient
+  labels: {}
 
 # -- NiFi Service ports.
 # @default -- {"https":8443,"cluster":11443,"loadBalance":6342}

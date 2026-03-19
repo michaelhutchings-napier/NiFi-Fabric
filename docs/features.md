@@ -110,10 +110,13 @@ NiFi-Fabric keeps the product surface small and explicit.
 
 - native API metrics are the primary supported metrics mode
 - the shared NiFi `2.x` compatibility contract proves native API metrics on the `2.0.0` and `2.8.0` runtime anchors through the same chart-managed contract
-- exporter metrics mode is an optional experimental secondary path for clean `/metrics` scraping
-- exporter live proof stays chart-scoped: a companion `Deployment`, `Service`, and `ServiceMonitor`, secured upstream reachability, and a Prometheus-scrapable `/metrics` endpoint
+- exporter metrics mode is GA as an optional bounded secondary path for clean `/metrics` scraping
+- exporter live proof stays chart-scoped: a companion `Deployment`, `Service`, and `ServiceMonitor`, secured upstream reachability, Prometheus-scrapable `/metrics`, mounted auth Secret rotation recovery, and the bounded trust-manager CA-consumer path
+- exporter GA scope remains intentionally narrow: relayed flow Prometheus metrics plus selected `/flow/status` supplemental gauges
+- native API metrics remain the recommended production path unless you specifically want the exporter shape
 - exporter trust-manager live proof now covers Bundle reconciliation, mounted trust presence, and successful secured upstream reachability through the distributed bundle
-- site-to-site metrics export is now an optional typed runtime path built around one SiteToSiteMetricsReportingTask use case, not a generic NiFi runtime-object API
+- site-to-site metrics export is GA as an optional bounded sender-side typed runtime path built around one `SiteToSiteMetricsReportingTask` use case, not a generic NiFi runtime-object API
+- site-to-site metrics GA scope is intentionally narrow: one typed sender contract, `AmbariFormat`, one bounded SSL context shape for secure transport, and the current single-user bootstrap path
 - the typed site-to-site contract now makes the secure receiver-authorized identity explicit instead of leaving the destination-side auth requirement implicit
 - site-to-site status export is an additional optional typed runtime path built around one SiteToSiteStatusReportingTask use case, not a generic reporting-task framework
 - the status-export API stays separate from `observability.metrics.mode` so current `nativeApi`, `exporter`, and site-to-site metrics behavior are unaffected unless status export is explicitly enabled

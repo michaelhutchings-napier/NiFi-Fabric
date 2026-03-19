@@ -49,6 +49,123 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- join "," (uniq $hosts) -}}
 {{- end -}}
 
+{{- define "nifi.linkerdOpaquePortsCSV" -}}
+{{- $linkerd := default (dict) .Values.linkerd -}}
+{{- if not $linkerd.enabled -}}
+{{- "" -}}
+{{- else -}}
+{{- $opaque := default (dict) $linkerd.opaquePorts -}}
+{{- $clusterOpaque := true -}}
+{{- if hasKey $opaque "cluster" -}}
+{{- $clusterOpaque = $opaque.cluster -}}
+{{- end -}}
+{{- $loadBalanceOpaque := true -}}
+{{- if hasKey $opaque "loadBalance" -}}
+{{- $loadBalanceOpaque = $opaque.loadBalance -}}
+{{- end -}}
+{{- $httpsOpaque := false -}}
+{{- if hasKey $opaque "https" -}}
+{{- $httpsOpaque = $opaque.https -}}
+{{- end -}}
+{{- $ports := list -}}
+{{- if $clusterOpaque -}}
+{{- $ports = append $ports (printf "%v" .Values.ports.cluster) -}}
+{{- end -}}
+{{- if $loadBalanceOpaque -}}
+{{- $ports = append $ports (printf "%v" .Values.ports.loadBalance) -}}
+{{- end -}}
+{{- if $httpsOpaque -}}
+{{- $ports = append $ports (printf "%v" .Values.ports.https) -}}
+{{- end -}}
+{{- range $port := default (list) $opaque.additional -}}
+{{- $ports = append $ports (printf "%v" $port) -}}
+{{- end -}}
+{{- join "," (uniq $ports) -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "nifi.linkerdOpaquePortsForService" -}}
+{{- $opaqueCSV := include "nifi.linkerdOpaquePortsCSV" .root -}}
+{{- if not $opaqueCSV -}}
+{{- "" -}}
+{{- else -}}
+{{- $configured := splitList "," $opaqueCSV -}}
+{{- $matches := list -}}
+{{- range $port := .servicePorts -}}
+{{- $portString := printf "%v" $port -}}
+{{- if has $portString $configured -}}
+{{- $matches = append $matches $portString -}}
+{{- end -}}
+{{- end -}}
+{{- join "," (uniq $matches) -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "nifi.linkerdPodAnnotations" -}}
+{{- $annotations := dict -}}
+{{- $linkerd := default (dict) .Values.linkerd -}}
+{{- if $linkerd.enabled -}}
+{{- $_ := set $annotations "linkerd.io/inject" (default "enabled" $linkerd.inject) -}}
+{{- $opaquePorts := include "nifi.linkerdOpaquePortsCSV" . -}}
+{{- if $opaquePorts -}}
+{{- $_ := set $annotations "config.linkerd.io/opaque-ports" $opaquePorts -}}
+{{- end -}}
+{{- end -}}
+{{- toYaml $annotations -}}
+{{- end -}}
+
+{{- define "nifi.linkerdServiceAnnotations" -}}
+{{- $annotations := dict -}}
+{{- $linkerd := default (dict) .root.Values.linkerd -}}
+{{- if $linkerd.enabled -}}
+{{- $opaquePorts := include "nifi.linkerdOpaquePortsForService" . -}}
+{{- if $opaquePorts -}}
+{{- $_ := set $annotations "config.linkerd.io/opaque-ports" $opaquePorts -}}
+{{- end -}}
+{{- end -}}
+{{- toYaml $annotations -}}
+{{- end -}}
+
+{{- define "nifi.istioPodAnnotations" -}}
+{{- $annotations := dict -}}
+{{- $istio := default (dict) .Values.istio -}}
+{{- if $istio.enabled -}}
+{{- $inject := true -}}
+{{- if hasKey $istio "inject" -}}
+{{- $inject = $istio.inject -}}
+{{- end -}}
+{{- $rewriteAppHTTPProbers := true -}}
+{{- if hasKey $istio "rewriteAppHTTPProbers" -}}
+{{- $rewriteAppHTTPProbers = $istio.rewriteAppHTTPProbers -}}
+{{- end -}}
+{{- $holdApplicationUntilProxyStarts := true -}}
+{{- if hasKey $istio "holdApplicationUntilProxyStarts" -}}
+{{- $holdApplicationUntilProxyStarts = $istio.holdApplicationUntilProxyStarts -}}
+{{- end -}}
+{{- $_ := set $annotations "sidecar.istio.io/inject" (ternary "true" "false" $inject) -}}
+{{- $_ := set $annotations "sidecar.istio.io/rewriteAppHTTPProbers" (ternary "true" "false" $rewriteAppHTTPProbers) -}}
+{{- if $holdApplicationUntilProxyStarts -}}
+{{- $_ := set $annotations "proxy.istio.io/config" ((dict "holdApplicationUntilProxyStarts" true) | toJson) -}}
+{{- end -}}
+{{- range $key, $value := (default (dict) $istio.annotations) -}}
+{{- $_ := set $annotations $key $value -}}
+{{- end -}}
+{{- end -}}
+{{- toYaml $annotations -}}
+{{- end -}}
+
+{{- define "nifi.ambientPodLabels" -}}
+{{- $labels := dict -}}
+{{- $ambient := default (dict) .Values.ambient -}}
+{{- if $ambient.enabled -}}
+{{- $_ := set $labels "istio.io/dataplane-mode" (default "ambient" $ambient.dataplaneMode) -}}
+{{- range $key, $value := (default (dict) $ambient.labels) -}}
+{{- $_ := set $labels $key $value -}}
+{{- end -}}
+{{- end -}}
+{{- toYaml $labels -}}
+{{- end -}}
+
 {{- define "nifi.tlsMode" -}}
 {{- $mode := default "externalSecret" .Values.tls.mode -}}
 {{- if and .Values.tls.certManager.enabled (ne $mode "certManager") -}}
@@ -360,11 +477,17 @@ app.kubernetes.io/component: metrics
 {{- $observability := default (dict) .Values.observability -}}
 {{- $metrics := default (dict) $observability.metrics -}}
 {{- $configuredMode := default "disabled" $metrics.mode -}}
+{{- $linkerd := default (dict) .Values.linkerd -}}
+{{- $istio := default (dict) .Values.istio -}}
+{{- $ambient := default (dict) .Values.ambient -}}
 {{- $siteToSiteMetrics := default (dict) $metrics.siteToSite -}}
 {{- $siteToSiteStatus := default (dict) $observability.siteToSiteStatus -}}
 {{- $siteToSiteProvenance := default (dict) $observability.siteToSiteProvenance -}}
 {{- $parameterContexts := default (dict) .Values.parameterContexts -}}
 {{- $versionedFlowImports := default (dict) .Values.versionedFlowImports -}}
+{{- if or (and $linkerd.enabled $istio.enabled) (and $linkerd.enabled $ambient.enabled) (and $istio.enabled $ambient.enabled) -}}
+{{- fail "linkerd.enabled, istio.enabled, and ambient.enabled are mutually exclusive; choose one bounded service-mesh compatibility profile" -}}
+{{- end -}}
 {{- if and (ne $mode "disabled") (ne $mode "nativeApi") (ne $mode "nativeApiLegacy") (ne $mode "exporter") (ne $mode "siteToSite") -}}
 {{- fail "observability.metrics.mode must be one of: disabled, nativeApi, exporter, siteToSite" -}}
 {{- end -}}

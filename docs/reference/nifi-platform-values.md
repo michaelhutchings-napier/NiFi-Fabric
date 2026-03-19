@@ -25,7 +25,7 @@ For install steps, see [Install with Helm](../install/helm.md). For managed life
 | `controller.image.tag` | string | Controller image tag. | No | `dev` |
 | `controller.image.pullPolicy` | string | Controller image pull policy. | No | `IfNotPresent` |
 | `controller.imagePullSecrets[]` | object list | Image pull secrets for the controller Deployment. | No | `[]` |
-| `controller.automountServiceAccountToken` | boolean | Automounts the ServiceAccount token into the controller pod. | No | `false` |
+| `controller.automountServiceAccountToken` | boolean | Automounts the ServiceAccount token into the controller pod. This defaults to `true` because the controller uses in-cluster Kubernetes client configuration. | No | `true` |
 | `controller.enableServiceLinks` | boolean | Enables Kubernetes service environment variable injection into the controller pod. | No | `false` |
 | `controller.podSecurityContext.fsGroup` | integer | Pod file-system group for the controller pod. | No | `65532` |
 | `controller.securityContext.runAsUser` | integer | Controller container user ID. | No | `65532` |
@@ -144,6 +144,9 @@ The same bundle can be consumed by:
 | `nifi.imagePullSecrets[]` | object list | Image pull secrets for chart-managed nested NiFi pods. | No | chart-derived |
 | `nifi.automountServiceAccountToken` | boolean | Automounts the ServiceAccount token into chart-managed nested NiFi pods. | No | chart-derived |
 | `nifi.enableServiceLinks` | boolean | Enables Kubernetes service environment variable injection into chart-managed nested NiFi pods. | No | chart-derived |
+| `nifi.linkerd.*` | object | Optional bounded Linkerd compatibility settings for the nested NiFi workload only. | No | chart-derived |
+| `nifi.istio.*` | object | Optional bounded Istio sidecar-mode compatibility settings for the nested NiFi workload only. | No | chart-derived |
+| `nifi.ambient.*` | object | Optional bounded Istio Ambient compatibility settings for the nested NiFi workload only. | No | chart-derived |
 | `nifi.tls.*` | object | TLS source, Secret keys, cert-manager integration, and optional extra trust bundle import. | No | chart-derived |
 | `nifi.auth.*` | object | NiFi authentication provider settings. | No | chart-derived |
 | `nifi.authz.*` | object | NiFi authorization bootstrap, bounded mutable-flow capability bundles, and policy settings. | No | chart-derived |

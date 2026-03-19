@@ -48,7 +48,7 @@ Recommended operator inputs:
 
 ## Exporter Mode
 
-`exporter` remains an optional experimental secondary path.
+`exporter` is GA as an optional bounded secondary path.
 
 It provides:
 
@@ -74,13 +74,13 @@ Use exporter when:
 Keep the support boundary in mind:
 
 - `nativeApi` remains the recommended production path
-- exporter proof is deeper now, but the mode still stays experimental
+- exporter is GA only within the bounded scope on this page
 - metrics auth stays machine-oriented, not human-login-oriented
 - no controller-owned metrics lifecycle or orchestration is introduced
 
 ## Site-to-Site Metrics Mode
 
-`siteToSite` is now a typed, bounded Site-to-Site metrics export capability.
+`siteToSite` is GA as an optional bounded sender-side Site-to-Site metrics export capability.
 
 It is intentionally not a generic Reporting Task, Controller Service, or NiFi runtime-object framework.
 
@@ -136,6 +136,7 @@ Ownership rule:
 
 - the platform owns only the specific Site-to-Site metrics export objects it creates by fixed name
 - manual UI edits to those objects are unsupported and will be overwritten on the next pod restart or redeploy
+- the proof-only receiver harness used in kind is not product surface and does not imply product-owned receiver automation
 
 ## Site-to-Site Status Export
 
@@ -313,8 +314,9 @@ Focused kind proof can mint a fresh NiFi access token into the referenced Secret
 ## Support Level
 
 - `nativeApi`: primary production-ready path
-- `exporter`: optional experimental secondary path with focused runtime proof
-- `siteToSite`: optional experimental typed runtime path
+- `exporter`: optional GA secondary path with focused runtime proof
+- `siteToSite`: optional GA typed sender-side runtime path
+- `exporter` and `siteToSite` are both GA but neither replaces `nativeApi` as the primary recommendation
 - `siteToSiteStatus`: optional experimental typed status-export path
 - `siteToSiteProvenance`: optional experimental typed provenance-export path
 - trust-manager bundle consumption: optional supported complement to `nativeApi` and `exporter`, not a separate metrics mode
@@ -388,15 +390,19 @@ What `make kind-site-to-site-status-fast-e2e` now proves live:
 - live status delivery reaches the real receiver and is observed from receiver-side processor status
 - the feature remains chart-scoped and does not move Site-to-Site orchestration into the controller
 
-What remains experimental or intentionally bounded:
+What remains outside the current GA claims or still experimental:
 
 - `nativeApi` remains the recommended production path
-- exporter proof still centers on flow Prometheus metrics plus selected `/flow/status` gauges only
+- exporter GA scope still centers on flow Prometheus metrics plus selected `/flow/status` gauges only
 - JVM or system-diagnostics metric families are not yet runtime-proven through exporter mode
-- exporter remains optional and experimental even with trust-manager-backed runtime proof
+- exporter remains optional and non-primary even with trust-manager-backed runtime proof
 - trust-manager proof currently focuses on the mirrored workload CA to PEM bundle consumer path; additional trust-manager output formats are still not runtime-proven for exporter mode
-- `siteToSite` remains optional and experimental
+- `siteToSite` is GA only for the typed sender-side metrics path on this page
+- `siteToSite` GA scope currently assumes the current single-user bootstrap path for local NiFi API management during object reconciliation
+- `siteToSite` GA scope currently covers `none` for `http://` receivers and `workloadTLS` or `secretRef` for `https://` receivers, with `auth.authorizedIdentity` required for secure receiver authorization
+- `siteToSite` GA scope currently covers one `SiteToSiteMetricsReportingTask`, one `StandardRestrictedSSLContextService` when secure transport is used, `RAW` or `HTTP` transport, and `AmbariFormat` only
 - `siteToSite` runtime proof uses a tightly scoped kind-only receiver harness, not a product-managed destination control plane
+- receiver topology, client-cert trust, receiver-side user or policy lifecycle, long-lived credentials, and reverse-proxy routing assumptions remain operator-owned outside that proof harness
 - `siteToSiteStatus` remains optional and experimental
 - `siteToSiteStatus` runtime proof uses the same tightly scoped kind-only receiver harness, not a product-managed destination control plane
 - destination receiver topology and destination-side policy lifecycle remain operator-owned outside that proof harness

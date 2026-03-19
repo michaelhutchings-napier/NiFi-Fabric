@@ -1,0 +1,3 @@
+nifi:
+  ambient:
+    enabled: true

@@ -11,9 +11,10 @@ metadata:
     {{- with $service.labels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
-  {{- with $service.annotations }}
+  {{- $annotations := merge (dict) (include "nifi.linkerdServiceAnnotations" (dict "root" . "servicePorts" (list .Values.ports.https)) | fromYaml) (default (dict) $service.annotations) }}
+  {{- if $annotations }}
   annotations:
-    {{- toYaml . | nindent 4 }}
+    {{- toYaml $annotations | nindent 4 }}
   {{- end }}
 spec:
   type: ClusterIP
@@ -38,9 +39,10 @@ metadata:
     {{- with $service.labels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
-  {{- with $service.annotations }}
+  {{- $annotations := merge (dict) (include "nifi.linkerdServiceAnnotations" (dict "root" . "servicePorts" (list $service.port)) | fromYaml) (default (dict) $service.annotations) }}
+  {{- if $annotations }}
   annotations:
-    {{- toYaml . | nindent 4 }}
+    {{- toYaml $annotations | nindent 4 }}
   {{- end }}
 spec:
   type: ClusterIP

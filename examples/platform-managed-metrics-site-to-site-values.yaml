@@ -1,4 +1,4 @@
-# Optional managed-platform overlay for the typed site-to-site metrics export path.
+# Optional managed-platform overlay for the GA bounded sender-side typed site-to-site metrics export path.
 # This enables the bounded SiteToSiteMetricsReportingTask integration. The platform
 # owns only the reporting task and its SSL Context Service when secure transport is
 # used. The destination receiver topology, input port, receiver-authorized identity,

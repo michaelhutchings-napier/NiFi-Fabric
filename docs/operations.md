@@ -64,6 +64,95 @@ kubectl -n nifi-system port-forward deployment/nifi-controller-manager 18080:808
 curl --silent http://127.0.0.1:18080/metrics | rg '^nifi_platform_'
 ```
 
+Exporter metrics quick check for the bounded supported profile:
+
+```bash
+kubectl -n nifi get deployment nifi-metrics-exporter -o jsonpath='{.status.readyReplicas}{"\n"}'
+kubectl -n nifi get service nifi-exporter -o yaml
+kubectl -n nifi get servicemonitor nifi-exporter -o yaml
+kubectl -n nifi logs deployment/nifi-metrics-exporter --tail=100
+kubectl -n nifi port-forward deployment/nifi-metrics-exporter 19090:9090
+curl --silent http://127.0.0.1:19090/readyz && echo
+curl --silent http://127.0.0.1:19090/metrics | rg 'nifi_fabric_exporter_source_up|nifi_amount_running_components'
+```
+
+Reading those checks:
+
+- exporter mode is optional; verify the release actually uses `observability.metrics.mode=exporter` before debugging it
+- `nativeApi` remains the primary recommended metrics path even when exporter mode is supported
+- the exporter `Deployment`, `Service`, and `ServiceMonitor` should all exist together in the bounded GA profile
+- `/readyz` should reflect secured upstream NiFi reachability, not just local process liveness
+- `/metrics` should expose exporter self-diagnostics plus the bounded relayed NiFi metric families documented for this mode
+
+Site-to-Site metrics quick check for the bounded supported profile:
+
+```bash
+kubectl -n nifi get configmap nifi-site-to-site-metrics -o jsonpath='{.data.config\.json}' | python3 -m json.tool
+kubectl -n nifi logs nifi-0 -c nifi --tail=200 | rg 'site-to-site|SiteToSiteMetricsReportingTask|fabric-site-to-site-metrics'
+kubectl -n nifi exec nifi-0 -c nifi -- test -f /opt/nifi/fabric/site-to-site-metrics/config.json && echo mounted
+```
+
+Reading those checks:
+
+- `siteToSite` is optional; verify the release actually uses `observability.metrics.mode=siteToSite` and `observability.metrics.siteToSite.enabled=true`
+- `nativeApi` still remains the primary recommended metrics path even when the bounded Site-to-Site path is GA
+- the mounted config should show the declared destination URL, input port name, auth mode, and authorized identity contract
+- the bounded GA path owns exactly one typed reporting task and one bounded SSL context service shape when secure transport is used
+- receiver topology, trust, and destination-side authz lifecycle remain operator-owned even though the sender-side path is GA
+
+Linkerd quick check for the bounded supported profile:
+
+```bash
+linkerd check --proxy --namespace nifi
+kubectl -n nifi get statefulset nifi -o jsonpath='{.spec.template.metadata.annotations.linkerd\.io/inject}{"\n"}{.spec.template.metadata.annotations.config\.linkerd\.io/opaque-ports}{"\n"}'
+kubectl -n nifi get service nifi-headless -o jsonpath='{.metadata.annotations.config\.linkerd\.io/opaque-ports}{"\n"}'
+kubectl -n nifi get pods -o custom-columns=NAME:.metadata.name,CONTAINERS:.spec.containers[*].name
+```
+
+Reading those checks:
+
+- `linkerd check --proxy --namespace nifi` confirms that the NiFi data plane proxies are healthy
+- the StatefulSet pod template should show `linkerd.io/inject=enabled`
+- the bounded baseline profile should show `config.linkerd.io/opaque-ports` for the NiFi cluster and load-balance ports
+- the headless Service should carry the same opaque-port annotation for the supported internal NiFi TCP ports
+- each meshed NiFi pod should list `linkerd-proxy` as an additional container
+
+Istio quick check for the bounded supported sidecar-mode profile:
+
+```bash
+kubectl get namespace nifi -o jsonpath='{.metadata.labels.istio-injection}{"\n"}'
+kubectl -n nifi get statefulset nifi -o jsonpath='{.spec.template.metadata.annotations.sidecar\.istio\.io/inject}{"\n"}{.spec.template.metadata.annotations.sidecar\.istio\.io/rewriteAppHTTPProbers}{"\n"}{.spec.template.metadata.annotations.proxy\.istio\.io/config}{"\n"}'
+kubectl -n nifi get pods -o custom-columns=NAME:.metadata.name,CONTAINERS:.spec.containers[*].name
+kubectl -n nifi-system get pods -o custom-columns=NAME:.metadata.name,CONTAINERS:.spec.containers[*].name
+```
+
+Reading those checks:
+
+- the NiFi namespace should show `istio-injection=enabled`
+- the StatefulSet pod template should show `sidecar.istio.io/inject="true"`
+- the bounded baseline profile should show `sidecar.istio.io/rewriteAppHTTPProbers="true"`
+- the bounded baseline profile should also show `proxy.istio.io/config` with `holdApplicationUntilProxyStarts`
+- each meshed NiFi pod should list `istio-proxy` as an additional container
+- the controller pod should not list `istio-proxy`
+
+Istio Ambient quick check for the bounded supported profile:
+
+```bash
+kubectl get namespace nifi -o jsonpath='{.metadata.labels.istio-injection}{" "}{.metadata.labels.istio\.io/dataplane-mode}{"\n"}'
+kubectl -n nifi get statefulset nifi -o jsonpath='{.spec.template.metadata.labels.istio\.io/dataplane-mode}{"\n"}'
+kubectl -n nifi get pods -o custom-columns=NAME:.metadata.name,LABEL:.metadata.labels.istio\\.io/dataplane-mode,CONTAINERS:.spec.containers[*].name
+kubectl -n nifi-system get pods -o custom-columns=NAME:.metadata.name,CONTAINERS:.spec.containers[*].name
+kubectl -n istio-system get daemonset ztunnel
+```
+
+Reading those checks:
+
+- the supported overlay does not require `istio-injection=enabled` on the NiFi namespace
+- the StatefulSet pod template should show `istio.io/dataplane-mode=ambient`
+- each Ambient-enabled NiFi pod should show the same label and should not list `istio-proxy`
+- the controller pod should remain plain and should not list `istio-proxy`
+- `ztunnel` should be ready for the bounded Ambient profile
+
 Autoscaling blocked-state quick check:
 
 ```bash
@@ -192,7 +281,8 @@ NiFi-Fabric is intentionally conservative about support claims:
 - kind is the runtime proof baseline in this repository
 - AKS and OpenShift guidance is published separately and remains conservative because no real cluster was exercised in this slice
 - `nativeApi` remains the production-ready metrics path
-- `exporter` remains experimental even though focused runtime proof exists
+- `exporter` is GA only within the bounded documented metrics scope and remains optional
+- `siteToSite` is GA only within the bounded documented sender-side metrics scope and remains optional
 - typed Site-to-Site sender features remain bounded and do not become a generic recovery or runtime-object framework
 - DR guidance documents a production posture, but the product does not claim storage snapshot orchestration or full NiFi internal recovery ownership
 - the starter operations assets are templates, not a production certification pack

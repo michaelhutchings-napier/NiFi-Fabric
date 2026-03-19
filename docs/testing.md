@@ -20,6 +20,8 @@ Focused runtime proof in this repository includes:
 - OIDC and LDAP focused auth paths on kind
 - native API metrics on kind
 - exporter metrics on kind
+- exporter trust-manager metrics on kind
+- site-to-site metrics on kind
 - optional trust-manager shared CA distribution on kind
 - controller-owned autoscaling focused flows on NiFi `2.8.0`, plus bounded scale-up inside the shared NiFi `2.x` matrix
 - KEDA external intent focused flows on NiFi `2.8.0`, including the GA scale-up path plus the bounded opt-in downscale path
@@ -387,9 +389,11 @@ Current honest limit:
 - `nativeApi` runtime proof still covers the flow Prometheus endpoint only
 - exporter runtime proof adds a second secured endpoint, `/nifi-api/flow/status`, but not a JVM or system-diagnostics family
 - the second native scrape profile is still a cadence variant of the same flow endpoint
-- exporter remains optional and experimental even with the stronger runtime gate
+- exporter remains optional and bounded even with the stronger runtime gate
 - trust-manager-backed exporter proof currently covers PEM bundle distribution only; additional Bundle output formats are still future work for exporter mode
 - `siteToSite` proof is intentionally bounded to the typed sender path plus a proof-only receiver harness on kind
+- that focused proof now justifies a GA claim only for the typed sender-side metrics path, not for status or provenance
+- the current `siteToSite` GA boundary still assumes the single-user bootstrap path for the sender-side local NiFi API reconciliation loop
 - that proof now also checks the declared secure receiver identity and the minimum receiver-side policy bindings needed for delivery
 - `siteToSiteStatus` proof is intentionally bounded to the typed sender path plus that same proof-only receiver harness on kind
 - `siteToSiteProvenance` proof is intentionally bounded to the typed sender path plus that same proof-only receiver harness on kind

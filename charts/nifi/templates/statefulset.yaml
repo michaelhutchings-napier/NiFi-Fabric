@@ -15,23 +15,26 @@ spec:
       {{- include "nifi.selectorLabels" . | nindent 6 }}
   template:
     metadata:
+      {{- $podLabels := merge (dict) (include "nifi.ambientPodLabels" . | fromYaml) }}
+      {{- $podLabels = merge $podLabels (default (dict) .Values.podLabels) }}
       labels:
         {{- include "nifi.selectorLabels" . | nindent 8 }}
-        {{- with .Values.podLabels }}
+        {{- with $podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+      {{- $podAnnotations := merge (dict) (include "nifi.linkerdPodAnnotations" . | fromYaml) }}
+      {{- $podAnnotations = merge $podAnnotations (include "nifi.istioPodAnnotations" . | fromYaml) }}
+      {{- $podAnnotations = merge $podAnnotations (dict "checksum/config" (include (print $.Template.BasePath "/configmap.yaml") . | sha256sum)) }}
+      {{- if .Values.observability.siteToSiteStatus.enabled }}
+      {{- $podAnnotations = merge $podAnnotations (dict "checksum/site-to-site-status-config" (include (print $.Template.BasePath "/site-to-site-status-configmap.yaml") . | sha256sum)) }}
+      {{- end }}
+      {{- if .Values.observability.siteToSiteProvenance.enabled }}
+      {{- $podAnnotations = merge $podAnnotations (dict "checksum/site-to-site-provenance-config" (include (print $.Template.BasePath "/site-to-site-provenance-configmap.yaml") . | sha256sum)) }}
+      {{- end }}
+      {{- $podAnnotations = merge $podAnnotations (dict "platform.nifi.io/controller-managed" (ternary "true" "false" .Values.controllerManaged.enabled)) }}
+      {{- $podAnnotations = merge $podAnnotations (default (dict) .Values.podAnnotations) }}
       annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
-        {{- if .Values.observability.siteToSiteStatus.enabled }}
-        checksum/site-to-site-status-config: {{ include (print $.Template.BasePath "/site-to-site-status-configmap.yaml") . | sha256sum }}
-        {{- end }}
-        {{- if .Values.observability.siteToSiteProvenance.enabled }}
-        checksum/site-to-site-provenance-config: {{ include (print $.Template.BasePath "/site-to-site-provenance-configmap.yaml") . | sha256sum }}
-        {{- end }}
-        platform.nifi.io/controller-managed: {{ ternary "true" "false" .Values.controllerManaged.enabled | quote }}
-        {{- with .Values.podAnnotations }}
-        {{- toYaml . | nindent 8 }}
-        {{- end }}
+        {{- toYaml $podAnnotations | nindent 8 }}
     spec:
       serviceAccountName: {{ include "nifi.serviceAccountName" . }}
       automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}

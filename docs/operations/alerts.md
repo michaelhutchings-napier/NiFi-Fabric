@@ -30,7 +30,7 @@ Recommended operator follow-up:
 - tune the alert windows and severities for your paging policy
 - add `up` or `absent()` alerts that match your real Prometheus job labels
 - add cluster-specific rules if you expose `NiFiCluster` status through kube-state-metrics
-- route experimental exporter alerts differently from `nativeApi` alerts if you run both modes
+- keep exporter alerts on a separate route from `nativeApi` alerts if you run both modes so operators can see which metrics mode is failing
 
 KEDA note:
 

@@ -71,6 +71,54 @@ Focused trust-manager-backed native metrics proof:
 make kind-metrics-native-api-trust-manager-fast-e2e
 ```
 
+Managed platform install with the bounded Linkerd compatibility overlay:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  -f examples/platform-managed-values.yaml \
+  -f examples/platform-managed-linkerd-values.yaml
+```
+
+Focused Linkerd compatibility proof:
+
+```bash
+make kind-linkerd-fast-e2e
+```
+
+Managed platform install with the bounded Istio sidecar-mode compatibility overlay:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  -f examples/platform-managed-values.yaml \
+  -f examples/platform-managed-istio-values.yaml
+```
+
+Focused Istio sidecar-mode compatibility proof:
+
+```bash
+make kind-istio-fast-e2e
+```
+
+Managed platform install with the bounded Istio Ambient compatibility overlay:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  -f examples/platform-managed-values.yaml \
+  -f examples/platform-managed-istio-ambient-values.yaml
+```
+
+Focused Istio Ambient compatibility proof:
+
+```bash
+make kind-istio-ambient-fast-e2e
+```
+
 Secondary manifest-bundle path:
 
 ```bash
@@ -164,8 +212,11 @@ See [Compatibility](docs/compatibility.md) for the detailed matrix.
 - bounded versioned flow import and version selection are available as an optional typed runtime-managed feature for declared root-child import targets, including live version reconcile, explicit ownership markers, and selected-version attachment without provider write-back, not as generic flow-runtime management
 - a bounded restore workflow is now focused-runtime-proven on the platform chart path for control-plane reinstall plus registry-client reconnect, runtime-managed Parameter Context recovery, and selected-flow import from registry-backed content
 - native API metrics are the primary, recommended metrics path and are runtime-proven on kind
-- exporter metrics are an optional experimental secondary path and are runtime-proven on kind
-- site-to-site metrics, status, and provenance export are optional typed runtime paths for bounded sender-side use cases, not a generic NiFi runtime-object framework
+- a bounded Linkerd compatibility profile is focused-runtime-proven for meshed NiFi pods with controller-owned health and lifecycle behavior unchanged
+- a bounded Istio sidecar-mode compatibility profile is focused-runtime-proven for meshed NiFi pods with controller-owned health and lifecycle behavior unchanged, with Istio namespace injection enabled only in the NiFi workload namespace
+- a bounded Istio Ambient compatibility profile is focused-runtime-proven for labeled NiFi pods in L4 Ambient mode with no sidecars, controller-owned health and lifecycle behavior unchanged, and the controller kept outside the mesh
+- exporter metrics are GA as an optional bounded secondary path and are runtime-proven on kind; native API metrics remain the primary recommendation
+- site-to-site metrics export is GA as an optional bounded sender-side typed path; site-to-site status and provenance remain separate experimental typed paths
 - optional trust-manager integration distributes shared CA bundles without moving TLS orchestration into the controller
 - backup and DR are documented as a first-class production posture with explicit separation between declarative platform recovery and PVC-backed NiFi data recovery
 - a thin control-plane backup or recovery MVP now exports Helm values, rendered manifest intent, sanitized `NiFiCluster` intent, and reference inventories without adding a second product control plane
@@ -175,9 +226,16 @@ See [Compatibility](docs/compatibility.md) for the detailed matrix.
 
 These features are available but intentionally marked experimental:
 
-- site-to-site metrics export
 - site-to-site status export
 - site-to-site provenance export
+
+## Metrics Support Matrix
+
+- primary recommended: `nativeApi`
+- optional but GA: `exporter`
+- optional but GA: `siteToSite`
+- still experimental: `siteToSiteStatus`
+- still experimental: `siteToSiteProvenance`
 
 ## Metrics Runtime Proof
 
@@ -189,7 +247,7 @@ The repo now carries a focused metrics runtime proof matrix:
 That matrix proves:
 
 - secured `nativeApi` scraping with a dedicated chart-managed metrics `Service` and named `ServiceMonitor` resources
-- experimental `exporter` mode with its companion `Deployment`, `Service`, and `ServiceMonitor`
+- optional bounded `exporter` mode with its companion `Deployment`, `Service`, and `ServiceMonitor`
 - the documented machine-auth Secret and CA Secret contract used by both modes
 
 Focused typed Site-to-Site proof is also available through:
@@ -206,13 +264,15 @@ Current conservative boundary:
 - `nativeApi` is runtime-proven for the secured `/nifi-api/flow/metrics/prometheus` endpoint
 - `nativeApi` is also runtime-proven consuming a trust-manager-distributed CA bundle through the optional platform trust-manager overlay
 - `nativeApi` is the recommended production path unless you have a clear reason to prefer the exporter shape
+- `exporter` is GA but still optional; it is not the default or recommended primary metrics path
 - `exporter` is runtime-proven for direct secured reachability to `/nifi-api/flow/metrics/prometheus` and `/nifi-api/flow/status` from the chart-owned exporter pod
 - `exporter` exposes a Prometheus-scrapable `/metrics` endpoint that relays live NiFi metric families from the secured flow source
 - `exporter` is runtime-proven for selected controller-status gauges derived from `/nifi-api/flow/status`
 - `exporter` is runtime-proven for upstream-aware readiness and mounted auth Secret rotation without restarting the exporter pod
-- `siteToSite` is now runtime-proven end to end as a typed metrics-export path that creates exactly one `SiteToSiteMetricsReportingTask` and one `StandardRestrictedSSLContextService` when secure transport is enabled
+- `exporter` is also runtime-proven consuming trust-manager-distributed CA material through the existing bounded bundle-consumer path
+- `siteToSite` is GA as an optional bounded sender-side metrics-export path that creates exactly one `SiteToSiteMetricsReportingTask` and one `StandardRestrictedSSLContextService` when secure transport is enabled
 - `siteToSite` proof now covers typed sender bootstrap, explicit receiver-authorized identity wiring, secure receiver peer discovery, receiver-side policy binding checks, and live delivery to a real Site-to-Site receiver on kind through the product-facing chart path
-- `siteToSite` remains bounded to `AmbariFormat`, an explicit secure receiver auth contract, a proof-only receiver harness, and the current single-user bootstrap path for local NiFi API management
+- `siteToSite` GA scope remains bounded to `AmbariFormat`, the typed sender-side contract, secure `workloadTLS` or `secretRef` auth for `https://` receivers, `none` for `http://`, an explicit secure receiver auth contract, a proof-only receiver harness, and the current single-user bootstrap path for local NiFi API management
 - `siteToSiteStatus` is now a second typed Site-to-Site path that creates exactly one `SiteToSiteStatusReportingTask` and one `StandardRestrictedSSLContextService` when secure transport is enabled
 - `siteToSiteStatus` keeps JSON status payload shape, platform, filters, and batching fixed behind the typed API so we do not add generic Reporting Task or Controller Service ownership
 - `siteToSiteProvenance` is now a third typed Site-to-Site path that creates exactly one `SiteToSiteProvenanceReportingTask` and one `StandardRestrictedSSLContextService` when secure transport is enabled
@@ -286,11 +346,11 @@ NiFi-Fabric documentation is intentionally conservative in a few areas:
 - enforced scale-down now waits for repeated zero-backlog observations, low executor activity when thread counts are available, and stabilization or cooldown windows before a removal step is allowed
 - in-progress autoscaling scale-down now remains restart-safe across blocked prepare or settle work, re-establishes preparation safely after pod churn, and pauses cleanly when higher-precedence rollout, TLS, hibernation, or restore work takes over
 - broader per-node drainability ranking and broader bulk policy depth beyond the current bounded sequential-episode model remain future work until the project has bounded trustworthy evidence that would justify anything beyond the current actual-removal-candidate qualification model
-- site-to-site metrics export remains optional, experimental, and intentionally bounded to the typed metrics-export path
+- site-to-site metrics export is GA only within the bounded typed sender-side metrics-export path
 - site-to-site status export remains optional, experimental, and intentionally bounded to the typed status-export path
 - site-to-site provenance export remains optional, experimental, and intentionally bounded to the typed provenance-export path
 - parameter contexts are runtime-managed only within the declared bounded scope of owned context create/update/delete and direct root-child attachment; Parameter Provider creation and generic flow-runtime management remain out of scope
-- exporter support remains experimental and intentionally bounded to flow metrics plus selected `/flow/status` gauges
+- exporter support is GA only within the bounded documented scope of flow metrics plus selected `/flow/status` gauges
 - the user-driven GitHub save-to-registry workflow is separately proven, while bounded runtime-managed flow import is proven only within the declared `versionedFlowImports.*` scope; generic deployment and ongoing synchronization remain out of scope
 - trust-manager currently distributes shared CA bundles only; it does not replace cert-manager or move trust orchestration into the controller
 - automatic mirroring of the workload TLS `ca.crt` into a trust-manager source Secret is available as an optional chart-owned helper path

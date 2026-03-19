@@ -115,7 +115,7 @@ func TestPlatformManagedExporterRenderIncludesPodHardeningDefaults(t *testing.T)
 	}
 	for _, want := range []string{
 		"name: test-nifi-metrics-exporter",
-		"automountServiceAccountToken: false",
+		"automountServiceAccountToken: true",
 		"enableServiceLinks: false",
 		"allowPrivilegeEscalation: false",
 		"drop:",
@@ -841,6 +841,62 @@ func TestSiteToSiteValidationFailsForMissingAuthSecretRef(t *testing.T) {
 	}
 	if !strings.Contains(output, "observability.metrics.siteToSite.auth.secretRef.name is required when auth.type=secretRef") {
 		t.Fatalf("expected missing siteToSite auth Secret validation error\n%s", output)
+	}
+}
+
+func TestSiteToSiteValidationDefaultsToWorkloadTLSAndStillRequiresAuthorizedIdentity(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.metrics.mode=siteToSite",
+		"--set", "observability.metrics.siteToSite.enabled=true",
+		"--set", "observability.metrics.siteToSite.destination.url=https://metrics-receiver.example.com/nifi",
+		"--set", "observability.metrics.siteToSite.destination.inputPortName=nifi-metrics",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail when default secure siteToSite auth has no authorized identity\n%s", output)
+	}
+	if !strings.Contains(output, "observability.metrics.siteToSite.auth.authorizedIdentity is required for secure Site-to-Site receiver authorization") {
+		t.Fatalf("expected default workloadTLS authorized identity validation error\n%s", output)
+	}
+}
+
+func TestSiteToSiteValidationFailsWhenWorkloadTLSStillSetsSecretRef(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.metrics.mode=siteToSite",
+		"--set", "observability.metrics.siteToSite.enabled=true",
+		"--set", "observability.metrics.siteToSite.destination.url=https://metrics-receiver.example.com/nifi",
+		"--set", "observability.metrics.siteToSite.destination.inputPortName=nifi-metrics",
+		"--set", "observability.metrics.siteToSite.auth.type=workloadTLS",
+		"--set", "observability.metrics.siteToSite.auth.authorizedIdentity=O=Example\\, CN=nifi-metrics-sender",
+		"--set", "observability.metrics.siteToSite.auth.secretRef.name=nifi-site-to-site-tls",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail when workloadTLS still sets siteToSite auth.secretRef\n%s", output)
+	}
+	if !strings.Contains(output, "observability.metrics.siteToSite.auth.secretRef.* cannot be set when auth.type=workloadTLS") {
+		t.Fatalf("expected workloadTLS secretRef contradiction validation error\n%s", output)
+	}
+}
+
+func TestSiteToSiteValidationFailsWhenAuthNoneStillSetsSecretRef(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.metrics.mode=siteToSite",
+		"--set", "observability.metrics.siteToSite.enabled=true",
+		"--set", "observability.metrics.siteToSite.destination.url=http://metrics-receiver.example.com/nifi",
+		"--set", "observability.metrics.siteToSite.destination.inputPortName=nifi-metrics",
+		"--set", "observability.metrics.siteToSite.auth.type=none",
+		"--set", "observability.metrics.siteToSite.auth.secretRef.name=nifi-site-to-site-tls",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail when auth.type=none still sets siteToSite auth.secretRef\n%s", output)
+	}
+	if !strings.Contains(output, "observability.metrics.siteToSite.auth.secretRef.* cannot be set when auth.type=none") {
+		t.Fatalf("expected auth.none secretRef contradiction validation error\n%s", output)
 	}
 }
 

@@ -102,11 +102,14 @@ Optional pod-shape extension:
 
 - the app chart may append user-defined `extraInitContainers` and `sidecars` to the NiFi pod without changing the controller or introducing a second lifecycle model
 - the app chart may also add bounded raw pod-shape knobs such as `imagePullSecrets`, `podLabels`, `podAnnotations`, `hostAliases`, `priorityClassName`, main-container `env` / `envFrom`, and extra pod `volumes` / main-container `volumeMounts` without changing controller behavior
-- chart-managed pods default `automountServiceAccountToken` and `enableServiceLinks` to `false`; user-defined extensions that genuinely need a Kubernetes API token or service-link env vars must opt in explicitly
+- the app chart may also apply one bounded Linkerd compatibility profile through values-driven pod and Service annotations for the NiFi workload only; that profile stays chart-owned, optional, and mesh-compatibility-oriented rather than introducing mesh-specific controller logic or a generic service-mesh abstraction layer
+- the app chart may also apply one bounded Istio sidecar-mode compatibility profile through values-driven pod annotations for the NiFi workload only; that profile stays chart-owned, optional, and compatibility-oriented rather than adding controller behavior, mesh-owned lifecycle sequencing, or a generic multi-mesh framework
+- the app chart may also apply one bounded Istio Ambient compatibility profile through values-driven pod labels for the NiFi workload only; that profile stays chart-owned, optional, and compatibility-oriented rather than adding controller behavior, waypoint ownership, or a generic multi-mesh framework
+- chart-managed pods default `automountServiceAccountToken` to `true` where the controller or clustered NiFi need Kubernetes API access, while `enableServiceLinks` stays `false`; user-defined extensions that genuinely need different token or service-link behavior must opt in explicitly
 - the built-in `init-conf` container remains product-owned and always runs first so the NiFi bootstrap path stays intact
 - `podSecurityContext` remains pod-wide, while the main NiFi container and built-in init container use the standard container `securityContext` defaults and user-defined extra containers inherit those defaults unless their own `securityContext` overrides them; the base posture is non-root, no privilege escalation, all Linux capabilities dropped, and `RuntimeDefault` seccomp, while `readOnlyRootFilesystem` stays opt-in until it is runtime-proven cleanly
 - sidecars and extra init containers are a Kubernetes pod-composition escape hatch, not a new product feature plane; they must not assume controller ownership, custom status handling, or lifecycle precedence beyond normal pod behavior
-- the managed controller `Deployment` follows the same conservative baseline security posture as other chart-managed pods: explicit container `securityContext`, no privilege escalation, all capabilities dropped, `RuntimeDefault` seccomp, and opt-in ServiceAccount token mounting or service-link env injection when a customer genuinely needs them
+- the managed controller `Deployment` follows the same conservative baseline security posture as other chart-managed pods: explicit container `securityContext`, no privilege escalation, all capabilities dropped, `RuntimeDefault` seccomp, ServiceAccount token mounting enabled for in-cluster Kubernetes access, and service-link env injection still opt-in only
 
 ## Observability Architecture
 
@@ -118,17 +121,18 @@ Primary metrics path:
 - focused live runtime proof for secured flow metrics scraping
 - recommended production path for customers by default
 
-Experimental or prepared paths:
+Optional bounded integration paths:
 
 - `exporter` is a supported secondary metrics path for environments that want a clean `/metrics` endpoint
 - the exporter republishes the secured flow Prometheus endpoint and can append selected controller-status gauges from `/nifi-api/flow/status`
 - the exporter keeps local liveness separate from upstream-aware readiness and rereads mounted auth material without requiring a pod restart
-- `siteToSite` stays optional and is now a typed metrics-export capability instead of a generic NiFi runtime-object framework
+- `siteToSite` stays optional and is now a GA typed sender-side metrics-export capability instead of a generic NiFi runtime-object framework
 - the public API remains bounded to one metrics use case under `observability.metrics.siteToSite`
 - the typed contract now includes the receiver-authorized sender identity for secure Site-to-Site modes so the destination-side trust and policy requirement stays explicit and customer-visible
 - the app chart owns only the minimum internal NiFi objects required for that use case:
 - one `SiteToSiteMetricsReportingTask`
 - one `StandardRestrictedSSLContextService` when secure site-to-site transport is enabled
+- the GA boundary is still sender-side only: receiver topology, trust of sender certs, receiver-side user and policy lifecycle, long-lived credentials, and reverse-proxy assumptions remain operator-owned
 - `siteToSiteStatus` is the next optional typed Site-to-Site capability and remains separate from `observability.metrics.mode`
 - the public API stays use-case-specific under `observability.siteToSiteStatus` instead of broadening into generic Reporting Task or Controller Service management
 - the typed status contract is intentionally smaller than the metrics contract and is limited to enablement, destination, auth, secure receiver identity, and explicit transport settings plus an optional source instance URL override

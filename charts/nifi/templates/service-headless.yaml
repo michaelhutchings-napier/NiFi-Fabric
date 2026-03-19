@@ -4,6 +4,11 @@ metadata:
   name: {{ include "nifi.fullname" . }}-headless
   labels:
     {{- include "nifi.labels" . | nindent 4 }}
+  {{- $annotations := merge (dict) (include "nifi.linkerdServiceAnnotations" (dict "root" . "servicePorts" (list .Values.ports.https .Values.ports.cluster .Values.ports.loadBalance)) | fromYaml) }}
+  {{- if $annotations }}
+  annotations:
+    {{- toYaml $annotations | nindent 4 }}
+  {{- end }}
 spec:
   clusterIP: None
   publishNotReadyAddresses: true

@@ -17,7 +17,7 @@ func TestPlatformManagedControllerRenderIncludesSecurityDefaults(t *testing.T) {
 	for _, want := range []string{
 		"kind: Deployment",
 		"app.kubernetes.io/component: controller",
-		"automountServiceAccountToken: false",
+		"automountServiceAccountToken: true",
 		"enableServiceLinks: false",
 		"fsGroup: 65532",
 		"runAsUser: 65532",
@@ -41,7 +41,7 @@ func TestPlatformManagedControllerRenderAllowsSecurityOverrides(t *testing.T) {
 		"charts/nifi-platform",
 		"-f", "examples/platform-managed-values.yaml",
 		"--set-json", `controller.imagePullSecrets=[{"name":"controller-registry-creds"}]`,
-		"--set", "controller.automountServiceAccountToken=true",
+		"--set", "controller.automountServiceAccountToken=false",
 		"--set", "controller.enableServiceLinks=true",
 		"--set", "controller.podSecurityContext.fsGroup=7777",
 		"--set", "controller.securityContext.runAsUser=7777",
@@ -52,7 +52,7 @@ func TestPlatformManagedControllerRenderAllowsSecurityOverrides(t *testing.T) {
 	}
 	for _, want := range []string{
 		"name: controller-registry-creds",
-		"automountServiceAccountToken: true",
+		"automountServiceAccountToken: false",
 		"enableServiceLinks: true",
 		"fsGroup: 7777",
 		"runAsUser: 7777",

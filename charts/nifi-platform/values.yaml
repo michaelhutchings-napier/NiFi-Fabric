@@ -38,7 +38,7 @@ controller:
     tag: dev
     pullPolicy: IfNotPresent
   imagePullSecrets: []
-  automountServiceAccountToken: false
+  automountServiceAccountToken: true
   enableServiceLinks: false
   podSecurityContext:
     fsGroup: 65532

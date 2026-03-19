@@ -17,7 +17,7 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | `image.tag` | string | NiFi image tag. | No | `2.0.0` |
 | `image.pullPolicy` | string | NiFi image pull policy. | No | `IfNotPresent` |
 | `imagePullSecrets[]` | object list | Optional image pull secrets for chart-managed pods. | No | `[]` |
-| `automountServiceAccountToken` | boolean | Automounts the ServiceAccount token into chart-managed pods. Leave this `false` unless a sidecar or pod extension needs Kubernetes API access. | No | `false` |
+| `automountServiceAccountToken` | boolean | Automounts the ServiceAccount token into chart-managed pods. This defaults to `true` because clustered NiFi uses the Kubernetes API for leader-election coordination. | No | `true` |
 | `enableServiceLinks` | boolean | Enables Kubernetes service environment variable injection into chart-managed pods. | No | `false` |
 | `controllerManaged.enabled` | boolean | Enables the managed `OnDelete` workload shape used by the controller path. | No | `false` |
 
@@ -30,6 +30,20 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | `service.type` | string | Main NiFi Service type. | No | `ClusterIP` |
 | `service.annotations` | object | Annotations for the main Service. | No | `{}` |
 | `service.sessionAffinity` | string | Service session affinity mode. | No | `None` |
+| `linkerd.enabled` | boolean | Enables the bounded Linkerd compatibility profile for the NiFi workload. | No | `false` |
+| `linkerd.inject` | string | Linkerd injection annotation value applied to the NiFi pod template when Linkerd compatibility is enabled. | No | `enabled` |
+| `linkerd.opaquePorts.cluster` | boolean | Marks the NiFi cluster protocol port as opaque for the bounded Linkerd profile. | No | `true` |
+| `linkerd.opaquePorts.loadBalance` | boolean | Marks the NiFi load-balance port as opaque for the bounded Linkerd profile. | No | `true` |
+| `linkerd.opaquePorts.https` | boolean | Optionally marks the NiFi HTTPS port as opaque too. Leave this `false` for the documented baseline profile unless you have a specific operator reason. | No | `false` |
+| `linkerd.opaquePorts.additional[]` | integer list | Additional opaque ports appended to the bounded Linkerd profile. | No | `[]` |
+| `istio.enabled` | boolean | Enables the bounded Istio sidecar-mode compatibility profile for the NiFi workload. | No | `false` |
+| `istio.inject` | boolean | Applies the Istio sidecar injection annotation to the NiFi pod template when the bounded profile is enabled. The supported profile still expects the NiFi namespace to be injection-enabled by the operator. | No | `true` |
+| `istio.rewriteAppHTTPProbers` | boolean | Explicitly enables Istio sidecar probe rewrite for the supported profile so the existing Kubernetes probes remain compatible under sidecar mode. | No | `true` |
+| `istio.holdApplicationUntilProxyStarts` | boolean | Adds the Istio proxy-startup annotation used by the supported profile so NiFi waits for the sidecar to be ready first. | No | `true` |
+| `istio.annotations` | object | Additional Istio-specific pod annotations appended only when the bounded Istio profile is enabled. | No | `{}` |
+| `ambient.enabled` | boolean | Enables the bounded Istio Ambient compatibility profile for the NiFi workload. | No | `false` |
+| `ambient.dataplaneMode` | string | Pod-template dataplane-mode label applied when the bounded Ambient profile is enabled. Leave this at `ambient` for the documented supported profile. | No | `ambient` |
+| `ambient.labels` | object | Additional Ambient-specific pod labels appended only when the bounded Ambient profile is enabled. | No | `{}` |
 | `ports.https` | integer | HTTPS port. | No | `8443` |
 | `ports.cluster` | integer | NiFi cluster protocol port. | No | `11443` |
 | `ports.loadBalance` | integer | NiFi load-balance port. | No | `6342` |
@@ -136,7 +150,7 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | `observability.metrics.nativeApi.tlsConfig.ca.configMapRef.*` | object | ConfigMap CA reference for native metrics TLS. | No | empty |
 | `observability.metrics.nativeApi.tlsConfig.ca.secretRef.*` | object | Secret CA reference for native metrics TLS. | No | empty |
 | `observability.metrics.nativeApi.endpoints[]` | object list | Named native metrics scrape profiles. | No | see values file |
-| `observability.metrics.exporter.image.*` | object | Exporter image settings for the optional experimental secondary metrics path. | No | see values file |
+| `observability.metrics.exporter.image.*` | object | Exporter image settings for the optional GA secondary metrics path. | No | see values file |
 | `observability.metrics.exporter.service.*` | object | Exporter Service settings. | No | see values file |
 | `observability.metrics.exporter.serviceMonitor.*` | object | Exporter ServiceMonitor settings. | No | see values file |
 | `observability.metrics.exporter.machineAuth.*` | object | Machine-auth Secret contract for exporter upstream scraping. | No | see values file |
@@ -253,7 +267,7 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
 | `observability.metrics.mode=nativeApi` | support status | Primary production-ready metrics mode. | No |  |
-| `observability.metrics.mode=exporter` | support status | Optional experimental secondary mode with focused runtime proof for render/deploy, secured upstream reachability, Prometheus scraping of `/metrics`, selected `/flow/status` gauges, and auth Secret rotation without exporter pod restart. | No |  |
-| `observability.metrics.mode=siteToSite` | support status | Optional experimental typed Site-to-Site metrics-export path. Runtime support is bounded to one `SiteToSiteMetricsReportingTask`, one `StandardRestrictedSSLContextService` when secure transport is used, `AmbariFormat`, and the current single-user bootstrap path. It is not a generic NiFi runtime-object framework. | No |  |
+| `observability.metrics.mode=exporter` | support status | Optional GA secondary mode with focused runtime proof for render/deploy, secured upstream reachability, Prometheus scraping of `/metrics`, selected `/flow/status` gauges, auth Secret rotation without exporter pod restart, and the bounded trust-manager CA-consumer path. | No |  |
+| `observability.metrics.mode=siteToSite` | support status | Optional GA typed sender-side Site-to-Site metrics-export path. Runtime support is bounded to one `SiteToSiteMetricsReportingTask`, one `StandardRestrictedSSLContextService` when secure transport is used, `AmbariFormat`, the current single-user bootstrap path, and the documented receiver authorization assumptions. It is not a generic NiFi runtime-object framework. | No |  |
 | `observability.siteToSiteStatus.enabled=true` | support status | Optional experimental typed Site-to-Site status-export path. Runtime support is bounded to one `SiteToSiteStatusReportingTask`, one `StandardRestrictedSSLContextService` when secure transport is used, fixed JSON status payload defaults, and the current single-user bootstrap path. It is not a generic NiFi runtime-object framework. | No |  |
 | `observability.siteToSiteProvenance.enabled=true` | support status | Optional experimental typed Site-to-Site provenance-export path. Runtime support is bounded to one `SiteToSiteProvenanceReportingTask`, one `StandardRestrictedSSLContextService` when secure transport is used, a small fixed sender contract, one public provenance cursor knob, and the current single-user bootstrap path. It is not a generic NiFi runtime-object framework. | No |  |

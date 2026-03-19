@@ -126,7 +126,7 @@ Respond:
 - confirm the selected metrics mode before debugging the scrape path
 - for `nativeApi`, verify the machine-auth Secret, CA material, and ServiceMonitor TLS/auth references
 - for exporter mode, verify upstream reachability, mounted auth and CA material, and exporter self-metrics
-- keep exporter alerts and dashboards clearly marked experimental if you use that mode in production
+- remember that exporter is GA but intentionally bounded; if you are missing JVM or broader system-diagnostics families, that is outside the current GA claim rather than a scrape failure
 
 ## KEDA Wants X, Controller Did Y
 

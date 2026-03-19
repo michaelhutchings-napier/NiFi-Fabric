@@ -71,6 +71,28 @@ There is also one optional focused fast overlay:
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml) and [platform-fast-values.yaml](platform-fast-values.yaml).
   - The focused runtime command is `make kind-platform-managed-restore-fast-e2e`.
 
+- [platform-managed-linkerd-values.yaml](platform-managed-linkerd-values.yaml)
+  - Optional bounded Linkerd compatibility overlay for the product chart.
+  - Injects only the NiFi StatefulSet pods and keeps the controller outside the mesh.
+  - Marks the NiFi cluster protocol and load-balance ports opaque in the documented baseline profile.
+  - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
+  - The focused runtime proof command is `make kind-linkerd-fast-e2e`.
+
+- [platform-managed-istio-values.yaml](platform-managed-istio-values.yaml)
+  - Optional bounded Istio sidecar-mode compatibility overlay for the product chart.
+  - Injects only the NiFi StatefulSet pods and keeps the controller outside the mesh.
+  - Enables the documented sidecar-mode annotations for probe rewrite and waiting for the sidecar before NiFi starts.
+  - The supported profile still expects the operator to enable Istio sidecar injection on the NiFi namespace only.
+  - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
+  - The focused runtime proof command is `make kind-istio-fast-e2e`.
+
+- [platform-managed-istio-ambient-values.yaml](platform-managed-istio-ambient-values.yaml)
+  - Optional bounded Istio Ambient compatibility overlay for the product chart.
+  - Enrolls only the NiFi StatefulSet pods and keeps the controller outside Ambient.
+  - Uses pod-template labels only, with no sidecars and no waypoint behavior in the supported profile.
+  - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
+  - The focused runtime proof command is `make kind-istio-ambient-fast-e2e`.
+
 Metrics note:
 
 - [platform-managed-metrics-native-values.yaml](platform-managed-metrics-native-values.yaml) is an optional overlay for the first-class native API metrics subsystem
@@ -98,6 +120,7 @@ Metrics note:
 - it uses the same provider-agnostic machine-auth Secret and CA Secret contract
 - the focused live runtime proof command is `make kind-metrics-exporter-fast-e2e`
 - the broader focused matrix command is `make kind-metrics-fast-e2e`
+- nativeApi remains the primary recommended metrics path; use this overlay only when you specifically want the exporter shape
 - the current live proof covers the secured `/nifi-api/flow/metrics/prometheus` endpoint republished on exporter `/metrics`
 - it also enables selected controller-status gauges derived from `/nifi-api/flow/status`
 - the live proof also covers upstream-aware readiness and mounted auth Secret rotation without restarting the exporter pod
@@ -105,7 +128,7 @@ Metrics note:
 - it switches the Bundle target to a Secret and points exporter source TLS trust at the trust-manager bundle instead of a manually created CA Secret
 - use it together with `examples/platform-managed-values.yaml`, `examples/platform-managed-trust-manager-values.yaml`, and `examples/platform-managed-metrics-exporter-values.yaml`
 - the focused runtime proof command is `make kind-metrics-exporter-trust-manager-fast-e2e`
-- [platform-managed-metrics-site-to-site-values.yaml](platform-managed-metrics-site-to-site-values.yaml) is an optional overlay for the typed site-to-site metrics export path
+- [platform-managed-metrics-site-to-site-values.yaml](platform-managed-metrics-site-to-site-values.yaml) is an optional overlay for the GA bounded sender-side typed site-to-site metrics export path
 - it enables `nifi.observability.metrics.mode=siteToSite`
 - it enables `nifi.observability.metrics.siteToSite.enabled=true`
 - it models the bounded destination, auth, receiver-authorized identity, source, transport, and format contract for one `SiteToSiteMetricsReportingTask`
@@ -114,6 +137,7 @@ Metrics note:
 - [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is the proof-only receiver harness used by that focused kind gate
 - the harness bootstraps one public input port, one minimal downstream processor, and the minimum receiver-side auth needed to trust and authorize the declared sender identity for delivery
 - the focused runtime proof command is `make kind-metrics-site-to-site-fast-e2e`
+- status and provenance stay separate typed paths and are not part of this GA claim
 - [platform-managed-site-to-site-status-values.yaml](platform-managed-site-to-site-status-values.yaml) is an optional overlay for the typed site-to-site status export path
 - it enables `nifi.observability.siteToSiteStatus.enabled=true`
 - it models the bounded destination, auth, receiver-authorized identity, optional source instance URL override, and transport contract for one `SiteToSiteStatusReportingTask`

@@ -50,7 +50,7 @@ func TestNiFiRenderDefaultsPodHardeningSettings(t *testing.T) {
 		t.Fatalf("expected default nifi chart render to succeed: %v\n%s", err, output)
 	}
 	for _, want := range []string{
-		"automountServiceAccountToken: false",
+		"automountServiceAccountToken: true",
 		"enableServiceLinks: false",
 		"allowPrivilegeEscalation: false",
 		"drop:",
@@ -115,7 +115,7 @@ func TestNiFiRenderIncludesAdditionalPodShapeExtensions(t *testing.T) {
 		t,
 		"charts/nifi",
 		"--set-json", `imagePullSecrets=[{"name":"registry-creds"}]`,
-		"--set", "automountServiceAccountToken=true",
+		"--set", "automountServiceAccountToken=false",
 		"--set", "enableServiceLinks=true",
 		"--set-json", `podLabels={"team":"data-platform"}`,
 		"--set-json", `hostAliases=[{"ip":"192.0.2.10","hostnames":["nifi-ext.local"]}]`,
@@ -130,7 +130,7 @@ func TestNiFiRenderIncludesAdditionalPodShapeExtensions(t *testing.T) {
 	}
 	for _, want := range []string{
 		"name: registry-creds",
-		"automountServiceAccountToken: true",
+		"automountServiceAccountToken: false",
 		"enableServiceLinks: true",
 		"team: data-platform",
 		"priorityClassName: \"high-priority\"",
@@ -156,7 +156,7 @@ func TestPlatformManagedRenderIncludesNestedPodShapeExtensions(t *testing.T) {
 		"charts/nifi-platform",
 		"-f", "examples/platform-managed-values.yaml",
 		"--set-json", `nifi.imagePullSecrets=[{"name":"registry-creds"}]`,
-		"--set", "nifi.automountServiceAccountToken=true",
+		"--set", "nifi.automountServiceAccountToken=false",
 		"--set", "nifi.enableServiceLinks=true",
 		"--set-json", `nifi.podLabels={"team":"data-platform"}`,
 		"--set-json", `nifi.hostAliases=[{"ip":"192.0.2.10","hostnames":["nifi-ext.local"]}]`,
@@ -171,7 +171,7 @@ func TestPlatformManagedRenderIncludesNestedPodShapeExtensions(t *testing.T) {
 	}
 	for _, want := range []string{
 		"name: registry-creds",
-		"automountServiceAccountToken: true",
+		"automountServiceAccountToken: false",
 		"enableServiceLinks: true",
 		"team: data-platform",
 		"priorityClassName: \"high-priority\"",
