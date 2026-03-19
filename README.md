@@ -216,7 +216,7 @@ See [Compatibility](docs/compatibility.md) for the detailed matrix.
 - a bounded Istio sidecar-mode compatibility profile is focused-runtime-proven for meshed NiFi pods with controller-owned health and lifecycle behavior unchanged, with Istio namespace injection enabled only in the NiFi workload namespace
 - a bounded Istio Ambient compatibility profile is focused-runtime-proven for labeled NiFi pods in L4 Ambient mode with no sidecars, controller-owned health and lifecycle behavior unchanged, and the controller kept outside the mesh
 - exporter metrics are GA as an optional bounded secondary path and are runtime-proven on kind; native API metrics remain the primary recommendation
-- site-to-site metrics export is GA as an optional bounded sender-side typed path; site-to-site status and provenance remain separate experimental typed paths
+- site-to-site metrics export is GA as an optional bounded sender-side typed path; site-to-site status and provenance export are also GA on their own bounded sender-side typed contracts
 - optional trust-manager integration distributes shared CA bundles without moving TLS orchestration into the controller
 - backup and DR are documented as a first-class production posture with explicit separation between declarative platform recovery and PVC-backed NiFi data recovery
 - a thin control-plane backup or recovery MVP now exports Helm values, rendered manifest intent, sanitized `NiFiCluster` intent, and reference inventories without adding a second product control plane
@@ -226,16 +226,15 @@ See [Compatibility](docs/compatibility.md) for the detailed matrix.
 
 These features are available but intentionally marked experimental:
 
-- site-to-site status export
-- site-to-site provenance export
+- the local OIDC browser-flow hardening path
 
 ## Metrics Support Matrix
 
 - primary recommended: `nativeApi`
 - optional but GA: `exporter`
 - optional but GA: `siteToSite`
-- still experimental: `siteToSiteStatus`
-- still experimental: `siteToSiteProvenance`
+- optional but GA: `siteToSiteStatus`
+- optional but GA: `siteToSiteProvenance`
 
 ## Metrics Runtime Proof
 
@@ -273,14 +272,18 @@ Current conservative boundary:
 - `siteToSite` is GA as an optional bounded sender-side metrics-export path that creates exactly one `SiteToSiteMetricsReportingTask` and one `StandardRestrictedSSLContextService` when secure transport is enabled
 - `siteToSite` proof now covers typed sender bootstrap, explicit receiver-authorized identity wiring, secure receiver peer discovery, receiver-side policy binding checks, and live delivery to a real Site-to-Site receiver on kind through the product-facing chart path
 - `siteToSite` GA scope remains bounded to `AmbariFormat`, the typed sender-side contract, secure `workloadTLS` or `secretRef` auth for `https://` receivers, `none` for `http://`, an explicit secure receiver auth contract, a proof-only receiver harness, and the current single-user bootstrap path for local NiFi API management
-- `siteToSiteStatus` is now a second typed Site-to-Site path that creates exactly one `SiteToSiteStatusReportingTask` and one `StandardRestrictedSSLContextService` when secure transport is enabled
+- `siteToSiteStatus` is GA as a second optional bounded sender-side typed Site-to-Site path that creates exactly one `SiteToSiteStatusReportingTask` and one `StandardRestrictedSSLContextService` when secure transport is enabled
+- `siteToSiteStatus` proof now covers typed sender bootstrap, explicit receiver-authorized identity wiring, secure receiver peer discovery, receiver-side policy binding checks, and live delivery to a real Site-to-Site receiver on kind through the product-facing chart path
 - `siteToSiteStatus` keeps JSON status payload shape, platform, filters, and batching fixed behind the typed API so we do not add generic Reporting Task or Controller Service ownership
-- `siteToSiteProvenance` is now a third typed Site-to-Site path that creates exactly one `SiteToSiteProvenanceReportingTask` and one `StandardRestrictedSSLContextService` when secure transport is enabled
+- `siteToSiteStatus` GA scope remains bounded to the typed sender-side contract, secure `workloadTLS` or `secretRef` auth for `https://` receivers, `none` for `http://`, an explicit secure receiver auth contract, a proof-only receiver harness, and the current single-user bootstrap path for local NiFi API management
+- `siteToSiteProvenance` is GA as a third optional bounded sender-side typed Site-to-Site path that creates exactly one `SiteToSiteProvenanceReportingTask` and one `StandardRestrictedSSLContextService` when secure transport is enabled
+- `siteToSiteProvenance` proof now covers typed sender bootstrap, explicit receiver-authorized identity wiring, secure receiver peer discovery, receiver-side policy binding checks, and live provenance delivery to a real Site-to-Site receiver on kind through the product-facing chart path
 - `siteToSiteProvenance` keeps provenance cursor and batching intentionally small in the public API so we do not turn this into generic reporting-task management
+- `siteToSiteProvenance` GA scope remains bounded to the typed sender-side contract, secure `workloadTLS` or `secretRef` auth for `https://` receivers, `none` for `http://`, an explicit secure receiver auth contract, a proof-only receiver harness, the current single-user bootstrap path for local NiFi API management, and the one public initial cursor knob for first-run export
 - `siteToSite` is not a generic Reporting Task, Controller Service, or NiFi runtime-object framework
 - two named native scrape profiles are proven, but they still scrape the same flow Prometheus endpoint at different cadence
 - JVM or system-diagnostics metrics are not yet runtime-proven
-- full destination receiver topology, long-lived destination-side user or policy lifecycle management, proxy-controller-service wiring, non-Ambari record-writer ownership, broader Site-to-Site status filtering or formatting controls, and broader provenance event-selection or batching controls remain future work
+- full destination receiver topology, long-lived destination-side user or policy lifecycle management, reverse-proxy assumptions, downstream provenance storage or retention behavior, proxy-controller-service wiring, non-Ambari record-writer ownership, broader Site-to-Site status filtering or formatting controls, and broader provenance event-selection or batching controls remain future work
 
 Operators still provide, out of band:
 
@@ -347,8 +350,8 @@ NiFi-Fabric documentation is intentionally conservative in a few areas:
 - in-progress autoscaling scale-down now remains restart-safe across blocked prepare or settle work, re-establishes preparation safely after pod churn, and pauses cleanly when higher-precedence rollout, TLS, hibernation, or restore work takes over
 - broader per-node drainability ranking and broader bulk policy depth beyond the current bounded sequential-episode model remain future work until the project has bounded trustworthy evidence that would justify anything beyond the current actual-removal-candidate qualification model
 - site-to-site metrics export is GA only within the bounded typed sender-side metrics-export path
-- site-to-site status export remains optional, experimental, and intentionally bounded to the typed status-export path
-- site-to-site provenance export remains optional, experimental, and intentionally bounded to the typed provenance-export path
+- site-to-site status export is GA only within the bounded typed sender-side status-export path
+- site-to-site provenance export is GA only within the bounded typed sender-side provenance-export path
 - parameter contexts are runtime-managed only within the declared bounded scope of owned context create/update/delete and direct root-child attachment; Parameter Provider creation and generic flow-runtime management remain out of scope
 - exporter support is GA only within the bounded documented scope of flow metrics plus selected `/flow/status` gauges
 - the user-driven GitHub save-to-registry workflow is separately proven, while bounded runtime-managed flow import is proven only within the declared `versionedFlowImports.*` scope; generic deployment and ongoing synchronization remain out of scope

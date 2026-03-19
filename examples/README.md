@@ -137,18 +137,21 @@ Metrics note:
 - [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is the proof-only receiver harness used by that focused kind gate
 - the harness bootstraps one public input port, one minimal downstream processor, and the minimum receiver-side auth needed to trust and authorize the declared sender identity for delivery
 - the focused runtime proof command is `make kind-metrics-site-to-site-fast-e2e`
-- status and provenance stay separate typed paths and are not part of this GA claim
-- [platform-managed-site-to-site-status-values.yaml](platform-managed-site-to-site-status-values.yaml) is an optional overlay for the typed site-to-site status export path
+- site-to-site status is its own optional GA bounded sender-side typed path and is not part of the `observability.metrics.mode=siteToSite` metrics claim
+- [platform-managed-site-to-site-status-values.yaml](platform-managed-site-to-site-status-values.yaml) is an optional overlay for the GA bounded sender-side typed site-to-site status export path
 - it enables `nifi.observability.siteToSiteStatus.enabled=true`
 - it models the bounded destination, auth, receiver-authorized identity, optional source instance URL override, and transport contract for one `SiteToSiteStatusReportingTask`
+- it keeps JSON status payload shape, platform, batching, and filters fixed behind the typed API
 - it keeps destination receiver topology and destination-side user or policy lifecycle operator-owned
 - [platform-managed-site-to-site-status-kind-values.yaml](platform-managed-site-to-site-status-kind-values.yaml) points that typed feature at a cluster-local kind URL for focused runtime proof
 - [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is reused as the proof-only receiver harness for that focused kind gate
 - the focused runtime proof command is `make kind-site-to-site-status-fast-e2e`
-- [platform-managed-site-to-site-provenance-values.yaml](platform-managed-site-to-site-provenance-values.yaml) is an optional overlay for the typed site-to-site provenance export path
+- site-to-site provenance is its own optional GA bounded sender-side typed path and is not part of the `observability.metrics.mode=siteToSite` metrics claim
+- [platform-managed-site-to-site-provenance-values.yaml](platform-managed-site-to-site-provenance-values.yaml) is an optional overlay for the GA bounded sender-side typed site-to-site provenance export path
 - it enables `nifi.observability.siteToSiteProvenance.enabled=true`
 - it models the bounded destination, auth, receiver-authorized identity, optional source instance URL override, transport contract, and small provenance cursor contract for one `SiteToSiteProvenanceReportingTask`
-- it keeps destination receiver topology, destination-side user or policy lifecycle, long-lived credential lifecycle, and downstream provenance processing operator-owned
+- it keeps fixed platform, batching, and schedule defaults behind the typed API
+- it keeps destination receiver topology, destination-side user or policy lifecycle, long-lived credential lifecycle, downstream provenance processing, and downstream storage or retention expectations operator-owned
 - [platform-managed-site-to-site-provenance-kind-values.yaml](platform-managed-site-to-site-provenance-kind-values.yaml) points that typed feature at a cluster-local kind URL for focused runtime proof
 - [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is reused as the proof-only receiver harness for that focused kind gate
 - the focused runtime proof command is `make kind-site-to-site-provenance-fast-e2e`

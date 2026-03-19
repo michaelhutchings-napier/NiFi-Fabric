@@ -22,6 +22,8 @@ Focused runtime proof in this repository includes:
 - exporter metrics on kind
 - exporter trust-manager metrics on kind
 - site-to-site metrics on kind
+- site-to-site status on kind
+- site-to-site provenance on kind
 - optional trust-manager shared CA distribution on kind
 - controller-owned autoscaling focused flows on NiFi `2.8.0`, plus bounded scale-up inside the shared NiFi `2.x` matrix
 - KEDA external intent focused flows on NiFi `2.8.0`, including the GA scale-up path plus the bounded opt-in downscale path
@@ -378,11 +380,16 @@ What `make kind-site-to-site-provenance-fast-e2e` proves:
 - pod `-0` bootstraps exactly one `SiteToSiteProvenanceReportingTask`
 - pod `-0` bootstraps exactly one `StandardRestrictedSSLContextService` when secure site-to-site transport is configured
 - the reporting task reaches `RUNNING` state with the expected typed destination, transport, and provenance cursor properties
+- the generated bootstrap config preserves the expected `auth.type`, `auth.authorizedIdentity`, material references, and required receiver-side policy contract
 - the SSL context service reaches `ENABLED` state with the expected keystore and truststore wiring
 - a proof-only receiver NiFi harness comes up on kind with the expected public input port and minimal downstream processor
 - the sender authenticates to that receiver over secure Site-to-Site as documented by the typed Secret/TLS contract
+- the focused proof verifies that the receiver-side authorized identity exists and is bound to `/controller` read, `/site-to-site` read, and destination input-port write
 - live provenance delivery is observed on the receiver side through processor status, not just sender-side object state
 - the feature remains chart-scoped and does not add controller-owned Site-to-Site orchestration
+- both sides are driven from the same declared `auth.authorizedIdentity`
+- exactly one bounded `SiteToSiteProvenanceReportingTask` is reconciled
+- exactly one bounded `StandardRestrictedSSLContextService` is reconciled when secure transport is enabled
 
 Current honest limit:
 
@@ -392,19 +399,21 @@ Current honest limit:
 - exporter remains optional and bounded even with the stronger runtime gate
 - trust-manager-backed exporter proof currently covers PEM bundle distribution only; additional Bundle output formats are still future work for exporter mode
 - `siteToSite` proof is intentionally bounded to the typed sender path plus a proof-only receiver harness on kind
-- that focused proof now justifies a GA claim only for the typed sender-side metrics path, not for status or provenance
+- that focused proof now justifies a GA claim for the typed sender-side metrics path only
 - the current `siteToSite` GA boundary still assumes the single-user bootstrap path for the sender-side local NiFi API reconciliation loop
 - that proof now also checks the declared secure receiver identity and the minimum receiver-side policy bindings needed for delivery
-- `siteToSiteStatus` proof is intentionally bounded to the typed sender path plus that same proof-only receiver harness on kind
-- `siteToSiteProvenance` proof is intentionally bounded to the typed sender path plus that same proof-only receiver harness on kind
+- `siteToSiteStatus` proof is intentionally bounded to the typed sender path plus that same proof-only receiver harness on kind, and that focused proof now justifies a GA claim only for the typed sender-side status-export path
+- `siteToSiteProvenance` proof is intentionally bounded to the typed sender path plus that same proof-only receiver harness on kind, and that focused proof now justifies a GA claim only for the typed sender-side provenance-export path
+- the current `siteToSiteProvenance` GA boundary still assumes the single-user bootstrap path for the sender-side local NiFi API reconciliation loop
+- that proof now also checks the declared secure receiver identity, the minimum receiver-side policy bindings needed for delivery, and the bounded public provenance cursor contract
 - Parameter Context support is intentionally limited to product-owned create/update/delete plus direct root-child attachment; it does not claim arbitrary graph mutation or Parameter Provider reconciliation
 - versioned-flow import support is intentionally limited to restart-scoped bounded import creation, bounded source verification, and optional direct Parameter Context attachment; automatic client creation, ongoing sync, and broader process-group mutation remain out of scope
 - destination receiver topology and destination-side policy lifecycle remain operator-owned outside that focused proof harness
 - the current receiver harness still uses a proof-only local admin path to seed those bindings on kind
-- proxy-controller-service wiring, non-Ambari record-writer ownership, broader status-task tuning, and broader provenance event-selection or batching controls remain future work for Site-to-Site typed exports
+- proxy-controller-service wiring, non-Ambari record-writer ownership, downstream provenance storage or retention ownership, broader status-task tuning, and broader provenance event-selection or batching controls remain future work for Site-to-Site typed exports
 
 ## Current Conservative Boundaries
 
 - the repo does not yet claim a production-proven cloud runtime matrix
 - AKS and OpenShift remain conservative until real-cluster proof is recorded
-- experimental features stay explicitly marked experimental even when focused runtime proof exists
+- experimental features stay explicitly marked experimental only when their support contract has not yet been promoted beyond bounded runtime proof

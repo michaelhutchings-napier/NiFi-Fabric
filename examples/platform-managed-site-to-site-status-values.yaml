@@ -1,5 +1,5 @@
-# Optional managed-platform overlay for the typed site-to-site status export path.
-# This enables the bounded SiteToSiteStatusReportingTask integration. The platform
+# Optional managed-platform overlay for the GA bounded sender-side typed site-to-site
+# status export path. This enables the bounded SiteToSiteStatusReportingTask integration. The platform
 # owns only the reporting task and its SSL Context Service when secure transport is
 # used. The destination receiver topology, input port, receiver-authorized identity,
 # and destination-side policies remain operator-owned.

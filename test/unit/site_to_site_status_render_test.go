@@ -39,6 +39,42 @@ func TestSiteToSiteStatusValidationFailsForHTTPSWithAuthNone(t *testing.T) {
 	}
 }
 
+func TestSiteToSiteStatusValidationFailsForAuthNoneWithAuthorizedIdentity(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.siteToSiteStatus.enabled=true",
+		"--set", "observability.siteToSiteStatus.destination.url=http://status-receiver.example.com/nifi",
+		"--set", "observability.siteToSiteStatus.destination.inputPortName=nifi-status",
+		"--set", "observability.siteToSiteStatus.auth.type=none",
+		"--set", "observability.siteToSiteStatus.auth.authorizedIdentity=O=Example\\, CN=nifi-status-sender",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail when auth.type=none still sets authorized identity\n%s", output)
+	}
+	if !strings.Contains(output, "observability.siteToSiteStatus.auth.authorizedIdentity must be empty when auth.type=none") {
+		t.Fatalf("expected auth none authorized identity validation error\n%s", output)
+	}
+}
+
+func TestSiteToSiteStatusValidationFailsForHTTPWithSecureAuth(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.siteToSiteStatus.enabled=true",
+		"--set", "observability.siteToSiteStatus.destination.url=http://status-receiver.example.com/nifi",
+		"--set", "observability.siteToSiteStatus.destination.inputPortName=nifi-status",
+		"--set", "observability.siteToSiteStatus.auth.type=workloadTLS",
+		"--set", "observability.siteToSiteStatus.auth.authorizedIdentity=O=Example\\, CN=nifi-status-sender",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail for http siteToSiteStatus auth.type=workloadTLS\n%s", output)
+	}
+	if !strings.Contains(output, "observability.siteToSiteStatus.auth.type must be none for an http:// destination.url") {
+		t.Fatalf("expected http secure auth-type validation error\n%s", output)
+	}
+}
+
 func TestSiteToSiteStatusValidationFailsForMissingAuthSecretRef(t *testing.T) {
 	output, err := helmTemplate(
 		t,
@@ -54,6 +90,86 @@ func TestSiteToSiteStatusValidationFailsForMissingAuthSecretRef(t *testing.T) {
 	}
 	if !strings.Contains(output, "observability.siteToSiteStatus.auth.secretRef.name is required when auth.type=secretRef") {
 		t.Fatalf("expected missing siteToSiteStatus auth Secret validation error\n%s", output)
+	}
+}
+
+func TestSiteToSiteStatusValidationFailsForSecretRefContradictionWithWorkloadTLS(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.siteToSiteStatus.enabled=true",
+		"--set", "observability.siteToSiteStatus.destination.url=https://status-receiver.example.com/nifi",
+		"--set", "observability.siteToSiteStatus.destination.inputPortName=nifi-status",
+		"--set", "observability.siteToSiteStatus.auth.type=workloadTLS",
+		"--set", "observability.siteToSiteStatus.auth.authorizedIdentity=O=Example\\, CN=nifi-status-sender",
+		"--set", "observability.siteToSiteStatus.auth.secretRef.name=site-to-site-status-client",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail when workloadTLS sets secretRef fields\n%s", output)
+	}
+	if !strings.Contains(output, "observability.siteToSiteStatus.auth.secretRef.* cannot be set when auth.type=workloadTLS") {
+		t.Fatalf("expected workloadTLS secretRef contradiction validation error\n%s", output)
+	}
+}
+
+func TestSiteToSiteStatusValidationFailsForSecretRefContradictionWithAuthNone(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.siteToSiteStatus.enabled=true",
+		"--set", "observability.siteToSiteStatus.destination.url=http://status-receiver.example.com/nifi",
+		"--set", "observability.siteToSiteStatus.destination.inputPortName=nifi-status",
+		"--set", "observability.siteToSiteStatus.auth.type=none",
+		"--set", "observability.siteToSiteStatus.auth.secretRef.name=site-to-site-status-client",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail when auth.type=none sets secretRef fields\n%s", output)
+	}
+	if !strings.Contains(output, "observability.siteToSiteStatus.auth.secretRef.* cannot be set when auth.type=none") {
+		t.Fatalf("expected auth none secretRef contradiction validation error\n%s", output)
+	}
+}
+
+func TestSiteToSiteStatusValidationFailsForIncompleteSecretRefMaterial(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.siteToSiteStatus.enabled=true",
+		"--set", "observability.siteToSiteStatus.destination.url=https://status-receiver.example.com/nifi",
+		"--set", "observability.siteToSiteStatus.destination.inputPortName=nifi-status",
+		"--set", "observability.siteToSiteStatus.auth.type=secretRef",
+		"--set", "observability.siteToSiteStatus.auth.authorizedIdentity=O=Example\\, CN=nifi-status-sender",
+		"--set", "observability.siteToSiteStatus.auth.secretRef.name=site-to-site-status-client",
+		"--set", "observability.siteToSiteStatus.auth.secretRef.keystoreKey=keystore.p12",
+		"--set", "observability.siteToSiteStatus.auth.secretRef.keystorePasswordKey=keystore-password",
+		"--set-string", "observability.siteToSiteStatus.auth.secretRef.truststoreKey=",
+		"--set", "observability.siteToSiteStatus.auth.secretRef.truststorePasswordKey=truststore-password",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail for incomplete siteToSiteStatus auth Secret material\n%s", output)
+	}
+	if !strings.Contains(output, "observability.siteToSiteStatus.auth.secretRef.truststoreKey is required when auth.type=secretRef") {
+		t.Fatalf("expected incomplete siteToSiteStatus auth Secret validation error\n%s", output)
+	}
+}
+
+func TestSiteToSiteStatusValidationFailsForInvalidTransportProtocol(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.siteToSiteStatus.enabled=true",
+		"--set", "observability.siteToSiteStatus.destination.url=https://status-receiver.example.com/nifi",
+		"--set", "observability.siteToSiteStatus.destination.inputPortName=nifi-status",
+		"--set", "observability.siteToSiteStatus.auth.type=workloadTLS",
+		"--set", "observability.siteToSiteStatus.auth.authorizedIdentity=O=Example\\, CN=nifi-status-sender",
+		"--set", "observability.siteToSiteStatus.transport.protocol=UDP",
+		"--set", "observability.siteToSiteStatus.transport.communicationsTimeout=30 secs",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail for invalid siteToSiteStatus transport protocol\n%s", output)
+	}
+	if !strings.Contains(output, "observability.siteToSiteStatus.transport.protocol must be one of: RAW, HTTP") {
+		t.Fatalf("expected invalid transport protocol validation error\n%s", output)
 	}
 }
 

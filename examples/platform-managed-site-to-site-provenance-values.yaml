@@ -1,8 +1,9 @@
-# Optional managed-platform overlay for the typed site-to-site provenance export path.
-# This enables the bounded SiteToSiteProvenanceReportingTask integration. The platform
-# owns only the reporting task and its SSL Context Service when secure transport is
+# Optional managed-platform overlay for the GA bounded sender-side typed site-to-site
+# provenance export path. This enables the bounded SiteToSiteProvenanceReportingTask integration.
+# The platform owns only the reporting task and its SSL Context Service when secure transport is
 # used. The destination receiver topology, input port, receiver-authorized identity,
-# destination-side policies, and downstream provenance processing remain operator-owned.
+# destination-side policies, downstream provenance processing, and downstream storage or retention
+# behavior remain operator-owned.
 nifi:
   observability:
     siteToSiteProvenance:

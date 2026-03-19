@@ -118,9 +118,13 @@ NiFi-Fabric keeps the product surface small and explicit.
 - site-to-site metrics export is GA as an optional bounded sender-side typed runtime path built around one `SiteToSiteMetricsReportingTask` use case, not a generic NiFi runtime-object API
 - site-to-site metrics GA scope is intentionally narrow: one typed sender contract, `AmbariFormat`, one bounded SSL context shape for secure transport, and the current single-user bootstrap path
 - the typed site-to-site contract now makes the secure receiver-authorized identity explicit instead of leaving the destination-side auth requirement implicit
-- site-to-site status export is an additional optional typed runtime path built around one SiteToSiteStatusReportingTask use case, not a generic reporting-task framework
+- site-to-site status export is GA as an additional optional bounded sender-side typed runtime path built around one `SiteToSiteStatusReportingTask`, not a generic reporting-task framework
+- site-to-site status GA scope stays intentionally narrow: one typed sender contract, fixed JSON status payload defaults, one bounded SSL context shape for secure transport, and the current single-user bootstrap path
+- the typed site-to-site status contract also makes the secure receiver-authorized identity explicit so sender ownership stays clear and receiver-side trust and policy requirements remain customer-visible
 - the status-export API stays separate from `observability.metrics.mode` so current `nativeApi`, `exporter`, and site-to-site metrics behavior are unaffected unless status export is explicitly enabled
-- site-to-site provenance export is a third optional typed runtime path built around one `SiteToSiteProvenanceReportingTask`, not a generic reporting-task framework
+- site-to-site provenance export is GA as a third optional bounded sender-side typed runtime path built around one `SiteToSiteProvenanceReportingTask`, not a generic reporting-task framework
+- site-to-site provenance GA scope stays intentionally narrow: one typed sender contract, one public initial provenance cursor knob, fixed platform and schedule defaults, one bounded SSL context shape for secure transport, and the current single-user bootstrap path
+- the typed site-to-site provenance contract also makes the secure receiver-authorized identity explicit while leaving downstream storage, retention, and consumer behavior operator-owned
 - the provenance-export API stays separate from metrics and status so current `nativeApi`, `exporter`, site-to-site metrics, and site-to-site status behavior are unaffected unless provenance export is explicitly enabled
 - focused kind proof now covers real sender-to-receiver delivery, receiver-side policy binding checks, and bounded proof-harness bootstrap while keeping destination ownership out of the product API
 - machine-auth metrics credentials use a provider-agnostic Secret contract

@@ -88,6 +88,8 @@ The shared harness does not need version-specific values files. It only switches
 | Native API metrics | Focused-runtime-proven | Primary metrics path and part of the shared NiFi `2.x` compatibility contract. |
 | Exporter metrics | Focused-runtime-proven | GA as an optional bounded secondary mode. Native API metrics remain the primary recommendation. |
 | Site-to-site metrics | Focused-runtime-proven | GA as an optional bounded sender-side typed mode. Dedicated focused proof exists, but it is intentionally outside the common NiFi `2.x` compatibility line claim on this page. |
+| Site-to-site status | Focused-runtime-proven | GA as an optional bounded sender-side typed status-export mode. Dedicated focused proof exists, but it is intentionally outside the common NiFi `2.x` compatibility line claim on this page. |
+| Site-to-site provenance | Focused-runtime-proven | GA as an optional bounded sender-side typed provenance-export mode. Dedicated focused proof exists, but it is intentionally outside the common NiFi `2.x` compatibility line claim on this page. |
 | Autoscaling advisory | Focused-runtime-proven | Primary controller-owned recommendation path. |
 | Autoscaling enforced scale-up | Focused-runtime-proven | Primary controller-owned execution path and part of the shared NiFi `2.x` compatibility contract as a bounded `2 -> 3` proof. |
 | Autoscaling enforced scale-down | Focused-runtime-proven | Production-ready for the bounded one-step, conservative, controller-owned path, with deeper dedicated proof outside the shared version matrix. |
@@ -147,6 +149,57 @@ Outside the GA claim:
 - receiver topology, trust of sender certs, receiver-side user and policy lifecycle, long-lived credentials, and reverse-proxy routing assumptions
 - receiver automation beyond the proof-only harness
 - record-writer ownership beyond the fixed `AmbariFormat` path
+- enterprise-auth sender bootstrap beyond the current `auth.mode=singleUser` reconciliation path
+
+## Site-to-Site Status Boundary
+
+GA scope:
+
+- install through `charts/nifi-platform`
+- optional `observability.siteToSiteStatus.enabled=true`
+- one typed sender-side `SiteToSiteStatusReportingTask`
+- one bounded `StandardRestrictedSSLContextService` when secure transport is used
+- `auth.type=none` for `http://` receivers
+- `auth.type=workloadTLS` or `auth.type=secretRef` for `https://` receivers
+- required `auth.authorizedIdentity` for secure receiver authorization
+- complete `auth.secretRef.*` material keys when `auth.type=secretRef`
+- `RAW` or `HTTP` transport within the typed contract
+- fixed JSON status payload defaults plus fixed platform, batching, and filter behavior
+- focused end-to-end proof for secure sender bootstrap, receiver-side authorized-identity policy checks, peer discovery, and live status delivery
+
+Outside the GA claim:
+
+- provenance export
+- generic Reporting Task, Controller Service, or NiFi runtime-object management
+- receiver topology, trust of sender certs, receiver-side user and policy lifecycle, long-lived credentials, and reverse-proxy routing assumptions
+- receiver automation beyond the proof-only harness
+- proxy-controller-service wiring and broader status-task tuning or payload-shape ownership
+- enterprise-auth sender bootstrap beyond the current `auth.mode=singleUser` reconciliation path
+
+## Site-to-Site Provenance Boundary
+
+GA scope:
+
+- install through `charts/nifi-platform`
+- optional `observability.siteToSiteProvenance.enabled=true`
+- one typed sender-side `SiteToSiteProvenanceReportingTask`
+- one bounded `StandardRestrictedSSLContextService` when secure transport is used
+- `auth.type=none` for `http://` receivers
+- `auth.type=workloadTLS` or `auth.type=secretRef` for `https://` receivers
+- required `auth.authorizedIdentity` for secure receiver authorization
+- complete `auth.secretRef.*` material keys when `auth.type=secretRef`
+- `RAW` or `HTTP` transport within the typed contract
+- one public provenance cursor knob: `provenance.startPosition`
+- fixed platform, schedule, and batching defaults behind the typed implementation
+- focused end-to-end proof for secure sender bootstrap, receiver-side authorized-identity policy checks, peer discovery, and live provenance delivery
+
+Outside the GA claim:
+
+- generic Reporting Task, Controller Service, or NiFi runtime-object management
+- receiver topology, trust of sender certs, receiver-side user and policy lifecycle, long-lived credentials, and reverse-proxy routing assumptions
+- receiver automation beyond the proof-only harness
+- downstream provenance storage, replay, retention, and consumer semantics
+- proxy-controller-service wiring and broader provenance event-selection or batching controls
 - enterprise-auth sender bootstrap beyond the current `auth.mode=singleUser` reconciliation path
 
 ## Environment Scope

@@ -140,7 +140,7 @@ Ownership rule:
 
 ## Site-to-Site Status Export
 
-`observability.siteToSiteStatus` is a second typed, bounded Site-to-Site capability.
+`observability.siteToSiteStatus` is GA as a second optional typed, bounded sender-side Site-to-Site capability.
 
 It stays separate from `observability.metrics.mode` so existing `nativeApi`, `exporter`, and `siteToSite` metrics behavior stays unchanged unless status export is explicitly enabled.
 
@@ -169,6 +169,14 @@ What the app chart does not own:
 - destination receiver-side user and policy lifecycle
 - long-lived destination credential lifecycle
 - proxy-controller-service wiring
+
+Receiver-side requirement for secure modes:
+
+- the destination receiver must trust the presented client certificate chain
+- the destination receiver must authorize `auth.authorizedIdentity`
+- that identity needs `/controller` read
+- that identity needs `/site-to-site` read
+- that identity needs write on the destination input port selected by `destination.inputPortName`
 
 Current validation and runtime boundary:
 
@@ -203,10 +211,11 @@ Ownership rule:
 
 - the platform owns only the specific Site-to-Site status export objects it creates by fixed name
 - manual UI edits to those objects are unsupported and will be overwritten on the next pod restart or redeploy
+- the proof-only receiver harness used in kind is not product surface and does not imply product-owned receiver automation
 
 ## Site-to-Site Provenance Export
 
-`observability.siteToSiteProvenance` is a third typed, bounded Site-to-Site capability.
+`observability.siteToSiteProvenance` is GA as a third optional typed, bounded sender-side Site-to-Site capability.
 
 It stays separate from `observability.metrics.mode` and from `observability.siteToSiteStatus` so existing `nativeApi`, `exporter`, `siteToSite` metrics, and status-export behavior stays unchanged unless provenance export is explicitly enabled.
 
@@ -238,6 +247,14 @@ What the app chart does not own:
 - downstream provenance processing
 - proxy-controller-service wiring
 
+Receiver-side requirement for secure modes:
+
+- the destination receiver must trust the presented client certificate chain
+- the destination receiver must authorize `auth.authorizedIdentity`
+- that identity needs `/controller` read
+- that identity needs `/site-to-site` read
+- that identity needs write on the destination input port selected by `destination.inputPortName`
+
 Current validation and runtime boundary:
 
 - destination URL must be present and start with `http://` or `https://`
@@ -260,6 +277,12 @@ Fixed internal defaults for this typed feature:
 - the reporting task schedule is fixed to `1 min`
 - only the initial cursor behavior is public; broader provenance event-selection and batching controls stay out of scope
 
+Bounded downstream support reading:
+
+- the product proves sender-side export and delivery only
+- receiver-side persistence, downstream storage shape, retention, replay, and consumer semantics remain operator-owned
+- GA does not claim any product ownership of downstream provenance archival or retention policy
+
 How it differs from the other typed Site-to-Site paths:
 
 - metrics export manages `SiteToSiteMetricsReportingTask` and keeps metrics format and source identity hints explicit
@@ -270,6 +293,7 @@ Ownership rule:
 
 - the platform owns only the specific Site-to-Site provenance export objects it creates by fixed name
 - manual UI edits to those objects are unsupported and will be overwritten on the next pod restart or redeploy
+- the proof-only receiver harness used in kind is not product surface and does not imply product-owned receiver automation or downstream provenance storage management
 
 ## Machine-Auth Bootstrap
 
@@ -317,8 +341,8 @@ Focused kind proof can mint a fresh NiFi access token into the referenced Secret
 - `exporter`: optional GA secondary path with focused runtime proof
 - `siteToSite`: optional GA typed sender-side runtime path
 - `exporter` and `siteToSite` are both GA but neither replaces `nativeApi` as the primary recommendation
-- `siteToSiteStatus`: optional experimental typed status-export path
-- `siteToSiteProvenance`: optional experimental typed provenance-export path
+- `siteToSiteStatus`: optional GA typed sender-side status-export path
+- `siteToSiteProvenance`: optional GA typed sender-side provenance-export path
 - trust-manager bundle consumption: optional supported complement to `nativeApi` and `exporter`, not a separate metrics mode
 
 ## Runtime Proof
@@ -389,6 +413,27 @@ What `make kind-site-to-site-status-fast-e2e` now proves live:
 - the focused proof verifies that the receiver-side authorized identity exists and is bound to `/controller` read, `/site-to-site` read, and destination input-port write
 - live status delivery reaches the real receiver and is observed from receiver-side processor status
 - the feature remains chart-scoped and does not move Site-to-Site orchestration into the controller
+- both sides are driven from the same declared `auth.authorizedIdentity`
+- exactly one bounded `SiteToSiteStatusReportingTask` is reconciled
+- exactly one bounded `StandardRestrictedSSLContextService` is reconciled when secure transport is enabled
+
+What `make kind-site-to-site-provenance-fast-e2e` now proves live:
+
+- the typed Site-to-Site provenance overlay renders and applies through the product-facing `charts/nifi-platform` path
+- the NiFi pod mounts the chart-owned Site-to-Site provenance bootstrap config
+- pod `-0` reconciles exactly one `SiteToSiteProvenanceReportingTask`
+- pod `-0` reconciles exactly one `StandardRestrictedSSLContextService` when secure Site-to-Site transport is configured
+- the reporting task reaches `RUNNING` state with the expected destination URL, input port name, transport protocol, fixed platform value, and `provenance.startPosition`
+- the generated bootstrap config preserves the expected `auth.type`, `auth.authorizedIdentity`, material references, and required receiver-side policy contract
+- the SSL context service reaches `ENABLED` state with the expected keystore and truststore wiring
+- a focused proof-only receiver NiFi release is bootstrapped on kind with one public input port and one minimal downstream processor
+- secure Site-to-Site peer discovery succeeds against that receiver using the documented typed auth and TLS Secret contract
+- the focused proof verifies that the receiver-side authorized identity exists and is bound to `/controller` read, `/site-to-site` read, and destination input-port write
+- live provenance delivery reaches the real receiver and is observed from receiver-side processor status
+- the feature remains chart-scoped and does not move Site-to-Site orchestration into the controller
+- both sides are driven from the same declared `auth.authorizedIdentity`
+- exactly one bounded `SiteToSiteProvenanceReportingTask` is reconciled
+- exactly one bounded `StandardRestrictedSSLContextService` is reconciled when secure transport is enabled
 
 What remains outside the current GA claims or still experimental:
 
@@ -403,11 +448,19 @@ What remains outside the current GA claims or still experimental:
 - `siteToSite` GA scope currently covers one `SiteToSiteMetricsReportingTask`, one `StandardRestrictedSSLContextService` when secure transport is used, `RAW` or `HTTP` transport, and `AmbariFormat` only
 - `siteToSite` runtime proof uses a tightly scoped kind-only receiver harness, not a product-managed destination control plane
 - receiver topology, client-cert trust, receiver-side user or policy lifecycle, long-lived credentials, and reverse-proxy routing assumptions remain operator-owned outside that proof harness
-- `siteToSiteStatus` remains optional and experimental
+- `siteToSiteStatus` is GA only for the typed sender-side status-export path on this page
+- `siteToSiteStatus` GA scope currently assumes the current single-user bootstrap path for local NiFi API management during object reconciliation
+- `siteToSiteStatus` GA scope currently covers `none` for `http://` receivers and `workloadTLS` or `secretRef` for `https://` receivers, with `auth.authorizedIdentity` required for secure receiver authorization
+- `siteToSiteStatus` GA scope currently covers one `SiteToSiteStatusReportingTask`, one `StandardRestrictedSSLContextService` when secure transport is used, `RAW` or `HTTP` transport, and the fixed JSON status payload defaults documented on this page
 - `siteToSiteStatus` runtime proof uses the same tightly scoped kind-only receiver harness, not a product-managed destination control plane
+- `siteToSiteProvenance` is GA only for the typed sender-side provenance-export path on this page
+- `siteToSiteProvenance` GA scope currently assumes the current single-user bootstrap path for local NiFi API management during object reconciliation
+- `siteToSiteProvenance` GA scope currently covers `none` for `http://` receivers and `workloadTLS` or `secretRef` for `https://` receivers, with `auth.authorizedIdentity` required for secure receiver authorization
+- `siteToSiteProvenance` GA scope currently covers one `SiteToSiteProvenanceReportingTask`, one `StandardRestrictedSSLContextService` when secure transport is used, `RAW` or `HTTP` transport, and the one public `provenance.startPosition` cursor knob plus the fixed defaults documented on this page
+- `siteToSiteProvenance` runtime proof uses the same tightly scoped kind-only receiver harness, not a product-managed destination control plane
 - destination receiver topology and destination-side policy lifecycle remain operator-owned outside that proof harness
 - the current focused proof still uses a proof-only receiver-side local admin path to seed the minimum authz needed for delivery
-- proxy-controller-service wiring, destination automation beyond the proof harness, non-Ambari record-writer ownership, and broader status-task tuning remain future work for Site-to-Site typed exports
+- proxy-controller-service wiring, destination automation beyond the proof harness, non-Ambari record-writer ownership, downstream provenance storage or retention ownership, and broader provenance event-selection or batching controls remain future work for Site-to-Site typed exports
 - no controller-owned metrics orchestration is introduced by this slice
 
 ## Starter Operations Package

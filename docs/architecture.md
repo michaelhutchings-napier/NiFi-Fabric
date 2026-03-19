@@ -133,18 +133,20 @@ Optional bounded integration paths:
 - one `SiteToSiteMetricsReportingTask`
 - one `StandardRestrictedSSLContextService` when secure site-to-site transport is enabled
 - the GA boundary is still sender-side only: receiver topology, trust of sender certs, receiver-side user and policy lifecycle, long-lived credentials, and reverse-proxy assumptions remain operator-owned
-- `siteToSiteStatus` is the next optional typed Site-to-Site capability and remains separate from `observability.metrics.mode`
+- `siteToSiteStatus` is GA as the next optional bounded sender-side typed Site-to-Site capability and remains separate from `observability.metrics.mode`
 - the public API stays use-case-specific under `observability.siteToSiteStatus` instead of broadening into generic Reporting Task or Controller Service management
 - the typed status contract is intentionally smaller than the metrics contract and is limited to enablement, destination, auth, secure receiver identity, and explicit transport settings plus an optional source instance URL override
 - the app chart owns only the minimum internal NiFi objects required for that use case:
 - one `SiteToSiteStatusReportingTask`
 - one `StandardRestrictedSSLContextService` when secure site-to-site transport is enabled
-- `siteToSiteProvenance` is the next optional typed Site-to-Site capability and also remains separate from `observability.metrics.mode` and `observability.siteToSiteStatus`
+- the GA boundary is still sender-side only: receiver topology, trust of sender certs, receiver-side user and policy lifecycle, long-lived credentials, and reverse-proxy assumptions remain operator-owned
+- `siteToSiteProvenance` is GA as the next optional bounded sender-side typed Site-to-Site capability and also remains separate from `observability.metrics.mode` and `observability.siteToSiteStatus`
 - the public API stays use-case-specific under `observability.siteToSiteProvenance` instead of broadening into generic Reporting Task or Controller Service management
 - the typed provenance contract is intentionally small and limited to enablement, destination, auth, secure receiver identity, explicit transport settings, an optional source instance URL override, and a bounded initial cursor setting for first-run provenance export
 - the app chart owns only the minimum internal NiFi objects required for that use case:
 - one `SiteToSiteProvenanceReportingTask`
 - one `StandardRestrictedSSLContextService` when secure site-to-site transport is enabled
+- the GA boundary is still sender-side only: receiver topology, trust of sender certs, receiver-side user and policy lifecycle, long-lived credentials, reverse-proxy assumptions, and downstream provenance storage or retention expectations remain operator-owned
 - `parameterContexts` is a separate optional typed runtime-managed config feature for bounded Parameter Context definitions
 - the public API stays use-case-specific under `parameterContexts` and does not add arbitrary graph-editing, generic runtime-object, or generic Controller Service management
 - the typed contract is intentionally narrow and limited to context names, descriptions, non-sensitive inline parameters, sensitive Kubernetes Secret references, small external-parameter-provider references that document operator-managed NiFi providers without creating them, and optional attachment declarations for direct root-child process groups only
