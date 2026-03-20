@@ -1,4 +1,4 @@
-name: alpha-e2e
+name: kind-e2e
 
 on:
   workflow_dispatch:
@@ -18,11 +18,11 @@ on:
   - cron: '17 2 * * *'
 
 jobs:
-  alpha:
+  e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     env:
-      ARTIFACT_DIR: ${{ github.workspace }}/artifacts/alpha-e2e
+      ARTIFACT_DIR: ${{ github.workspace }}/artifacts/kind-e2e
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-go@v5
@@ -37,7 +37,7 @@ jobs:
     - uses: engineerd/setup-kind@v0.6.2
       with:
         version: v0.24.0
-    - name: Select alpha target
+    - name: Select test target
       id: target
       shell: bash
       run: |
@@ -46,13 +46,13 @@ jobs:
         else
           echo "value=${{ github.event.inputs.target }}" >>"${GITHUB_OUTPUT}"
         fi
-    - name: Run alpha workflow
+    - name: Run end-to-end workflow
       shell: bash
       run: make "${{ steps.target.outputs.value }}"
-    - name: Upload alpha diagnostics
+    - name: Upload diagnostics
       if: failure()
       uses: actions/upload-artifact@v4
       with:
-        name: alpha-e2e-diagnostics-${{ github.run_id }}
-        path: artifacts/alpha-e2e
+        name: kind-e2e-diagnostics-${{ github.run_id }}
+        path: artifacts/kind-e2e
         if-no-files-found: warn

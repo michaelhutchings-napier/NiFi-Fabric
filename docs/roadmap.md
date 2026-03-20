@@ -33,7 +33,8 @@ NiFi-Fabric keeps the roadmap small and explicit.
 ## Planned Next
 
 - broader NiFi `2.x` compatibility proof
-- broader cloud environment proof, especially AKS
+- broader cloud environment proof, especially AKS and OpenShift
+- finish the standard cert-manager-first install path as a true polished one-command customer flow, including clearer post-install access and day-1 checks
 - more environment-specific operational guides
 - more Layer 7 support for the bounded Istio Ambient service mesh profile
 - broader exporter metrics-family proof where it stays smaller than a full metrics platform
