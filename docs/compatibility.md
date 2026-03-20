@@ -11,6 +11,10 @@ The project keeps one common product model across that supported NiFi 2.x line. 
 | `2.0.x` through `2.8.x` | Supported |
 | `1.x` | Not supported |
 
+## Supported Kubernetes Versions
+
+NiFi-Fabric supports Kubernetes `1.21+`.
+
 ## Standard Install Path
 
 The standard customer path is:

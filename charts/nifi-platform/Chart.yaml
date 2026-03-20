@@ -4,6 +4,7 @@ description: Top-level NiFi-Fabric platform chart for one-release installs
 type: application
 version: 0.1.0
 appVersion: "2.0.0"
+kubeVersion: ">=1.21.0-0"
 dependencies:
   - name: nifi
     version: 0.1.0

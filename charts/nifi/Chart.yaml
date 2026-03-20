@@ -4,3 +4,4 @@ description: Reusable standalone-first NiFi 2.x app chart for NiFi-Fabric
 type: application
 version: 0.1.0
 appVersion: "2.0.0"
+kubeVersion: ">=1.21.0-0"
