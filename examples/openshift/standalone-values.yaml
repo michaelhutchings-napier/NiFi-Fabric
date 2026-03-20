@@ -1,33 +1,27 @@
-# Prepared OpenShift standalone overlay.
-# This file is a starting point for future OpenShift evaluation, not an OpenShift-validated configuration.
-
-replicaCount: 3
+# OpenShift standalone overlay for `charts/nifi`.
+# Compose with `examples/standalone/values.yaml`.
+#
+# This remains a prepared secondary path. The first real OpenShift baseline proof
+# in this repository is the managed platform install path.
 
 image:
-  repository: apache/nifi
-  tag: "2.0.0"
-  pullPolicy: IfNotPresent
+  repository: docker.io/apache/nifi
 
-controllerManaged:
-  enabled: false
-
-auth:
-  singleUser:
-    existingSecret: nifi-auth
-
-tls:
-  mode: externalSecret
-  existingSecret: nifi-tls
-
-service:
-  # Keep the internal Service first. Route readiness is a second step.
-  type: ClusterIP
-
-podSecurityContext: {}
+podSecurityContext:
+  fsGroup: 1000
 
 securityContext:
-  # OpenShift commonly assigns a non-root UID through SCCs, so do not pin runAsUser here.
+  runAsUser: 1000
+  runAsGroup: 1000
   runAsNonRoot: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  seccompProfile: null
+
+service:
+  type: ClusterIP
 
 persistence:
   # Set this explicitly if your OpenShift cluster does not have a suitable default RWO StorageClass.
@@ -35,17 +29,4 @@ persistence:
 
 openshift:
   route:
-    # Render a passthrough Route as the first OpenShift exposure option.
-    enabled: true
-    host: ""
-    annotations: {}
-    tls:
-      termination: passthrough
-      insecureEdgeTerminationPolicy: None
-
-serviceMonitor:
-  enabled: false
-
-nifi:
-  jvmHeapInit: 512m
-  jvmHeapMax: 512m
+    enabled: false

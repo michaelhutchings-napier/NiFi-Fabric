@@ -1,394 +1,154 @@
-# OpenShift Readiness Guide
+# OpenShift Baseline Guide
 
-This guide prepares `NiFi-Fabric` for future OpenShift evaluation. It is not an OpenShift validation report.
+This guide records the first runtime-proven OpenShift baseline for `NiFi-Fabric`.
+
+OpenShift is still a target environment, not a separate architecture:
+
+- `charts/nifi-platform` remains the primary install surface
+- `charts/nifi` remains the reusable app chart
+- the controller remains the sole executor of lifecycle and scale actions
+- the first OpenShift proof is intentionally narrow and internal-first
 
 ## Current Status
 
-Proven on kind:
+Runtime-proven on a real OpenShift cluster:
 
-- standalone Helm install
-- managed-mode install with the thin controller
-- per-pod NiFi health gate
-- managed revision rollout
-- config drift rollout
-- TLS observe-only handling
-- restart-required TLS rollout
-- hibernation and restore
-- focused cert-manager evaluator flow
+- one-release managed install through `charts/nifi-platform`
+- secure NiFi cluster startup and health on the internal `ClusterIP` path
+- controller readiness and management of the chart-installed `NiFiCluster`
+- baseline failure diagnostics for project or namespace state, `NiFiCluster` status, StatefulSet or pod state, PVC state, events, and controller logs
 
-Prepared for OpenShift:
+Still outside this first OpenShift proof:
 
-- OpenShift-oriented Helm values overlays in `examples/openshift/`
-- chart-level Route rendering with passthrough termination as the first readiness option
-- SCC, security-context, storage, Route, and registry assumptions documented here
-- managed-mode install steps using the existing chart, controller, and `NiFiCluster`
+- Route-backed exposure
+- OIDC or LDAP browser login through an OpenShift Route
+- cert-manager on OpenShift
+- the standalone `charts/nifi` path on OpenShift
+- restore, hibernation, autoscaling, and other deeper lifecycle flows re-run on OpenShift
 
-Not yet validated on OpenShift:
+## Exact Contract Proven
 
-- runtime behavior on a real OpenShift cluster
-- SCC compatibility of the current container image and volume permissions
-- Route behavior for external NiFi access
-- storage behavior on a real OpenShift StorageClass
-- cert-manager behavior on OpenShift
+The current OpenShift baseline proves this contract and only this contract:
+
+1. install with one Helm release through `charts/nifi-platform`
+2. use the standard managed path with the controller and a chart-installed `NiFiCluster`
+3. keep NiFi internal first with `Service.type=ClusterIP`
+4. require secure NiFi startup and the existing internal health gate to pass
+5. require the controller to become ready and report the managed `NiFiCluster` healthy through status conditions
+
+The baseline does not require a Route and does not change the chart or controller split.
+
+## OpenShift Overlays
+
+Runtime-proven managed baseline composition:
+
+- `examples/platform-managed-values.yaml`
+- `examples/openshift/managed-values.yaml`
+
+What the managed OpenShift overlay does:
+
+- keeps the managed install on `charts/nifi-platform`
+- removes fixed UID, GID, and `fsGroup` assumptions for both the controller and the NiFi workload
+- keeps the NiFi Service internal as `ClusterIP`
+- leaves `persistence.storageClassName` explicit to the cluster operator
+- leaves Route enablement off in the baseline
+
+Prepared but not yet runtime-proven OpenShift overlays:
+
+- `examples/openshift/route-proxy-host-values.yaml`
+- `examples/platform-managed-cert-manager-values.yaml`
+- `examples/openshift/standalone-values.yaml`
 
 ## Prerequisites
 
-- an OpenShift cluster with support for StatefulSets, PVCs, Routes, RBAC, and the route API
-- `oc`, `kubectl`, `helm`, `curl`, `jq`, and `openssl`
-- an image registry reachable from the cluster for the controller image
-- outbound image pull access for `apache/nifi:2.0.0`, or a mirrored equivalent
-- either:
-  - an external TLS Secret plus auth Secret
-  - or a separately installed cert-manager and issuer flow that matches the existing chart contract
+- an OpenShift cluster with StatefulSets, PVCs, RBAC, and the route API available
+- `oc`, `kubectl`, `helm`, `curl`, `jq`, `python3`, and `base64`
+- a controller image reachable from the cluster
+- a NiFi image reachable from the cluster
+- a writable `ReadWriteOnce` StorageClass, either as the default or set explicitly in the OpenShift overlay
+- these Secrets in the release namespace before install:
+  - `Secret/nifi-auth`
+  - `Secret/nifi-tls`
 
-## Proven On Kind Vs Prepared For OpenShift
+The default controller image in `examples/platform-managed-values.yaml` is a local dev image. For a real OpenShift run, override it to a registry image the cluster can pull.
 
-Kind is still the only proven runtime in this repository.
+## Focused Proof Command
 
-OpenShift readiness now means:
-
-- the chart can render OpenShift-specific values overlays
-- the chart can render a Route
-- the docs spell out SCC and storage assumptions up front
-- the managed-mode installation path is documented
-
-It does not mean:
-
-- Route exposure has been proven end to end
-- the current security contexts are known-good on restricted SCCs
-- any OpenShift ingress, storage, or cert-manager path has actually been validated
-
-## SCC And Security Context Assumptions
-
-The current default chart values are kind-oriented:
-
-- `podSecurityContext.fsGroup: 1000`
-- `securityContext.runAsUser: 1000`
-- `securityContext.runAsGroup: 1000`
-- `securityContext.runAsNonRoot: true`
-
-That may conflict with restricted OpenShift SCC behavior, where an arbitrary non-root UID is often assigned.
-
-Prepared OpenShift starting point:
-
-- remove the fixed `runAsUser`, `runAsGroup`, and `fsGroup` values
-- keep `runAsNonRoot: true`
-
-That is what the OpenShift example overlays do today.
-
-Still unknown until a real cluster is tested:
-
-- whether the NiFi image and mounted repository paths are fully compatible with the target SCC
-- whether an additional SCC, UID range adjustment, or image filesystem permission fix is needed
-
-## Storage Assumptions
-
-The chart still creates four repository PVCs:
-
-- `database_repository`
-- `flowfile_repository`
-- `content_repository`
-- `provenance_repository`
-
-Prepared OpenShift assumption:
-
-- start with the cluster's default `ReadWriteOnce` StorageClass, or set a platform-specific class explicitly in the OpenShift overlay before install
-
-The OpenShift example overlays leave `persistence.storageClassName` empty on purpose because the right value is cluster-specific.
-
-Not yet validated:
-
-- PVC provisioning and attach timing
-- scale-down and restore behavior on real OpenShift storage
-- volume permission behavior under the target SCC
-
-## Route Assumptions
-
-Prepared OpenShift readiness model:
-
-1. start with internal `ClusterIP` access and the existing per-pod health gate
-2. add a passthrough Route as the first OpenShift exposure option
-3. treat reencrypt as a future alternative, not the default readiness path
-
-Why passthrough first:
-
-- NiFi already terminates TLS itself
-- the current chart and controller assume end-to-end NiFi TLS
-- passthrough avoids introducing a second TLS termination point into the first OpenShift readiness pass
-
-Current chart support:
-
-- `openshift.route.enabled`
-- `openshift.route.host`
-- `openshift.route.annotations`
-- `openshift.route.tls.termination`
-- `openshift.route.tls.insecureEdgeTerminationPolicy`
-
-Prepared default:
-
-- `termination: passthrough`
-
-Not yet validated:
-
-- Route host behavior for the NiFi UI
-- whether additional `nifi.web.proxy.host` handling is needed for real external access
-- reencrypt Route behavior
-
-## Image Registry And Pull Assumptions
-
-Current assumptions:
-
-- the chart defaults to `apache/nifi:2.0.0`
-- cluster nodes must be able to pull that image directly, or you must override `image.repository` and `image.tag`
-- the controller deployment manifest in `config/manager/manager.yaml` still defaults to the local dev image `nifi-fabric-controller:dev` with `imagePullPolicy: Never`
-
-For OpenShift evaluation, build and push the controller image to a cluster-reachable registry:
+The focused internal baseline command is:
 
 ```bash
-export CONTROLLER_IMAGE=<your-registry>/nifi-fabric-controller:alpha
-docker build -t "${CONTROLLER_IMAGE}" .
-docker push "${CONTROLLER_IMAGE}"
+CONTROLLER_IMAGE_REPOSITORY=<your-registry>/nifi-fabric-controller \
+CONTROLLER_IMAGE_TAG=<tag> \
+make openshift-platform-managed-proof
 ```
 
-Then patch the deployed controller:
+Default namespaces:
+
+- release namespace: `nifi`
+- controller namespace: `nifi-system`
+
+Optional environment overrides:
+
+- `NAMESPACE`
+- `HELM_RELEASE`
+- `CONTROLLER_NAMESPACE`
+- `AUTH_SECRET`
+- `NIFI_IMAGE_REPOSITORY`
+- `NIFI_IMAGE_TAG`
+
+What the proof command does:
+
+- installs `charts/nifi-platform` with the standard managed values plus the OpenShift overlay
+- waits for the controller Deployment to roll out
+- verifies the chart-installed `NiFiCluster` and StatefulSet exist
+- runs the secured per-pod health gate
+- waits for `NiFiCluster` conditions `TargetResolved=True` and `Available=True`
+- prints strong diagnostics automatically if the proof fails
+
+## Manual Install Path
+
+If you want to run the same baseline manually instead of the proof helper:
 
 ```bash
-oc -n nifi-system set image deployment/nifi-fabric-controller-manager manager="${CONTROLLER_IMAGE}"
-oc -n nifi-system patch deployment nifi-fabric-controller-manager \
-  --type='json' \
-  -p='[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]'
-```
-
-`NiFi-Fabric` now exposes first-class image pull secret values for both the controller and the managed NiFi workload:
-
-- `controller.imagePullSecrets[]`
-- `nifi.imagePullSecrets[]`
-
-If OpenShift nodes cannot pull directly from your registry, set those values in your OpenShift overlay instead of patching the deployed manifests.
-
-## External Secret Vs Cert-Manager
-
-### External Secret Mode
-
-`tls.mode=externalSecret` remains the baseline OpenShift path.
-
-Before install, create:
-
-- `Secret/nifi-tls`
-- `Secret/nifi-auth`
-
-The TLS Secret still needs:
-
-- `ca.crt`
-- `keystore.p12`
-- `truststore.p12`
-- stable keystore and truststore password keys
-- `sensitivePropsKey` unless you provide a separate secret reference
-
-### Cert-Manager Mode
-
-`tls.mode=certManager` is prepared for OpenShift, not validated there.
-
-Current assumptions remain unchanged:
-
-- cert-manager is a separate cluster dependency
-- the issuer writes a stable Secret name
-- the Secret includes `ca.crt`
-- PKCS12 password refs stay stable
-- `nifi.sensitive.props.key` stays stable
-
-You can compose:
-
-- `examples/openshift/managed-values.yaml`
-- `examples/cert-manager-values.yaml`
-
-But that should still be treated as OpenShift-prepared only until a real cluster run is recorded.
-
-## Authentication And Authorization Notes
-
-OpenShift does not change the chart or controller boundary for auth:
-
-- authentication remains chart-first NiFi configuration
-- authorization remains NiFi-native managed-authorizer configuration
-- the controller remains uninvolved
-
-Prepared, not validated, on OpenShift:
-
-- `auth.mode=oidc` with `authz.mode=externalClaimGroups`
-- `auth.mode=ldap` with `authz.mode=ldapSync`
-
-OpenShift-specific caution for OIDC:
-
-- real Route or external hostnames may need explicit `web.proxyHosts` values so NiFi sees the public HTTPS host during login redirects
-- that behavior is not yet validated on a real OpenShift cluster
-
-Prepared auth exposure overlays:
-
-- `examples/oidc-values.yaml`
-- `examples/oidc-group-claims-values.yaml`
-- `examples/oidc-external-url-values.yaml`
-- `examples/ldap-values.yaml`
-- `examples/openshift/route-proxy-host-values.yaml`
-
-Recommended OIDC Route composition:
-
-- `examples/openshift/managed-values.yaml`
-- `examples/oidc-values.yaml`
-- `examples/oidc-group-claims-values.yaml`
-- `examples/openshift/route-proxy-host-values.yaml`
-
-Recommended LDAP Route composition:
-
-- `examples/openshift/managed-values.yaml`
-- `examples/ldap-values.yaml`
-- `examples/openshift/route-proxy-host-values.yaml`
-
-Important runtime assumptions:
-
-- the Route host used by browsers must be present in `web.proxyHosts`
-- OIDC token group names must match the seeded NiFi application groups exactly
-- `authz.bootstrap.initialAdminGroup` is the preferred first-admin path
-- `authz.bootstrap.initialAdminIdentity` remains the fallback if group bootstrap is not ready yet
-
-## OpenShift-Oriented Example Values
-
-Starting overlays:
-
-- `examples/openshift/standalone-values.yaml`
-- `examples/openshift/managed-values.yaml`
-
-These overlays currently:
-
-- keep the Service internal as `ClusterIP`
-- relax the fixed kind-style UID and GID settings
-- render a passthrough Route
-- leave StorageClass selection explicit to the cluster operator
-- keep auth in chart-managed NiFi config rather than controller logic
-
-If OIDC or LDAP bootstrap is wrong and you are locked out, recover by reverting to the single-user baseline first:
-
-```bash
-helm upgrade --install nifi charts/nifi \
-  -n nifi \
-  --reset-values \
-  -f examples/openshift/managed-values.yaml
-```
-
-Then reapply the enterprise auth overlay only after the public Route host and provider settings are corrected.
-
-## Managed-Mode Install Steps
-
-Once an OpenShift cluster is available, start with the managed path because it exercises the full hybrid model.
-
-1. Log in and target the project.
-
-```bash
-oc login <your-api-server>
-oc new-project nifi --skip-config-write || oc project nifi
-oc new-project nifi-system --skip-config-write || oc project nifi-system
-```
-
-2. Prepare TLS and auth prerequisites.
-
-External Secret mode:
-
-```bash
-oc -n nifi apply -f <your-nifi-tls-secret.yaml>
-oc -n nifi apply -f <your-nifi-auth-secret.yaml>
-```
-
-Cert-manager mode:
-
-- install cert-manager separately
-- prepare the issuer and password secrets expected by the current chart contract
-
-3. Install the CRD.
-
-```bash
-oc apply -f config/crd/bases/platform.nifi.io_nificlusters.yaml
-```
-
-4. Install the controller.
-
-```bash
-oc apply -f config/rbac/service_account.yaml
-oc apply -f config/rbac/role.yaml
-oc apply -f config/rbac/role_binding.yaml
-oc apply -f config/manager/manager.yaml
-oc -n nifi-system set image deployment/nifi-fabric-controller-manager manager="${CONTROLLER_IMAGE}"
-oc -n nifi-system patch deployment nifi-fabric-controller-manager \
-  --type='json' \
-  -p='[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]'
-oc -n nifi-system rollout status deployment/nifi-fabric-controller-manager --timeout=5m
-```
-
-5. Install the chart with the OpenShift managed overlay.
-
-External Secret mode:
-
-```bash
-helm upgrade --install nifi charts/nifi \
-  -n nifi \
-  -f examples/openshift/managed-values.yaml
-```
-
-OIDC with passthrough Route host:
-
-```bash
-helm upgrade --install nifi charts/nifi \
-  -n nifi \
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  -f examples/platform-managed-values.yaml \
   -f examples/openshift/managed-values.yaml \
-  -f examples/oidc-values.yaml \
-  -f examples/oidc-group-claims-values.yaml \
-  -f examples/openshift/route-proxy-host-values.yaml
+  --set controller.image.repository=<your-registry>/nifi-fabric-controller \
+  --set controller.image.tag=<tag>
 ```
 
-LDAP with passthrough Route host:
-
-```bash
-helm upgrade --install nifi charts/nifi \
-  -n nifi \
-  -f examples/openshift/managed-values.yaml \
-  -f examples/ldap-values.yaml \
-  -f examples/openshift/route-proxy-host-values.yaml
-```
-
-Cert-manager mode:
-
-```bash
-helm upgrade --install nifi charts/nifi \
-  -n nifi \
-  -f examples/openshift/managed-values.yaml \
-  -f examples/cert-manager-values.yaml
-```
-
-6. Apply the `NiFiCluster`.
-
-```bash
-oc apply -f examples/managed/nificluster.yaml
-```
-
-7. Verify internal health before depending on the Route.
+Then verify:
 
 ```bash
 bash hack/check-nifi-health.sh --namespace nifi --statefulset nifi --auth-secret nifi-auth
+kubectl -n nifi get nificluster nifi -o jsonpath='{range .status.conditions[*]}{.type}{"="}{.status}{"\n"}{end}'
+kubectl -n nifi get statefulset,pod,pvc
+kubectl -n nifi-system logs deployment/nifi-controller-manager --tail=200
 ```
 
-8. Inspect the Route only after the internal health gate is passing.
+If you use a different release name, the controller Deployment name follows the platform chart default `<release>-controller-manager`.
 
-```bash
-oc -n nifi get route nifi -o yaml
-```
+## Route and Auth Later
 
-## First Things To Validate On Real OpenShift
+OpenShift Route work stays separate from the first baseline:
 
-The first real OpenShift evaluation should answer:
+- compose `examples/openshift/route-proxy-host-values.yaml` only when you need external HTTPS access
+- add `examples/oidc-values.yaml` and `examples/oidc-group-claims-values.yaml` for OIDC later
+- add `examples/ldap-values.yaml` for LDAP later
 
-- does the current NiFi image run successfully under the target SCC without fixed UID or GID settings
-- do the repository PVCs provision and remain writable on the chosen StorageClass
-- does the per-pod DNS health gate behave the same way on OpenShift networking
-- does the managed `OnDelete` rollout model behave the same way with OpenShift StatefulSet timing
-- does the passthrough Route work for external HTTPS access, or is extra proxy-host handling required
-- does cert-manager renewal preserve the current autoreload-first behavior without unexpected restart
+Those compositions are still prepared only until a real Route-backed proof is recorded.
 
-Until those answers come from a real OpenShift run, treat this guide as readiness guidance only.
+## Diagnostics
+
+The OpenShift proof helper collects these on failure:
+
+- current context, user, and selected project
+- release and controller namespace or project state
+- rendered `NiFiCluster` status and conditions
+- StatefulSet, pod, PVC, and Route state
+- namespace and controller events
+- controller logs
+
+This keeps the first OpenShift baseline support story explicit without adding new controllers, CRDs, or architecture forks.

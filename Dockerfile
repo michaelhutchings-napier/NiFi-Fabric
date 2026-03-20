@@ -1,4 +1,4 @@
 FROM scratch
-COPY bin/manager /manager
+COPY --chmod=0755 bin/manager /manager
 USER 65532:65532
 ENTRYPOINT ["/manager"]

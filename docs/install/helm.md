@@ -19,6 +19,11 @@ For a standard first install, start with:
 
 - `examples/platform-managed-values.yaml`
 
+For the focused OpenShift runtime-proven baseline, compose:
+
+- `examples/platform-managed-values.yaml`
+- `examples/openshift/managed-values.yaml`
+
 If you want cert-manager to own the workload TLS Secret, use:
 
 - `examples/platform-managed-cert-manager-values.yaml`
@@ -55,6 +60,8 @@ If you use `examples/platform-managed-values.yaml`, create these Secrets in the 
 
 - `Secret/nifi-auth`
 - `Secret/nifi-tls`
+
+If you use the OpenShift managed overlay, the same Secrets are still required. You also need a controller image that OpenShift nodes can pull, because the default dev image in `examples/platform-managed-values.yaml` is only suitable for local workflows until you override it.
 
 ### Managed + Cert-Manager Example
 
@@ -95,6 +102,42 @@ helm upgrade --install nifi charts/nifi-platform \
   --create-namespace \
   -f examples/platform-managed-values.yaml \
   -f examples/platform-managed-cert-manager-values.yaml
+```
+
+### OpenShift Managed Baseline
+
+Use this for the first real OpenShift baseline through the standard product chart path:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  -f examples/platform-managed-values.yaml \
+  -f examples/openshift/managed-values.yaml \
+  --set controller.image.repository=<your-registry>/nifi-fabric-controller \
+  --set controller.image.tag=<tag>
+```
+
+What this baseline proves:
+
+- `charts/nifi-platform` remains the customer install surface on OpenShift
+- the chart installs the CRD, controller, nested app chart, and managed `NiFiCluster` in one release
+- the NiFi cluster starts securely and passes the existing internal health gate
+- the controller becomes ready and manages the chart-installed `NiFiCluster`
+
+What this baseline does not yet prove:
+
+- Route-backed access
+- OIDC or LDAP browser login through an OpenShift Route
+- cert-manager on OpenShift
+- the standalone app-chart path on OpenShift
+
+The focused internal proof command is:
+
+```bash
+CONTROLLER_IMAGE_REPOSITORY=<your-registry>/nifi-fabric-controller \
+CONTROLLER_IMAGE_TAG=<tag> \
+make openshift-platform-managed-proof
 ```
 
 ### Service Mesh Profiles

@@ -6,6 +6,7 @@ NAMESPACE="${NAMESPACE:-nifi}"
 STATEFULSET="${STATEFULSET:-nifi}"
 AUTH_SECRET="${AUTH_SECRET:-nifi-auth}"
 CONTAINER="${CONTAINER:-nifi}"
+KUBECTL="${KUBECTL:-kubectl}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-600}"
 INTERVAL_SECONDS="${INTERVAL_SECONDS:-10}"
 STABLE_POLLS="${STABLE_POLLS:-3}"
@@ -81,15 +82,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-require_command kubectl
+require_command "${KUBECTL}"
 require_command python3
 require_command base64
 
-expected_replicas="$(kubectl -n "${NAMESPACE}" get statefulset "${STATEFULSET}" -o jsonpath='{.spec.replicas}')"
-service_name="$(kubectl -n "${NAMESPACE}" get statefulset "${STATEFULSET}" -o jsonpath='{.spec.serviceName}')"
-tls_mount_path="$(kubectl -n "${NAMESPACE}" get statefulset "${STATEFULSET}" -o jsonpath="{.spec.template.spec.containers[?(@.name==\"${CONTAINER}\")].volumeMounts[?(@.name==\"tls\")].mountPath}")"
-username="$(kubectl -n "${NAMESPACE}" get secret "${AUTH_SECRET}" -o jsonpath='{.data.username}' | base64 -d)"
-password="$(kubectl -n "${NAMESPACE}" get secret "${AUTH_SECRET}" -o jsonpath='{.data.password}' | base64 -d)"
+expected_replicas="$("${KUBECTL}" -n "${NAMESPACE}" get statefulset "${STATEFULSET}" -o jsonpath='{.spec.replicas}')"
+service_name="$("${KUBECTL}" -n "${NAMESPACE}" get statefulset "${STATEFULSET}" -o jsonpath='{.spec.serviceName}')"
+tls_mount_path="$("${KUBECTL}" -n "${NAMESPACE}" get statefulset "${STATEFULSET}" -o jsonpath="{.spec.template.spec.containers[?(@.name==\"${CONTAINER}\")].volumeMounts[?(@.name==\"tls\")].mountPath}")"
+username="$("${KUBECTL}" -n "${NAMESPACE}" get secret "${AUTH_SECRET}" -o jsonpath='{.data.username}' | base64 -d)"
+password="$("${KUBECTL}" -n "${NAMESPACE}" get secret "${AUTH_SECRET}" -o jsonpath='{.data.password}' | base64 -d)"
 
 if [[ -z "${expected_replicas}" || "${expected_replicas}" == "0" ]]; then
   echo "statefulset/${STATEFULSET} has no desired replicas" >&2
@@ -149,7 +150,7 @@ while true; do
   for ((ordinal = 0; ordinal < expected_replicas; ordinal++)); do
     pod="${STATEFULSET}-${ordinal}"
     host="${pod}.${service_name}.${NAMESPACE}.svc.cluster.local"
-    ready_status="$(kubectl -n "${NAMESPACE}" get pod "${pod}" -o jsonpath='{range .status.conditions[?(@.type=="Ready")]}{.status}{end}' 2>/dev/null || true)"
+    ready_status="$("${KUBECTL}" -n "${NAMESPACE}" get pod "${pod}" -o jsonpath='{range .status.conditions[?(@.type=="Ready")]}{.status}{end}' 2>/dev/null || true)"
 
     if [[ "${ready_status}" == "True" ]]; then
       ready_count="$((ready_count + 1))"
@@ -165,7 +166,7 @@ while true; do
     failure_reason=""
 
     if summary_json="$(
-      kubectl -n "${NAMESPACE}" exec "${pod}" -c "${CONTAINER}" -- \
+      "${KUBECTL}" -n "${NAMESPACE}" exec "${pod}" -c "${CONTAINER}" -- \
         env NIFI_HOST="${host}" NIFI_USERNAME="${username}" NIFI_PASSWORD="${password}" TLS_CA_PATH="${tls_mount_path}/ca.crt" sh -ec '
           TOKEN=$(curl --silent --show-error --fail \
             --cacert "${TLS_CA_PATH}" \

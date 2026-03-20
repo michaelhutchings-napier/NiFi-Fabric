@@ -7,6 +7,7 @@ NiFi-Fabric keeps the product surface small and explicit.
 - `charts/nifi-platform` is the standard install path
 - one Helm release installs the CRD, controller, RBAC, app chart, and `NiFiCluster`
 - `charts/nifi` stays available for standalone or advanced assembly
+- the first real OpenShift support baseline now proves that same one-release managed platform path on a real OpenShift cluster with internal `ClusterIP` access and controller management intact
 - the supported NiFi `2.x` line is `2.0.x` through `2.8.x`, with one shared compatibility contract anchored at `2.0.0` and `2.8.0` and no version-specific controller or chart behavior fork
 
 ## Thin Controller Model
@@ -142,6 +143,7 @@ NiFi-Fabric keeps the product surface small and explicit.
 - kind is the current runtime proof baseline in this repository
 - the shared NiFi `2.x` compatibility contract is intentionally kind-first and bounded
 - AKS is the primary target environment
-- OpenShift is supported as a prepared secondary target
-- current AKS and OpenShift claims remain render, overlay, and docs validation only unless a real cluster is explicitly exercised
+- OpenShift now has a focused runtime-proven baseline for the standard managed platform install path
+- the OpenShift baseline is intentionally internal first: Route exposure, Route-backed auth flows, cert-manager, and standalone installs remain outside this first proof
+- AKS remains render-validated and prepared in this slice
 - environment-specific claims remain conservative until runtime proof is recorded

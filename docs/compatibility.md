@@ -10,7 +10,7 @@ The supported `2.x` line uses one common feature set. Focused repository runtime
 | --- | --- |
 | `Supported` | Supported for the documented common NiFi `2.x` feature set. |
 | `Production-proven` | Proven beyond focused kind-only coverage. No entries are claimed yet in this repository. |
-| `Focused-runtime-proven` | Proven in focused runtime workflows in this repository, usually on kind. |
+| `Focused-runtime-proven` | Proven in focused runtime workflows in this repository, usually on kind and, where explicitly documented, on a targeted real cluster. |
 | `Prepared / render-validated` | Configuration and render path exist, but runtime proof is not yet claimed. |
 | `Planned` | Documented direction, not yet implemented as a supported runtime path. |
 
@@ -71,7 +71,7 @@ The shared harness does not need version-specific values files. It only switches
 
 | Install model | Status | Notes |
 | --- | --- | --- |
-| `charts/nifi-platform` managed install | Focused-runtime-proven | Standard customer path and the primary shared NiFi `2.x` compatibility install surface. |
+| `charts/nifi-platform` managed install | Focused-runtime-proven | Standard customer path, the primary shared NiFi `2.x` compatibility install surface, and now the first runtime-proven OpenShift baseline on the internal managed path. |
 | `charts/nifi-platform` managed + cert-manager | Focused-runtime-proven | cert-manager must already exist in the cluster. |
 | `charts/nifi-platform` standalone mode | Prepared / render-validated | Rendered and supported as a chart shape, but the main product story is managed mode. |
 | `charts/nifi` standalone app chart | Focused-runtime-proven | Supported secondary path with dedicated focused proofs outside the shared platform-chart matrix. |
@@ -210,7 +210,7 @@ Outside the GA claim:
 | --- | --- | --- |
 | kind | Focused-runtime-proven | Current runtime proof baseline. |
 | AKS | Prepared / render-validated | Primary target environment, but no real-cluster runtime proof is claimed in this slice. |
-| OpenShift | Prepared / render-validated | Secondary target environment, with published readiness guidance and no real-cluster runtime proof claimed in this slice. |
+| OpenShift | Focused-runtime-proven | Secondary target environment with a real-cluster proof for the standard internal `charts/nifi-platform` managed install path. Route exposure, Route-backed auth, cert-manager on OpenShift, and standalone installs remain outside this first proof. |
 
 ## Bounded Linkerd Profile
 

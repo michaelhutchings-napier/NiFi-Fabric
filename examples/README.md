@@ -27,21 +27,23 @@ There is also one AKS-prepared set of starting overlays:
 
 - [aks/managed-values.yaml](aks/managed-values.yaml)
   - Prepared starting point for future AKS managed-mode evaluation.
-  - Compose with [cert-manager-values.yaml](cert-manager-values.yaml) if cert-manager already exists in the AKS cluster.
+  - Compose with [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml) if cert-manager already exists in the AKS cluster.
   - Not yet validated on a real AKS cluster.
 
-There is also one OpenShift-prepared set of starting overlays:
+There is also one OpenShift overlay set:
 
 - [openshift/standalone-values.yaml](openshift/standalone-values.yaml)
-  - Prepared starting point for future OpenShift standalone evaluation.
-  - Keeps the Service internal and renders a passthrough Route.
+  - Prepared secondary overlay for `charts/nifi`.
+  - Compose with [standalone/values.yaml](standalone/values.yaml).
+  - Keeps the Service internal first and leaves Route enablement to the separate Route overlay.
   - Not yet validated on a real OpenShift cluster.
 
 - [openshift/managed-values.yaml](openshift/managed-values.yaml)
-  - Prepared starting point for future OpenShift managed-mode evaluation.
-  - Keeps the Service internal, renders a passthrough Route, and relaxes fixed kind-style UID settings.
-  - Compose with [cert-manager-values.yaml](cert-manager-values.yaml) if cert-manager already exists in the OpenShift cluster.
-  - Not yet validated on a real OpenShift cluster.
+  - Focused runtime-proven OpenShift overlay for the standard `charts/nifi-platform` managed install path.
+  - Compose with [platform-managed-values.yaml](platform-managed-values.yaml).
+  - Keeps the Service internal, relaxes fixed UID or GID settings for both the controller and NiFi workload, and leaves Route enablement optional.
+  - Compose with [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml) only for a prepared OpenShift cert-manager path; that is not part of the first runtime proof.
+  - The focused proof command is `make openshift-platform-managed-proof`.
 
 There is also one optional TLS-source overlay:
 
@@ -226,8 +228,8 @@ There are also prepared authentication overlays:
 
 - [openshift/route-proxy-host-values.yaml](openshift/route-proxy-host-values.yaml)
   - OpenShift passthrough Route host plus matching `web.proxyHosts`.
-  - Compose with OpenShift overlays and either OIDC or LDAP when the cluster is available.
-  - Render and docs only in this slice. No real OpenShift runtime proof is claimed here.
+  - Compose with the OpenShift managed or standalone overlays when you need external HTTPS access.
+  - Route-backed exposure and Route-backed auth remain outside the first runtime-proven OpenShift baseline.
 
 There are also prepared Flow Registry Client overlays:
 

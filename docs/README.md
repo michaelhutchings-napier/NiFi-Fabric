@@ -43,4 +43,4 @@ Use this documentation set as the customer-facing guide to install, operate, and
 - [Operations Runbooks](operations/runbooks.md)
 - [Experimental Features](experimental-features.md)
 - [AKS Readiness Guide](aks.md)
-- [OpenShift Readiness Guide](openshift.md)
+- [OpenShift Baseline Guide](openshift.md)

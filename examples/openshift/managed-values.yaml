@@ -1,57 +1,46 @@
-# Prepared OpenShift managed overlay.
-# This file is a starting point for future OpenShift evaluation, not an OpenShift-validated configuration.
+# OpenShift managed overlay for `charts/nifi-platform`.
+# Compose with `examples/platform-managed-values.yaml`.
+#
+# This is the focused runtime-proven baseline for the internal managed install path:
+# - one Helm release through `charts/nifi-platform`
+# - controller-managed `NiFiCluster`
+# - internal `ClusterIP` Service first
+# - no Route requirement in this baseline
 
-replicaCount: 3
-
-controllerManaged:
-  enabled: true
-
-image:
-  repository: apache/nifi
-  tag: "2.0.0"
-  pullPolicy: IfNotPresent
-
-auth:
-  mode: singleUser
-  singleUser:
-    existingSecret: nifi-auth
-
-authz:
-  mode: fileManaged
-
-tls:
-  mode: externalSecret
-  existingSecret: nifi-tls
-  autoReload:
-    enabled: true
-
-service:
-  # Keep the internal Service first. Route readiness is a second step.
-  type: ClusterIP
-
-podSecurityContext: {}
-
-securityContext:
-  # OpenShift commonly assigns a non-root UID through SCCs, so do not pin runAsUser here.
-  runAsNonRoot: true
-
-persistence:
-  # Set this explicitly if your OpenShift cluster does not have a suitable default RWO StorageClass.
-  storageClassName: ""
-
-openshift:
-  route:
-    # Render a passthrough Route as the first OpenShift exposure option.
-    enabled: true
-    host: ""
-    annotations: {}
-    tls:
-      termination: passthrough
-      insecureEdgeTerminationPolicy: None
-
-serviceMonitor:
-  enabled: false
+controller:
+  podSecurityContext:
+    fsGroup: null
+  securityContext:
+    runAsUser: null
+    runAsGroup: null
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+      - ALL
+    seccompProfile:
+      type: RuntimeDefault
 
 nifi:
-  jvmHeapInit: 512m
-  jvmHeapMax: 512m
+  replicaCount: 2
+  image:
+    repository: docker.io/apache/nifi
+  podSecurityContext:
+    fsGroup: 1000
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+      - ALL
+    seccompProfile: null
+  service:
+    type: ClusterIP
+  persistence:
+    # Set this explicitly if your OpenShift cluster does not have a suitable default RWO StorageClass.
+    storageClassName: ""
+  openshift:
+    route:
+      enabled: false

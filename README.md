@@ -33,6 +33,16 @@ helm upgrade --install nifi charts/nifi-platform \
   -f examples/platform-managed-values.yaml
 ```
 
+Managed platform install on OpenShift with the runtime-proven internal baseline overlay:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  -f examples/platform-managed-values.yaml \
+  -f examples/openshift/managed-values.yaml
+```
+
 Managed platform install with cert-manager:
 
 ```bash
@@ -63,6 +73,14 @@ Focused trust-manager-backed native metrics proof:
 
 ```bash
 make kind-metrics-native-api-trust-manager-fast-e2e
+```
+
+Focused OpenShift managed baseline proof:
+
+```bash
+CONTROLLER_IMAGE_REPOSITORY=<your-registry>/nifi-fabric-controller \
+CONTROLLER_IMAGE_TAG=<tag> \
+make openshift-platform-managed-proof
 ```
 
 Managed platform install with the bounded Linkerd compatibility overlay:
@@ -167,7 +185,8 @@ NiFi-Fabric targets Apache NiFi `2.0.x` through `2.8.x`.
 - the broader `2.0.x` through `2.8.x` support claim follows the same common feature set and your offline validation, not a forked per-version test flow
 - NiFi `1.x` is not supported
 - AKS is a primary target, but current repo proof is still kind-first
-- OpenShift is supported as a prepared secondary target and remains conservative until real-cluster proof is recorded
+- OpenShift now has a focused real-cluster baseline proof for the standard internal managed install path through `charts/nifi-platform`
+- OpenShift Route exposure, Route-backed auth flows, cert-manager on OpenShift, and standalone OpenShift installs remain conservative until separate proof is recorded
 - bounded core OIDC is GA on the focused `oidc + externalClaimGroups` path, including the focused `Initial Admin Group` bootstrap proof through `make kind-auth-oidc-initial-admin-group-fast-e2e` and the ingress-backed external-host HTTPS browser flow through `make kind-auth-oidc-ingress-fast-e2e`
 
 See [Compatibility](docs/compatibility.md) for the detailed matrix.
@@ -340,7 +359,8 @@ Helm remains the primary recommendation because it stays the source of truth for
 
 NiFi-Fabric documentation is intentionally conservative in a few areas:
 
-- AKS and OpenShift guidance is published, but real-cluster runtime proof is not yet claimed here
+- AKS guidance remains prepared and render-validated in this slice
+- the OpenShift managed internal baseline is now runtime-proven, but OpenShift external exposure, Route-backed auth, cert-manager, and standalone guidance remain conservative
 - KEDA examples and validation now intentionally keep `spec.autoscaling.external.requestedReplicas` runtime-managed at `0` in declarative values so KEDA and GitOps do not appear to be competing autoscalers
 - KEDA support remains intentionally narrow: external intent through `NiFiCluster` `/scale`, controller-owned execution only, and no direct `StatefulSet` ownership
 - autoscaling scale-down remains intentionally one-node-at-a-time, bounded to the controller-owned model, and limited to the actual StatefulSet removal pod for each step even when multiple sequential removals are planned

@@ -8,7 +8,7 @@ NiFi-Fabric uses several layers of verification:
 
 - unit and envtest coverage for controller behavior
 - Helm render and lint coverage for chart behavior
-- focused kind runtime workflows for supported feature paths
+- focused runtime workflows on kind and on targeted real clusters where explicitly recorded
 
 ## What Is Proven Today
 
@@ -16,6 +16,7 @@ Focused runtime proof in this repository includes:
 
 - a shared NiFi `2.x` compatibility contract anchored at `2.0.0` and `2.8.0`
 - standard managed platform install on kind
+- standard managed platform install on OpenShift
 - cert-manager integration on kind
 - OIDC and LDAP focused auth paths on kind
 - native API metrics on kind
@@ -42,7 +43,7 @@ Current auth and exposure hardening notes:
 - bounded OIDC is runtime-proven on the focused `oidc + externalClaimGroups` path, including discovery wiring, explicit claims mapping, seeded groups, `Initial Admin Identity` fallback bootstrap, focused `Initial Admin Group` primary bootstrap proof through `make kind-auth-oidc-initial-admin-group-fast-e2e`, real in-cluster browser login, and ingress-backed external-host HTTPS browser login through `make kind-auth-oidc-ingress-fast-e2e`
 - bounded file-managed `authz.policies[]` outcomes for observer/operator/admin and denied users are currently proven on that same chart-managed contract through the green ingress-backed external-host HTTPS OIDC path
 - Route-backed external-host OIDC remains outside the runtime-proven claim until a real Route/router proof path is recorded
-- AKS and OpenShift auth and exposure guidance remain render-only in this slice
+- AKS guidance and OpenShift Route or auth-exposure guidance remain render-only in this slice
 
 ## Platform Chart Runtime Confidence
 
@@ -53,6 +54,7 @@ The platform chart path is part of the ongoing confidence suite through:
 - `make kind-platform-managed-fast-e2e`
 - `make kind-platform-managed-cert-manager-fast-e2e`
 - `make kind-platform-managed-trust-manager-fast-e2e`
+- `make openshift-platform-managed-proof`
 
 What these focused gates prove:
 
@@ -63,6 +65,8 @@ What these focused gates prove:
 - no manual `kubectl apply` step is required for the standard platform-chart path
 - the chart-installed `NiFiCluster` becomes healthy
 - the controller observes and manages the chart-installed `NiFiCluster`
+- the OpenShift proof reuses that same product-facing chart contract on a real cluster with the internal `ClusterIP` path first
+- the OpenShift proof gathers strong diagnostics for project or namespace state, `NiFiCluster` status, StatefulSet or pod state, PVC state, events, and controller logs when the baseline fails
 - the cert-manager platform overlay works through the same one-release chart path when cert-manager is present
 - the optional trust-manager overlay reconciles a shared CA bundle into the NiFi namespace and keeps the managed cluster healthy
 - the focused trust-manager proof bootstraps cert-manager first because the current upstream trust-manager chart uses cert-manager resources for its webhook certificate path
@@ -78,7 +82,7 @@ What the shared compatibility contract does not try to prove:
 ## What Is Render-Validated or Prepared
 
 - AKS guidance is published but still conservative
-- OpenShift guidance is published but still conservative
+- OpenShift Route exposure, Route-backed auth flows, cert-manager, and standalone guidance remain conservative outside the internal managed baseline
 - Azure DevOps Flow Registry Client definitions are prepared and render-validated
 - versioned-flow import render validation still covers the bounded runtime bundle and target selection contract
 - Parameter Context render validation still covers the bounded catalog and external-provider references
@@ -294,7 +298,9 @@ Customer-facing docs should stay aligned with:
 - `bash -n hack/kind-platform-managed-versioned-flow-import-e2e.sh`
 - `bash -n hack/prove-bounded-flow-config-restore.sh`
 - `bash -n hack/kind-platform-managed-restore-e2e.sh`
+- `bash -n hack/openshift-platform-managed-proof.sh`
 - `helm template` for the standard chart install paths
+- `helm template` for the OpenShift managed platform overlay when OpenShift docs or overlays change
 - `helm template` for the Parameter Context example overlays when Parameter Context docs or values change
 - `helm template` for the versioned-flow import example overlay when flow docs or values change
 - `helm template` for the bounded platform restore overlay when DR docs or flow-recovery docs change
@@ -421,5 +427,6 @@ Current honest limit:
 ## Current Conservative Boundaries
 
 - the repo does not yet claim a production-proven cloud runtime matrix
-- AKS and OpenShift remain conservative until real-cluster proof is recorded
+- AKS remains conservative until real-cluster proof is recorded
+- OpenShift remains conservative outside the internal managed `charts/nifi-platform` baseline now proven by `make openshift-platform-managed-proof`
 - experimental features stay explicitly marked experimental only when their support contract has not yet been promoted beyond bounded runtime proof
