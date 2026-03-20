@@ -28,11 +28,13 @@ Use `charts/nifi-platform` values under:
 
 ## External Secret Mode
 
-This is the baseline path.
+This is the advanced explicit-ownership path.
 
-Required Secret:
+Explicit path:
 
-- `Secret/nifi-tls`
+- you create `Secret/nifi-tls` in the release namespace before install
+
+The bounded self-signed quickstart remains available as a secondary bootstrap path, but it is not the primary recommended customer TLS story.
 
 The Secret contract is defined by the app chart values:
 
@@ -46,12 +48,25 @@ The Secret contract is defined by the app chart values:
 
 cert-manager mode is supported when cert-manager already exists in the cluster.
 
+This is the primary recommended TLS story for the standard managed install path.
+
 What NiFi-Fabric expects:
 
 - cert-manager is installed separately
 - the issuer is already available
 - the chart can render the `Certificate`
 - stable password references are still provided
+
+There are two ownership stories for the supporting inputs:
+
+- standard cert-manager-first path: the platform chart can generate `nifi-auth` and `nifi-tls-params` in the release namespace
+- explicit cert-manager path: you create `nifi-auth` and `nifi-tls-params` in the release namespace before install
+
+In both cert-manager cases:
+
+- Helm renders the `Certificate`
+- cert-manager creates and rotates `Secret/nifi-tls`
+- cert-manager and the issuer remain operator-provided prerequisites
 
 What NiFi-Fabric does not do:
 
@@ -62,7 +77,7 @@ What NiFi-Fabric does not do:
 
 trust-manager is optional and disabled by default.
 
-Use it when you already run trust-manager in the cluster and want a chart-managed way to distribute a shared CA bundle into the NiFi namespace for:
+Use it when you already run trust-manager in the cluster and want a chart-managed way to distribute a shared CA bundle into the release namespace for:
 
 - secured metrics scraping
 - NiFi outbound trust such as LDAP, OIDC, or Flow Registry TLS
@@ -98,7 +113,7 @@ Focused proof:
 What the exporter-specific trust-manager proof adds:
 
 - a managed install path with `trustManager.enabled=true` and `observability.metrics.mode=exporter`
-- live proof that the trust-manager Bundle target reaches the exporter trust mount path in the NiFi namespace
+- live proof that the trust-manager Bundle target reaches the exporter trust mount path in the release namespace
 - live proof that the exporter can use that trust bundle to reach the secured NiFi metrics source and keep `/metrics` healthy
 - no change to the product architecture: cert-manager remains the TLS lifecycle engine, trust-manager remains an optional CA distribution layer, and the controller still does not orchestrate trust distribution
 

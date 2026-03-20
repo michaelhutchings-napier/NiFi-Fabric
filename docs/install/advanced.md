@@ -1,8 +1,61 @@
 # Advanced Install Paths
 
-NiFi-Fabric keeps the standard install path simple. Advanced paths are available, but they are secondary.
+NiFi-Fabric keeps the standard install path simple and cert-manager-first. Advanced paths are available when you want explicit ownership of auth or TLS inputs.
 
-## Supported Secondary Paths
+## Explicit-Secret Managed Install
+
+Use the advanced managed path when you want to bring your own Secrets.
+
+### External TLS Secret Ownership
+
+Use this when you want explicit operator-provided auth and TLS Secrets in the release namespace:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  -f examples/platform-managed-values.yaml
+```
+
+Before install, create:
+
+- `Secret/nifi-auth`
+- `Secret/nifi-tls`
+
+### Explicit Cert-Manager Inputs
+
+Use this when cert-manager already exists, but you still want explicit ownership of the supporting auth and parameter Secrets:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  -f examples/platform-managed-cert-manager-values.yaml
+```
+
+Before install, create:
+
+- `Secret/nifi-auth`
+- `Secret/nifi-tls-params`
+
+You still install separately:
+
+- cert-manager
+- the referenced issuer or `ClusterIssuer`
+
+### OIDC and LDAP
+
+OIDC and LDAP remain first-class supported auth modes, but they fit the advanced path rather than the standard single-user bootstrap path.
+
+That means:
+
+- no fake `singleUser` bootstrap Secret is required
+- IdP or LDAP-specific Secrets stay explicit and operator-owned
+- `Initial Admin Identity` or `Initial Admin Group` remains explicit
+
+See [Authentication](../manage/authentication.md) for the auth-mode details.
+
+## Secondary Paths
 
 ### Standalone App Chart
 
@@ -54,7 +107,6 @@ This path stays secondary on purpose:
 - the product architecture stays centered on Helm
 - `charts/nifi-platform` remains the primary customer install surface
 - the bundle is generated from the same chart and example overlays, so there is no second install architecture
-- no separate kustomize wrapper is shipped, because that would either duplicate chart logic or depend on Helm-enabled kustomize behavior that is less predictable for customers
 
 ## Control-Plane Backup Bundle
 
@@ -69,13 +121,6 @@ bash hack/export-control-plane-backup.sh \
 
 That bundle is not a second install architecture. It is an audit and recovery artifact for the existing Helm-centered install model.
 
-Use it when you need:
-
-- a live snapshot of the effective Helm values
-- a rendered manifest inventory for the current release
-- a sanitized managed `NiFiCluster` intent snapshot
-- a reference inventory for Secrets and ConfigMaps that must be recreated during DR
-
 Recover with:
 
 ```bash
@@ -83,13 +128,12 @@ bash hack/recover-control-plane-backup.sh \
   --backup-dir ./backup/nifi-control-plane
 ```
 
-The recovery helper still reuses the standard chart install path. It does not introduce a second product control plane or replace operator-owned Secret or storage recovery.
-
 ## When to Use an Advanced Path
 
 Use an advanced path when you need:
 
+- explicit auth or TLS Secret ownership
+- OIDC or LDAP with explicit identity-provider inputs
 - standalone NiFi without the controller
-- separate controller and workload release boundaries
 - lower-level platform integration work
 - manifest-based GitOps assembly beyond the standard one-release chart

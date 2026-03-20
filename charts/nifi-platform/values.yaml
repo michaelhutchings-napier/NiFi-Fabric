@@ -115,6 +115,42 @@ cluster:
     requireClusterHealthy: true
 
 # ------------------------------------------------------------------------------
+# Optional Quickstart Bootstrap
+# Docs: ../../docs/install/helm.md
+# Docs: ../../docs/manage/authentication.md
+# Docs: ../../docs/manage/tls-and-cert-manager.md
+# ------------------------------------------------------------------------------
+
+# -- Optional bounded quickstart bootstrap for the managed platform path.
+# This is intended for the bounded single-user managed bootstrap stories only.
+# It can generate:
+# - a stable single-user auth Secret
+# - stable cert-manager parameter Secrets for the standard managed cert-manager-first path
+# - a stable self-signed TLS Secret for the secondary externalSecret quickstart path
+# Richer auth modes such as OIDC and LDAP stay on the explicit operator-provided Secret path.
+quickstart:
+  enabled: false
+  singleUser:
+    username: admin
+    passwordLength: 24
+  tls:
+    validityDays: 365
+    passwordLength: 24
+    sensitivePropsKeyLength: 32
+    kubectlImage:
+      repository: bitnami/kubectl
+      tag: ""
+      digest: "sha256:6e2cdb22d6ab7264ea198c717f555e30536b54029d26c8781b9f25f78951b564"
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+# ------------------------------------------------------------------------------
 # Optional trust-manager Integration
 # Docs: ../../docs/manage/tls-and-cert-manager.md
 # Docs: ../../docs/manage/observability-metrics.md

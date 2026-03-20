@@ -40,6 +40,34 @@ For install steps, see [Install with Helm](../install/helm.md). For managed life
 | `controller.resources.limits.cpu` | string | Controller CPU limit. | No | `500m` |
 | `controller.resources.limits.memory` | string | Controller memory limit. | No | `512Mi` |
 
+## Quickstart Settings
+
+`quickstart.*` is optional and applies only to the bounded managed quickstart paths on `charts/nifi-platform`.
+
+Quickstart is intentionally limited to:
+
+- managed platform modes
+- `singleUser` authentication
+- explicit release-namespace bootstrap Secret ownership by the platform chart
+- the standard cert-manager-first bootstrap path for generated auth and parameter Secrets
+- the secondary self-signed external-Secret bootstrap path
+
+It does not change the explicit production-style auth or TLS paths, and it does not apply to OIDC or LDAP.
+
+| Field | Type | Description | Required | Default |
+| --- | --- | --- | --- | --- |
+| `quickstart.enabled` | boolean | Enables the bounded quickstart bootstrap path in the managed platform modes. | No | `false` |
+| `quickstart.singleUser.username` | string | Username written into the generated single-user auth Secret when no existing value is present. | No | `admin` |
+| `quickstart.singleUser.passwordLength` | integer | Generated single-user password length. Existing generated values are reused on upgrade. | No | `24` |
+| `quickstart.tls.validityDays` | integer | Validity period for the generated self-signed quickstart TLS certificate. | No | `365` |
+| `quickstart.tls.passwordLength` | integer | Generated keystore and truststore password length for quickstart TLS material. Existing generated values are reused on upgrade where applicable. | No | `24` |
+| `quickstart.tls.sensitivePropsKeyLength` | integer | Generated `nifi.sensitive.props.key` length for quickstart TLS material or cert-manager parameter Secrets. Existing generated values are reused on upgrade where applicable. | No | `32` |
+| `quickstart.tls.kubectlImage.repository` | string | Helper image repository used by the quickstart TLS bootstrap Job. | No | `bitnami/kubectl` |
+| `quickstart.tls.kubectlImage.tag` | string | Optional helper image tag. Leave empty when using a digest-pinned image reference. | No | `""` |
+| `quickstart.tls.kubectlImage.digest` | string | Optional helper image digest for reproducible quickstart TLS bootstrap. | No | chart default |
+| `quickstart.tls.kubectlImage.pullPolicy` | string | Pull policy for the quickstart TLS bootstrap helper image. | No | `IfNotPresent` |
+| `quickstart.tls.resources.*` | object | Resource requests and limits for the quickstart TLS bootstrap Job containers. | No | see values file |
+
 ## Managed NiFiCluster Settings
 
 These values render the managed `NiFiCluster` resource when `mode=managed`.

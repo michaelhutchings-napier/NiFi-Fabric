@@ -22,9 +22,23 @@ It provides a product-facing one-release install path through `charts/nifi-platf
 
 The standard customer path is `charts/nifi-platform`.
 
-Prerequisites depend on the install variant you choose. For the standard managed example, the required Secrets live in the Helm release namespace. For the cert-manager variant, cert-manager and the issuer must already exist and cert-manager creates the workload TLS Secret. See [Install with Helm](docs/install/helm.md).
+There are two main install stories:
 
-Managed platform install:
+- standard managed install with cert-manager-first TLS and no manual bootstrap Secrets
+- advanced install with explicit auth or TLS Secret ownership and richer auth modes such as OIDC and LDAP
+
+Standard managed install:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  -f examples/platform-managed-cert-manager-quickstart-values.yaml
+```
+
+For this standard path, install cert-manager and the referenced issuer first. The platform chart bootstraps `nifi-auth` and `nifi-tls-params` in the release namespace, and cert-manager creates the workload TLS Secret.
+
+Advanced explicit-secret managed install:
 
 ```bash
 helm upgrade --install nifi charts/nifi-platform \
@@ -33,7 +47,18 @@ helm upgrade --install nifi charts/nifi-platform \
   -f examples/platform-managed-values.yaml
 ```
 
-Managed platform install on OpenShift with the runtime-proven internal baseline overlay:
+Use the advanced path when you want to pre-create `nifi-auth` and `nifi-tls`, or when you want explicit OIDC, LDAP, or external-secret ownership. See [Install with Helm](docs/install/helm.md) and [Advanced Install Paths](docs/install/advanced.md).
+
+Advanced explicit cert-manager inputs:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  -f examples/platform-managed-cert-manager-values.yaml
+```
+
+Managed platform install on OpenShift with the focused baseline overlay:
 
 ```bash
 helm upgrade --install nifi charts/nifi-platform \
@@ -41,16 +66,6 @@ helm upgrade --install nifi charts/nifi-platform \
   --create-namespace \
   -f examples/platform-managed-values.yaml \
   -f examples/openshift/managed-values.yaml
-```
-
-Managed platform install with cert-manager:
-
-```bash
-helm upgrade --install nifi charts/nifi-platform \
-  --namespace nifi \
-  --create-namespace \
-  -f examples/platform-managed-values.yaml \
-  -f examples/platform-managed-cert-manager-values.yaml
 ```
 
 Managed platform install with optional trust-manager bundle distribution:

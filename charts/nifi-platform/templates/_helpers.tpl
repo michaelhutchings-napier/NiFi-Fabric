@@ -114,6 +114,23 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "%s-trust-source-mirror" (include "nifi-platform.nifiFullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "nifi-platform.quickstartEnabled" -}}
+{{- if .Values.quickstart.enabled -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{- define "nifi-platform.quickstartKubectlImage" -}}
+{{- $image := default (dict) .Values.quickstart.tls.kubectlImage -}}
+{{- if and $image.digest $image.repository -}}
+{{- printf "%s@%s" $image.repository $image.digest -}}
+{{- else -}}
+{{- printf "%s:%s" $image.repository (default "latest" $image.tag) -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "nifi-platform.quickstartTLSBootstrapName" -}}
+{{- printf "%s-quickstart-tls-bootstrap" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "nifi-platform.validate" -}}
 {{- $mode := include "nifi-platform.mode" . -}}
 {{- $managed := eq (include "nifi-platform.managedMode" .) "true" -}}
@@ -129,6 +146,52 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- if and (eq $mode "managed-cert-manager") (not (dig "tls" "certManager" "enabled" false .Values.nifi)) -}}
 {{- fail "mode=managed-cert-manager requires nifi.tls.certManager.enabled=true" -}}
+{{- end -}}
+{{- if .Values.quickstart.enabled -}}
+{{- if not $managed -}}
+{{- fail "quickstart.enabled=true requires a managed platform mode" -}}
+{{- end -}}
+{{- if ne (dig "auth" "mode" "singleUser" .Values.nifi) "singleUser" -}}
+{{- fail "quickstart.enabled=true requires nifi.auth.mode=singleUser; OIDC and LDAP stay on the explicit operator-provided Secret path" -}}
+{{- end -}}
+{{- if not (dig "auth" "singleUser" "existingSecret" "" .Values.nifi) -}}
+{{- fail "quickstart.enabled=true requires nifi.auth.singleUser.existingSecret so the generated quickstart auth Secret has a stable name" -}}
+{{- end -}}
+{{- if lt (int (default 24 .Values.quickstart.singleUser.passwordLength)) 12 -}}
+{{- fail "quickstart.singleUser.passwordLength must be at least 12" -}}
+{{- end -}}
+{{- $tlsMode := dig "tls" "mode" "externalSecret" .Values.nifi -}}
+{{- if and (eq $tlsMode "externalSecret") (not (dig "tls" "existingSecret" "" .Values.nifi)) -}}
+{{- fail "quickstart.enabled=true with nifi.tls.mode=externalSecret requires nifi.tls.existingSecret so the generated quickstart TLS Secret has a stable name" -}}
+{{- end -}}
+{{- if and (eq $tlsMode "externalSecret") (dig "tls" "sensitiveProps" "secretRef" "name" "" .Values.nifi) -}}
+{{- fail "quickstart.enabled=true with nifi.tls.mode=externalSecret requires nifi.tls.sensitiveProps.secretRef.name to stay empty so the generated quickstart TLS Secret can carry the sensitive props key" -}}
+{{- end -}}
+{{- if and (eq $tlsMode "certManager") (not (dig "tls" "certManager" "enabled" false .Values.nifi)) -}}
+{{- fail "quickstart.enabled=true with nifi.tls.mode=certManager requires nifi.tls.certManager.enabled=true" -}}
+{{- end -}}
+{{- if and (eq $tlsMode "certManager") (not (or (dig "tls" "certManager" "pkcs12" "password" "" .Values.nifi) (dig "tls" "certManager" "pkcs12" "passwordSecretRef" "name" "" .Values.nifi))) -}}
+{{- fail "quickstart.enabled=true with nifi.tls.mode=certManager requires either an inline PKCS12 password or nifi.tls.certManager.pkcs12.passwordSecretRef.name" -}}
+{{- end -}}
+{{- if and (eq $tlsMode "certManager") (not (or (dig "tls" "sensitiveProps" "value" "" .Values.nifi) (dig "tls" "sensitiveProps" "secretRef" "name" "" .Values.nifi))) -}}
+{{- fail "quickstart.enabled=true with nifi.tls.mode=certManager requires either nifi.tls.sensitiveProps.value or nifi.tls.sensitiveProps.secretRef.name" -}}
+{{- end -}}
+{{- if lt (int (default 24 .Values.quickstart.tls.passwordLength)) 12 -}}
+{{- fail "quickstart.tls.passwordLength must be at least 12" -}}
+{{- end -}}
+{{- if lt (int (default 32 .Values.quickstart.tls.sensitivePropsKeyLength)) 16 -}}
+{{- fail "quickstart.tls.sensitivePropsKeyLength must be at least 16" -}}
+{{- end -}}
+{{- if lt (int (default 365 .Values.quickstart.tls.validityDays)) 1 -}}
+{{- fail "quickstart.tls.validityDays must be greater than 0" -}}
+{{- end -}}
+{{- $kubectlImage := default (dict) .Values.quickstart.tls.kubectlImage -}}
+{{- if not $kubectlImage.repository -}}
+{{- fail "quickstart.enabled=true requires quickstart.tls.kubectlImage.repository" -}}
+{{- end -}}
+{{- if and (not $kubectlImage.tag) (not $kubectlImage.digest) -}}
+{{- fail "quickstart.enabled=true requires quickstart.tls.kubectlImage.tag or quickstart.tls.kubectlImage.digest" -}}
+{{- end -}}
 {{- end -}}
 {{- if .Values.trustManager.enabled -}}
 {{- if not $managed -}}

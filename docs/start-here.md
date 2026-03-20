@@ -50,16 +50,22 @@ NiFi-Fabric keeps Helm in charge of ordinary Kubernetes resources and keeps the 
 
 ## Standard Install Path
 
-The standard customer path is:
+The standard customer path is `charts/nifi-platform`.
+
+The standard product install is cert-manager-first.
+
+After cert-manager and an issuer already exist in the cluster, install NiFi-Fabric with:
 
 ```bash
 helm upgrade --install nifi charts/nifi-platform \
   --namespace nifi \
   --create-namespace \
-  -f examples/platform-managed-values.yaml
+  -f examples/platform-managed-cert-manager-quickstart-values.yaml
 ```
 
-You provide the Secrets and any optional cluster prerequisites required by your chosen install variant. See [Install with Helm](install/helm.md) for the mode-specific prerequisites.
+This standard path creates the bounded single-user bootstrap Secrets for you in the release namespace, while cert-manager creates the workload TLS Secret.
+
+If you want explicit secret ownership, external TLS Secrets, OIDC, or LDAP, use the advanced path documented in [Advanced Install Paths](install/advanced.md).
 
 If you need a manifest-based secondary path, NiFi-Fabric also ships a generated install bundle rendered from the same platform chart. See [Advanced Install Paths](install/advanced.md). Helm remains the primary recommendation.
 

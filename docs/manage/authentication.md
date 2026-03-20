@@ -20,9 +20,18 @@ In the platform chart, use the same values under `nifi.auth.*` and `nifi.authz.*
 
 Use single-user mode for simple environments, early evaluation, and break-glass recovery.
 
-Required Secret:
+In the standard cert-manager-first managed install, `charts/nifi-platform` generates `Secret/nifi-auth` for you in the release namespace and reuses it on upgrade.
+
+In the advanced explicit-secret path, you provide:
 
 - `Secret/nifi-auth`
+
+Standard-path scope:
+
+- available only on the managed platform chart path
+- used for the bounded first-cluster bootstrap story
+- keeps `singleUser` separate from OIDC and LDAP
+- does not change the richer auth mode contracts
 
 ## OIDC
 
@@ -33,6 +42,8 @@ Use OIDC when you want:
 - enterprise identity provider login
 - browser-based access with external identity
 - group-based authorization with NiFi-managed group seeding
+
+OIDC stays on the advanced explicit path. It does not depend on the single-user bootstrap Secret used by the standard cert-manager-first install.
 
 GA boundary for bounded OIDC:
 
@@ -83,6 +94,8 @@ Use LDAP when you want:
 - directory-backed login
 - LDAP group or user provider integration
 - NiFi-native LDAP auth wiring through the chart
+
+LDAP stays on the advanced explicit path. It does not depend on the single-user bootstrap Secret used by the standard cert-manager-first install.
 
 Key values:
 

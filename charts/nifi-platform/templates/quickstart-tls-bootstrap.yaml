@@ -1,0 +1,169 @@
+{{- if and (eq (include "nifi-platform.managedMode" .) "true") .Values.quickstart.enabled (eq (dig "tls" "mode" "externalSecret" .Values.nifi) "externalSecret") }}
+{{- $name := include "nifi-platform.quickstartTLSBootstrapName" . -}}
+{{- $tlsSecretName := dig "tls" "existingSecret" "nifi-tls" .Values.nifi -}}
+{{- $tlsPasswordLength := int (default 24 .Values.quickstart.tls.passwordLength) -}}
+{{- $tlsPassword := printf "Nifi1!%s" (randAlphaNum (int (sub $tlsPasswordLength 6))) -}}
+{{- $sensitiveLength := int (default 32 .Values.quickstart.tls.sensitivePropsKeyLength) -}}
+{{- $sensitivePropsKey := randAlphaNum $sensitiveLength -}}
+{{- $validityDays := int (default 365 .Values.quickstart.tls.validityDays) -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nifi-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: quickstart
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nifi-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: quickstart
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nifi-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: quickstart
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nifi-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: quickstart
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        {{- include "nifi-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: quickstart
+    spec:
+      serviceAccountName: {{ $name }}
+      restartPolicy: OnFailure
+      initContainers:
+        - name: generate-tls
+          image: "{{ .Values.nifi.image.repository }}:{{ .Values.nifi.image.tag }}"
+          imagePullPolicy: {{ .Values.nifi.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              SAN="DNS:${SERVICE_NAME},DNS:${SERVICE_NAME}.${RELEASE_NAMESPACE}.svc,DNS:${SERVICE_NAME}.${RELEASE_NAMESPACE}.svc.cluster.local,DNS:${HEADLESS_NAME},DNS:${HEADLESS_NAME}.${RELEASE_NAMESPACE}.svc,DNS:${HEADLESS_NAME}.${RELEASE_NAMESPACE}.svc.cluster.local,DNS:*.${HEADLESS_NAME}.${RELEASE_NAMESPACE}.svc,DNS:*.${HEADLESS_NAME}.${RELEASE_NAMESPACE}.svc.cluster.local"
+              keytool -genkeypair \
+                -alias nifi-quickstart \
+                -keyalg RSA \
+                -keysize 2048 \
+                -validity "${VALIDITY_DAYS}" \
+                -storetype PKCS12 \
+                -keystore /work/keystore.p12 \
+                -storepass "${SECRET_PASSWORD}" \
+                -keypass "${SECRET_PASSWORD}" \
+                -dname "CN=${SERVICE_NAME}, O=NiFi-Fabric Quickstart" \
+                -ext "SAN=${SAN}" \
+                -noprompt
+              keytool -exportcert \
+                -alias nifi-quickstart \
+                -keystore /work/keystore.p12 \
+                -storetype PKCS12 \
+                -storepass "${SECRET_PASSWORD}" \
+                -rfc \
+                -file /work/ca.crt
+              keytool -importcert \
+                -alias nifi-quickstart \
+                -file /work/ca.crt \
+                -keystore /work/truststore.p12 \
+                -storetype PKCS12 \
+                -storepass "${SECRET_PASSWORD}" \
+                -noprompt
+          env:
+            - name: SERVICE_NAME
+              value: {{ include "nifi-platform.nifiFullname" . | quote }}
+            - name: HEADLESS_NAME
+              value: {{ printf "%s-headless" (include "nifi-platform.nifiFullname" .) | quote }}
+            - name: RELEASE_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: VALIDITY_DAYS
+              value: {{ $validityDays | quote }}
+            - name: SECRET_PASSWORD
+              value: {{ $tlsPassword | quote }}
+          volumeMounts:
+            - name: work
+              mountPath: /work
+          resources:
+            {{- toYaml .Values.quickstart.tls.resources | nindent 12 }}
+      containers:
+        - name: create-secret
+          image: {{ include "nifi-platform.quickstartKubectlImage" . | quote }}
+          imagePullPolicy: {{ .Values.quickstart.tls.kubectlImage.pullPolicy }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              if kubectl -n "${RELEASE_NAMESPACE}" get secret "${TLS_SECRET_NAME}" >/dev/null 2>&1; then
+                exit 0
+              fi
+              kubectl -n "${RELEASE_NAMESPACE}" create secret generic "${TLS_SECRET_NAME}" \
+                --from-file="{{ .Values.nifi.tls.keystoreKey }}=/work/keystore.p12" \
+                --from-file="{{ .Values.nifi.tls.truststoreKey }}=/work/truststore.p12" \
+                --from-file="{{ .Values.nifi.tls.caCertKey }}=/work/ca.crt" \
+                --from-literal="{{ .Values.nifi.tls.keystorePasswordKey }}=${SECRET_PASSWORD}" \
+                --from-literal="{{ .Values.nifi.tls.truststorePasswordKey }}=${SECRET_PASSWORD}" \
+                --from-literal="{{ .Values.nifi.tls.sensitivePropsKeyKey }}=${SENSITIVE_PROPS_KEY}"
+          env:
+            - name: RELEASE_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: TLS_SECRET_NAME
+              value: {{ $tlsSecretName | quote }}
+            - name: SECRET_PASSWORD
+              value: {{ $tlsPassword | quote }}
+            - name: SENSITIVE_PROPS_KEY
+              value: {{ $sensitivePropsKey | quote }}
+          volumeMounts:
+            - name: work
+              mountPath: /work
+          resources:
+            {{- toYaml .Values.quickstart.tls.resources | nindent 12 }}
+      volumes:
+        - name: work
+          emptyDir: {}
+{{- end }}

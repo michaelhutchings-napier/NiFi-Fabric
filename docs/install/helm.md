@@ -2,31 +2,38 @@
 
 `charts/nifi-platform` is the standard customer-facing install path.
 
-This page covers the normal managed install first. Optional and secondary paths stay separate so the default install is easy to follow.
+The standard install story is:
+
+1. install cert-manager
+2. create the issuer used by your cluster
+3. install NiFi-Fabric with one Helm command
+
+You do not need to pre-create bootstrap auth or TLS Secrets for this standard path.
 
 ## Standard Install
 
-Use the managed platform chart for a one-release install:
+Install the standard managed cert-manager-first path with:
 
 ```bash
 helm upgrade --install nifi charts/nifi-platform \
   --namespace nifi \
   --create-namespace \
-  -f examples/platform-managed-values.yaml
+  -f examples/platform-managed-cert-manager-quickstart-values.yaml
 ```
 
-For a standard first install, start with:
+This standard path is intentionally bounded:
 
-- `examples/platform-managed-values.yaml`
+- managed platform install with `charts/nifi-platform`
+- `singleUser` authentication for the first cluster bootstrap
+- cert-manager-owned workload TLS
+- chart-generated bootstrap Secrets where needed
 
-For the focused OpenShift runtime-proven baseline, compose:
+After install, read the generated single-user login from the release namespace:
 
-- `examples/platform-managed-values.yaml`
-- `examples/openshift/managed-values.yaml`
-
-If you want cert-manager to own the workload TLS Secret, use:
-
-- `examples/platform-managed-cert-manager-values.yaml`
+```bash
+kubectl -n nifi get secret nifi-auth -o jsonpath='{.data.username}' | base64 -d; echo
+kubectl -n nifi get secret nifi-auth -o jsonpath='{.data.password}' | base64 -d; echo
+```
 
 ## What This Installs
 
@@ -35,116 +42,69 @@ With the standard managed example, Helm installs:
 - the `NiFiCluster` CRD
 - the controller Deployment, ServiceAccount, and RBAC
 - a managed `NiFiCluster` resource
-- the nested `charts/nifi` workload, including the NiFi `StatefulSet`, Services, and PVC-backed storage resources
+- the nested `charts/nifi` workload, including the NiFi `StatefulSet`, Services, and PVC-backed storage
+- the cert-manager `Certificate` for the workload TLS Secret
+- the bootstrap Secrets needed for the standard single-user cert-manager-first path
 
-The NiFi release runs in the Helm release namespace. In the example command above, that is `nifi`.
+The NiFi workload is installed into the Helm release namespace. In the example above, that is `nifi`.
 
-The example values also place the controller in a separate namespace:
+The example values place the controller in a separate namespace:
 
 - release namespace: `nifi`
 - controller namespace: `nifi-system`
 
+That split is only an example, not a product requirement.
+
 ## Prerequisites
 
-Before installing, make sure:
+Every install variant needs:
 
-- the cluster can reach the controller image configured in `charts/nifi-platform`
-- the cluster can reach the NiFi image configured in `charts/nifi`
-- the cluster can provision the persistent volumes requested by the NiFi chart
+- a cluster that can pull the configured controller image
+- a cluster that can pull the configured NiFi image
+- storage for the PVCs requested by the NiFi chart
 
-The remaining prerequisites depend on which install variant you choose.
+The standard customer path also needs these cluster prerequisites before Helm:
 
-### Standard Managed Example
+- cert-manager
+- the referenced issuer or `ClusterIssuer`
 
-If you use `examples/platform-managed-values.yaml`, create these Secrets in the release namespace before installing:
-
-- `Secret/nifi-auth`
-- `Secret/nifi-tls`
-
-If you use the OpenShift managed overlay, the same Secrets are still required. You also need a controller image that OpenShift nodes can pull, because the default dev image in `examples/platform-managed-values.yaml` is only suitable for local workflows until you override it.
-
-### Managed + Cert-Manager Example
-
-If you use `examples/platform-managed-cert-manager-values.yaml`:
-
-- create `Secret/nifi-auth` in the release namespace before installing
-- create `Secret/nifi-tls-params` in the release namespace before installing
-- install cert-manager before installing this chart
-- create the referenced issuer before installing this chart
-
-In the example overlay, the referenced issuer is:
+The standard example uses:
 
 - `ClusterIssuer/nifi-ca`
 
-For TLS behavior and cert-manager details, see [TLS and cert-manager](../manage/tls-and-cert-manager.md).
+You do not pre-create `nifi-auth`, `nifi-tls`, or `nifi-tls-params` for this standard path.
 
 ## Who Creates What?
 
-| Item | Standard managed example | Managed + cert-manager example |
+| Item | Standard cert-manager-first path | Advanced explicit-secret path |
 | --- | --- | --- |
-| `Secret/nifi-auth` | You create it in the release namespace before install | You create it in the release namespace before install |
-| `Secret/nifi-tls` | You create it in the release namespace before install | cert-manager creates it after Helm renders the `Certificate` |
-| `Secret/nifi-tls-params` | Not used by the standard example | You create it in the release namespace before install |
-| cert-manager | Not used by the standard example | You install it before installing this chart |
-| issuer / `ClusterIssuer` | Not used by the standard example | You create it before installing this chart |
+| `Secret/nifi-auth` | Platform chart creates it in the release namespace and reuses it on upgrade | You create it when your chosen auth mode needs it |
+| `Secret/nifi-tls` | cert-manager creates it from the rendered `Certificate` | You create it for external-Secret TLS, or cert-manager creates it in the explicit cert-manager path |
+| `Secret/nifi-tls-params` | Platform chart creates it in the release namespace and reuses it on upgrade when the cert-manager path uses Secret refs for PKCS12 password and `nifi.sensitive.props.key` | You create it when using the explicit cert-manager path with Secret refs |
+| cert-manager | You install it before Helm | Optional, depending on whether you choose cert-manager or external TLS |
+| issuer / `ClusterIssuer` | You create it before Helm | Required only for cert-manager-based advanced installs |
 
-Helm creates the platform resources and workload objects. It does not create `nifi-auth`, the external TLS Secret used by the standard example, or the cert-manager prerequisites used by the cert-manager example.
+Helm always creates the platform resources and workload objects. cert-manager creates the final workload TLS Secret on the standard path.
 
 ## Optional Variants
 
-### Cert-Manager
+### Advanced Explicit-Secret Path
 
-Use this when cert-manager already exists in the cluster and you want cert-manager to own the workload TLS Secret:
+If you want operator-provided auth or TLS Secrets, use the advanced path in [Advanced Install Paths](advanced.md).
 
-```bash
-helm upgrade --install nifi charts/nifi-platform \
-  --namespace nifi \
-  --create-namespace \
-  -f examples/platform-managed-values.yaml \
-  -f examples/platform-managed-cert-manager-values.yaml
-```
+That is where explicit ownership lives for:
 
-### OpenShift Managed Baseline
+- existing TLS Secrets
+- existing auth Secrets
+- external-Secret TLS ownership
+- production-style secret control
+- OIDC and LDAP installs with explicit identity-provider inputs
 
-Use this for the first real OpenShift baseline through the standard product chart path:
+### Optional Service Mesh Profiles
 
-```bash
-helm upgrade --install nifi charts/nifi-platform \
-  --namespace nifi \
-  --create-namespace \
-  -f examples/platform-managed-values.yaml \
-  -f examples/openshift/managed-values.yaml \
-  --set controller.image.repository=<your-registry>/nifi-fabric-controller \
-  --set controller.image.tag=<tag>
-```
+Service mesh profiles are optional and secondary. See [Optional Service Mesh Profiles](service-mesh.md).
 
-What this baseline proves:
-
-- `charts/nifi-platform` remains the customer install surface on OpenShift
-- the chart installs the CRD, controller, nested app chart, and managed `NiFiCluster` in one release
-- the NiFi cluster starts securely and passes the existing internal health gate
-- the controller becomes ready and manages the chart-installed `NiFiCluster`
-
-What this baseline does not yet prove:
-
-- Route-backed access
-- OIDC or LDAP browser login through an OpenShift Route
-- cert-manager on OpenShift
-- the standalone app-chart path on OpenShift
-
-The focused internal proof command is:
-
-```bash
-CONTROLLER_IMAGE_REPOSITORY=<your-registry>/nifi-fabric-controller \
-CONTROLLER_IMAGE_TAG=<tag> \
-make openshift-platform-managed-proof
-```
-
-### Service Mesh Profiles
-
-Service mesh profiles are optional and secondary. They are documented separately in [Optional Service Mesh Profiles](service-mesh.md).
-
-## Standalone Chart
+### Standalone Chart
 
 If you want the reusable NiFi app chart without the managed controller path, install `charts/nifi` directly:
 
@@ -162,15 +122,15 @@ This is a valid secondary path, but it is not the standard product install story
 If you need a manifest-based workflow, use the generated bundle path in [Advanced Install Paths](advanced.md):
 
 ```bash
-make render-platform-managed-bundle
-kubectl apply -f dist/nifi-platform-managed-bundle.yaml
+make render-platform-managed-cert-manager-bundle
+kubectl apply -f dist/nifi-platform-managed-cert-manager-bundle.yaml
 ```
 
-This bundle is rendered from `charts/nifi-platform`, so Helm remains the source of truth.
+Helm remains the primary install recommendation.
 
 ## Next Steps
 
 - [TLS and cert-manager](../manage/tls-and-cert-manager.md)
 - [Authentication](../manage/authentication.md)
-- [Observability and Metrics](../manage/observability-metrics.md)
+- [Advanced Install Paths](advanced.md)
 - [Operations and Troubleshooting](../operations.md)

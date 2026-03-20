@@ -18,6 +18,10 @@ NiFi-Fabric is built around a small, explainable split of responsibilities.
 - the managed controller `Deployment`
 - Services, PVCs, ingress or Route resources
 - Secret references
+- bounded quickstart Secret generation when explicitly enabled on the platform chart:
+- a generated single-user auth Secret for the standard managed bootstrap path
+- generated cert-manager parameter Secrets for the standard managed cert-manager-first path
+- an optional generated self-signed TLS Secret for the bounded secondary external-Secret quickstart path
 - cert-manager `Certificate` resources when that mode is enabled
 - optional trust-manager `Bundle` resources when that mode is enabled
 - metrics Services and ServiceMonitors
@@ -182,9 +186,17 @@ Current conservative boundary:
 
 Primary TLS path:
 
-- external Secret or cert-manager-issued NiFi TLS material
+- cert-manager-issued NiFi TLS material for the standard managed customer path
+- external Secret material for advanced explicit ownership
 - chart-owned mounting and restart-trigger wiring
 - controller-owned TLS drift observation and safe restart policy
+
+Bounded quickstart TLS extension:
+
+- the standard managed bootstrap path pairs chart-generated auth or parameter Secrets with cert-manager-created workload TLS
+- that standard path stays chart-owned and release-namespace-scoped; it does not move TLS lifecycle into the controller
+- the platform chart can still generate one self-signed quickstart TLS Secret for the bounded secondary external-Secret path when quickstart is explicitly enabled
+- that secondary self-signed path remains a simpler bootstrap option, not the primary recommended certificate lifecycle
 
 Optional trust-manager extension:
 
@@ -213,6 +225,16 @@ Current conservative boundary:
 Standard customer path:
 
 - one Helm release with `charts/nifi-platform`
+- cert-manager installed separately as a cluster prerequisite
+- one bounded standard customer story on that same chart:
+- secure managed install with cert-manager-first TLS and chart-generated bootstrap Secrets where needed
+- no pre-created bootstrap auth or TLS parameter Secrets required for that standard path
+
+Advanced customer path:
+
+- explicit managed install for operator-provided auth and TLS inputs
+- existing-secret ownership for external TLS or cert-manager parameter inputs
+- richer auth modes such as OIDC and LDAP with explicit identity-provider inputs and bootstrap admin settings
 
 Secondary paths:
 

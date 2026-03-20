@@ -1,12 +1,14 @@
 # Examples
 
-These examples now cover both the product-facing platform chart and the lower-level app-chart or evaluator overlays.
+These examples cover both the product-facing platform chart and the lower-level app-chart or evaluator overlays.
 
 Primary one-command product installs:
 
+- managed standard: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-cert-manager-quickstart-values.yaml`
+- managed advanced explicit external-secret: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-values.yaml`
+- managed advanced explicit cert-manager: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-cert-manager-values.yaml`
+- managed bounded self-signed quickstart: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-quickstart-values.yaml`
 - standalone: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-standalone-values.yaml`
-- managed: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-values.yaml`
-- managed + cert-manager: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-cert-manager-values.yaml`
 
 Generated manifest-bundle installs:
 
@@ -402,17 +404,28 @@ Flow Registry Client notes:
 
 ## Managed
 
+- [platform-managed-cert-manager-quickstart-values.yaml](platform-managed-cert-manager-quickstart-values.yaml)
+  - Standard one-release product-chart values for the cert-manager-first managed install path.
+  - Generates `nifi-auth` and `nifi-tls-params` in the release namespace.
+  - Leaves cert-manager and the referenced issuer as prerequisites.
+
 - [platform-managed-values.yaml](platform-managed-values.yaml)
-  - Minimal one-release product-chart values for managed mode.
+  - Advanced one-release product-chart values for managed mode.
   - Installs the CRD, controller, RBAC, app chart, and `NiFiCluster` in one Helm release.
+  - Uses explicit operator-provided `nifi-auth` and `nifi-tls` Secrets in the release namespace.
   - Requires the controller image to be reachable by the target cluster.
   - The primary focused runtime proof commands are `make kind-platform-managed-fast-e2e` and `make kind-platform-managed-fast-e2e-reuse`.
 
 - [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml)
-  - Minimal one-release product-chart values for managed mode when cert-manager already exists in the cluster.
+  - Advanced one-release product-chart values for managed mode when cert-manager already exists in the cluster.
   - cert-manager remains a prerequisite and is not bundled by this chart.
-  - Requires the stable `nifi-tls-params` Secret for the PKCS12 password and `nifi.sensitive.props.key`.
+  - Uses explicit operator-provided `nifi-auth` and `nifi-tls-params` Secrets in the release namespace.
   - The primary focused runtime proof commands are `make kind-platform-managed-cert-manager-fast-e2e` and `make kind-platform-managed-cert-manager-fast-e2e-reuse`.
+
+- [platform-managed-quickstart-values.yaml](platform-managed-quickstart-values.yaml)
+  - Secondary bounded quickstart values for managed mode.
+  - Generates the bounded single-user bootstrap `nifi-auth` Secret and a self-signed `nifi-tls` Secret in the release namespace.
+  - Reuses the generated quickstart secrets on upgrade.
 
 - [managed/values.yaml](managed/values.yaml)
   - Minimal app-chart values for managed mode.

@@ -1,4 +1,6 @@
-# Advanced managed example with explicit operator-provided auth and TLS Secrets.
+# Secondary managed quickstart example.
+# One-click single-user path with chart-generated auth and self-signed TLS Secrets.
+# The generated quickstart secrets are reused on upgrade.
 mode: managed
 
 controller:
@@ -13,6 +15,9 @@ controller:
 cluster:
   desiredState: Running
 
+quickstart:
+  enabled: true
+
 nifi:
   replicaCount: 3
 
@@ -21,15 +26,12 @@ nifi:
 
   auth:
     mode: singleUser
-    singleUser:
-      existingSecret: nifi-auth
 
   authz:
     mode: fileManaged
 
   tls:
     mode: externalSecret
-    existingSecret: nifi-tls
     autoReload:
       enabled: true
 
