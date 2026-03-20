@@ -48,6 +48,18 @@ kubectl -n nifi get secret nifi-auth -o jsonpath='{.data.username}' | base64 -d;
 kubectl -n nifi get secret nifi-auth -o jsonpath='{.data.password}' | base64 -d; echo
 ```
 
+## Local Evaluation
+
+For local installs, `kind` is the primary documented path and the main repository baseline.
+
+`minikube` can also be used for small local evaluation when:
+
+- cert-manager is installed
+- the cluster can pull the controller and NiFi images
+- a default `StorageClass` is available for the NiFi PVCs
+
+Use the same standard cert-manager-first Helm install on either local cluster. For the documented `kind` workflow, see [Local Kind Guide](../local-kind.md).
+
 ## Prerequisites
 
 Before installing, make sure:

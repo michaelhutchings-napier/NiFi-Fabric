@@ -28,6 +28,8 @@ helm upgrade --install nifi charts/nifi-platform \
 
 This standard path does not require pre-created bootstrap auth or TLS Secrets. The install bootstraps what it needs, and cert-manager creates the final workload TLS Secret.
 
+For local evaluation, `kind` is the primary documented path. `minikube` can also be used for small local installs when cert-manager, image access, and a working default `StorageClass` are available. See [Local Kind Guide](docs/local-kind.md).
+
 ## Documentation
 
 Start here:
