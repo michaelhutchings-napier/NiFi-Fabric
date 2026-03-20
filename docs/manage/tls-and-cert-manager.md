@@ -59,7 +59,7 @@ What NiFi-Fabric expects:
 
 There are two ownership stories for the supporting inputs:
 
-- standard cert-manager-first path: the platform chart can generate `nifi-auth` and `nifi-tls-params` in the release namespace
+- standard cert-manager-first path: the standard install path bootstraps `nifi-auth` and `nifi-tls-params` automatically in the release namespace when needed
 - explicit cert-manager path: you create `nifi-auth` and `nifi-tls-params` in the release namespace before install
 
 In both cert-manager cases:

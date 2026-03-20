@@ -20,7 +20,7 @@ In the platform chart, use the same values under `nifi.auth.*` and `nifi.authz.*
 
 Use single-user mode for simple environments, early evaluation, and break-glass recovery.
 
-In the standard cert-manager-first managed install, `charts/nifi-platform` generates `Secret/nifi-auth` for you in the release namespace and reuses it on upgrade.
+In the standard cert-manager-first managed install, the standard install path bootstraps `Secret/nifi-auth` automatically in the release namespace and reuses it on upgrade.
 
 In the advanced explicit-secret path, you provide:
 

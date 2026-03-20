@@ -2,7 +2,7 @@
 
 NiFi-Fabric keeps the standard install path simple and cert-manager-first. Advanced paths are available when you want explicit ownership of auth or TLS inputs.
 
-## Explicit-Secret Managed Install
+## Advanced Managed Install
 
 Use the advanced managed path when you want to bring your own Secrets.
 

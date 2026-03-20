@@ -36,9 +36,9 @@ helm upgrade --install nifi charts/nifi-platform \
   -f examples/platform-managed-cert-manager-quickstart-values.yaml
 ```
 
-For this standard path, install cert-manager and the referenced issuer first. The platform chart bootstraps `nifi-auth` and `nifi-tls-params` in the release namespace, and cert-manager creates the workload TLS Secret.
+For this standard path, install cert-manager and create or choose the issuer first. The standard path uses `singleUser` authentication, bootstraps `nifi-auth` and `nifi-tls-params` in the release namespace, and lets cert-manager create the workload TLS Secret.
 
-Advanced explicit-secret managed install:
+Advanced managed install:
 
 ```bash
 helm upgrade --install nifi charts/nifi-platform \

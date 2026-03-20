@@ -63,9 +63,9 @@ helm upgrade --install nifi charts/nifi-platform \
   -f examples/platform-managed-cert-manager-quickstart-values.yaml
 ```
 
-This standard path creates the bounded single-user bootstrap Secrets for you in the release namespace, while cert-manager creates the workload TLS Secret.
+This standard path uses `singleUser` authentication, bootstraps the bounded auth and parameter Secrets for you in the release namespace, and leaves the workload TLS Secret to cert-manager.
 
-If you want explicit secret ownership, external TLS Secrets, OIDC, or LDAP, use the advanced path documented in [Advanced Install Paths](install/advanced.md).
+If you want explicit secret ownership, external TLS Secrets, OIDC, or LDAP, use the advanced install path documented in [Advanced Install Paths](install/advanced.md).
 
 If you need a manifest-based secondary path, NiFi-Fabric also ships a generated install bundle rendered from the same platform chart. See [Advanced Install Paths](install/advanced.md). Helm remains the primary recommendation.
 
