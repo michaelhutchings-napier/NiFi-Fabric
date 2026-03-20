@@ -49,6 +49,7 @@ Manage NiFi:
 Reference and support:
 
 - [Documentation Home](docs/README.md)
+- [Contributing](CONTRIBUTING.md)
 - [Architecture Summary](docs/architecture.md)
 - [Compatibility](docs/compatibility.md)
 - [Verification and Support Levels](docs/testing.md)

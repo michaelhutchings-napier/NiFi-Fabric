@@ -36,6 +36,7 @@ NiFi-Fabric keeps the roadmap small and explicit.
 - broader cloud environment proof, especially AKS and OpenShift
 - finish the standard cert-manager-first install path as a true polished one-command customer flow, including clearer post-install access and day-1 checks
 - more environment-specific operational guides
+- a small GKE setup guide for the standard install path
 - more Layer 7 support for the bounded Istio Ambient service mesh profile
 - broader exporter metrics-family proof where it stays smaller than a full metrics platform
 - broader per-node drainability ranking only if it stays explainable, bounded, and justified by trustworthy evidence beyond the current actual-removal-candidate qualification model
