@@ -1,60 +1,29 @@
 # Start Here
 
-NiFi-Fabric is for teams that want to run Apache NiFi 2.x on Kubernetes with a clear product install path, a thin operational controller, and chart-first ownership of the standard Kubernetes resources around NiFi.
+NiFi-Fabric is a Kubernetes platform for Apache NiFi 2.x.
 
-## What It Is
+It gives you a standard Helm install path, a thin operational controller for lifecycle and safety work, and a simpler product model than a broad NiFi-specific operator stack.
 
-NiFi-Fabric packages two install surfaces around the same product model:
+## What You Install
 
-- `charts/nifi-platform` is the standard customer-facing chart
-- `charts/nifi` is the reusable standalone app chart
+NiFi-Fabric has two chart surfaces:
 
-The platform chart installs the controller, the app chart, and the `NiFiCluster` custom resource in one Helm release.
+- `charts/nifi-platform` is the standard customer-facing install path
+- `charts/nifi` is the reusable standalone app chart for lower-level workflows
 
-## Who It Is For
+For most teams, `charts/nifi-platform` is the right starting point.
 
-NiFi-Fabric is aimed at platform teams and application teams that want:
+## Why Teams Use It
 
-- a standard Helm install for NiFi on Kubernetes
-- safe lifecycle operations for rollout, TLS handling, hibernation, and restore
-- controller-owned autoscaling rather than direct `StatefulSet` scaling by a second autoscaler
-- first-class managed authentication options
-- small named policy bundles for common viewer, editor, version-manager, and admin roles
-- a simpler product surface than a large NiFi-specific operator stack
-
-## Why It Exists
-
-NiFi is stateful and lifecycle-sensitive. Simple `StatefulSet` management is not enough when you need:
-
-- safe restart and rollout sequencing
-- TLS drift policy
-- hibernation and restore
-- controller-owned autoscaling decisions
-- explicit ownership boundaries between Helm, Kubernetes, NiFi, and the controller
-
-NiFi-Fabric keeps Helm in charge of ordinary Kubernetes resources and keeps the controller focused on the lifecycle work that needs runtime coordination.
-
-## Main Features
-
-- one-release platform install with `charts/nifi-platform`
-- standalone app install with `charts/nifi`
-- thin controller model
-- safe rollout, hibernation, and restore
-- controller-owned autoscaling
-- optional KEDA integration
-- supported cert-manager integration
-- optional trust-manager CA bundle distribution
-- OIDC and LDAP support for managed deployments
-- Git-based Flow Registry Client catalog support
-- first-class observability and metrics subsystem
+- one clear Helm install path
+- secure-by-default, cert-manager-first installation
+- safe rollout, TLS restart handling, hibernation, restore, and autoscaling
+- support for single-user, OIDC, and LDAP authentication models
+- clear boundaries between Helm, Kubernetes, NiFi, and the controller
 
 ## Standard Install Path
 
-The standard customer path is `charts/nifi-platform`.
-
-The standard product install is cert-manager-first.
-
-After cert-manager and an issuer already exist in the cluster, install NiFi-Fabric with:
+Install cert-manager first, create or choose the `Issuer` or `ClusterIssuer`, then install NiFi-Fabric with:
 
 ```bash
 helm upgrade --install nifi charts/nifi-platform \
@@ -63,15 +32,12 @@ helm upgrade --install nifi charts/nifi-platform \
   -f examples/platform-managed-cert-manager-quickstart-values.yaml
 ```
 
-This standard path uses `singleUser` authentication, bootstraps the bounded auth and parameter Secrets for you in the release namespace, and leaves the workload TLS Secret to cert-manager.
-
-If you want explicit secret ownership, external TLS Secrets, OIDC, or LDAP, use the advanced install path documented in [Advanced Install Paths](install/advanced.md).
-
-If you need a manifest-based secondary path, NiFi-Fabric also ships a generated install bundle rendered from the same platform chart. See [Advanced Install Paths](install/advanced.md). Helm remains the primary recommendation.
+This standard path does not require pre-created bootstrap auth or TLS Secrets.
 
 ## Read Next
 
 - [Features](features.md)
 - [Install with Helm](install/helm.md)
+- [Advanced Install Paths](install/advanced.md)
 - [Compatibility](compatibility.md)
-- [NiFiCluster Reference](reference/nificluster.md)
+- [Operations and Troubleshooting](operations.md)

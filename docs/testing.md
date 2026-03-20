@@ -1,432 +1,54 @@
 # Verification and Support Levels
 
-This page explains how NiFi-Fabric support claims are grounded in repository proof.
+This page explains how NiFi-Fabric support claims are backed by repository verification.
 
 ## Verification Layers
 
-NiFi-Fabric uses several layers of verification:
+NiFi-Fabric uses three main layers:
 
 - unit and envtest coverage for controller behavior
-- Helm render and lint coverage for chart behavior
-- focused runtime workflows on kind and on targeted real clusters where explicitly recorded
-
-## What Is Proven Today
-
-Focused runtime proof in this repository includes:
-
-- a shared NiFi `2.x` compatibility contract anchored at `2.0.0` and `2.8.0`
-- standard managed platform install on kind
-- standard managed platform install on OpenShift
-- cert-manager integration on kind
-- OIDC and LDAP focused auth paths on kind
-- native API metrics on kind
-- exporter metrics on kind
-- exporter trust-manager metrics on kind
-- site-to-site metrics on kind
-- site-to-site status on kind
-- site-to-site provenance on kind
-- optional trust-manager shared CA distribution on kind
-- controller-owned autoscaling focused flows on NiFi `2.8.0`, plus bounded scale-up inside the shared NiFi `2.x` matrix
-- KEDA external intent focused flows on NiFi `2.8.0`, including the GA scale-up path plus the bounded opt-in downscale path
-- the focused KEDA proofs also check controller-visible external intent diagnostics such as bounded replicas plus blocked, deferred, or ignored handling
-- the docs now include KEDA-specific starter operations coverage for ignored, blocked, deferred, and GitOps-conflicted external intent
-- focused repo tests now prove KEDA conflict handling across rollout, TLS observation, restore, hibernation, degraded state, already-running destructive work, and controller restart
-- GitHub, GitLab, and Bitbucket Flow Registry Client focused flows on NiFi `2.8.0`
-- bounded NiFi Registry Flow Registry Client compatibility flow on NiFi `2.8.0` through a real in-cluster `apache/nifi-registry` service
-- a GitHub versioned-flow save-to-registry workflow on NiFi `2.8.0`
-- a bounded GitHub versioned-flow selection workflow on NiFi `2.8.0`
-- a bounded NiFi Registry compatibility versioned-flow import workflow on NiFi `2.8.0` through a real in-cluster `apache/nifi-registry` service
-- a bounded platform restore workflow on NiFi `2.8.0`
-
-Current auth and exposure hardening notes:
-
-- bounded OIDC is runtime-proven on the focused `oidc + externalClaimGroups` path, including discovery wiring, explicit claims mapping, seeded groups, `Initial Admin Identity` fallback bootstrap, focused `Initial Admin Group` primary bootstrap proof through `make kind-auth-oidc-initial-admin-group-fast-e2e`, real in-cluster browser login, and ingress-backed external-host HTTPS browser login through `make kind-auth-oidc-ingress-fast-e2e`
-- bounded file-managed `authz.policies[]` outcomes for observer/operator/admin and denied users are currently proven on that same chart-managed contract through the green ingress-backed external-host HTTPS OIDC path
-- Route-backed external-host OIDC remains outside the runtime-proven claim until a real Route/router proof path is recorded
-- AKS guidance and OpenShift Route or auth-exposure guidance remain render-only in this slice
-
-## Platform Chart Runtime Confidence
-
-The platform chart path is part of the ongoing confidence suite through:
-
-- `make kind-nifi-compatibility-fast-e2e`
-- `make kind-nifi-compatibility-fast-e2e-reuse`
-- `make kind-platform-managed-fast-e2e`
-- `make kind-platform-managed-cert-manager-fast-e2e`
-- `make kind-platform-managed-trust-manager-fast-e2e`
-- `make openshift-platform-managed-proof`
-
-What these focused gates prove:
-
-- the shared NiFi `2.x` compatibility contract reuses one common `charts/nifi-platform` contract across the `2.0.0` and `2.8.0` runtime anchors
-- the common contract proves secured cluster health, basic platform readiness, native API metrics, and one bounded controller-owned enforced scale-up from `2 -> 3`
-- the harness only changes the NiFi image tag inline; there is no version-specific proof-logic fork today
-- `charts/nifi-platform` installs the CRD, controller, app chart, and managed `NiFiCluster` in one Helm release
-- no manual `kubectl apply` step is required for the standard platform-chart path
-- the chart-installed `NiFiCluster` becomes healthy
-- the controller observes and manages the chart-installed `NiFiCluster`
-- the OpenShift proof reuses that same product-facing chart contract on a real cluster with the internal `ClusterIP` path first
-- the OpenShift proof gathers strong diagnostics for project or namespace state, `NiFiCluster` status, StatefulSet or pod state, PVC state, events, and controller logs when the baseline fails
-- the cert-manager platform overlay works through the same one-release chart path when cert-manager is present
-- the optional trust-manager overlay reconciles a shared CA bundle into the NiFi namespace and keeps the managed cluster healthy
-- the focused trust-manager proof bootstraps cert-manager first because the current upstream trust-manager chart uses cert-manager resources for its webhook certificate path
-
-What the shared compatibility contract does not try to prove:
-
-- cert-manager integration across every matrix version
-- OIDC or LDAP across every matrix version
-- site-to-site sender paths across every matrix version
-- broader autoscaling scale-down, churn, or KEDA paths across every matrix version
-- Flow Registry Client and versioned-flow workflows across every matrix version
-
-## What Is Render-Validated or Prepared
-
-- AKS guidance is published but still conservative
-- OpenShift Route exposure, Route-backed auth flows, cert-manager, and standalone guidance remain conservative outside the internal managed baseline
-- Azure DevOps Flow Registry Client definitions are prepared and render-validated
-- versioned-flow import render validation still covers the bounded runtime bundle and target selection contract
-- Parameter Context render validation still covers the bounded catalog and external-provider references
-
-## Flow Registry Workflow Proof
-
-The current focused end-to-end workflow command is:
-
-- `make kind-flow-registry-github-workflow-fast-e2e`
-- `make kind-flow-registry-github-workflow-fast-e2e-reuse`
-- `make kind-versioned-flow-selection-fast-e2e`
-- `make kind-versioned-flow-selection-fast-e2e-reuse`
-- `make kind-platform-managed-restore-fast-e2e`
-- `make kind-platform-managed-restore-fast-e2e-reuse`
-
-What it proves:
-
-- NiFi `2.8.0` starts healthy with the chart-prepared GitHub Flow Registry Client overlay
-- the external client is created successfully through the NiFi runtime API
-- bucket discovery succeeds against the GitHub-compatible evaluator
-- the chart-seeded mutable-flow and flow-version-manager authz bundle is sufficient for child process-group creation and version-control attachment
-- a real user-driven save-to-registry workflow succeeds through the NiFi API
-- the versioned flow snapshot is written into the external Git-backed registry path and the process group reports attached version-control state
-
-What it does not prove:
+- Helm lint and render coverage for chart behavior
+- focused runtime verification for the standard product paths
 
-- controller-managed flow deployment
-- automatic synchronization
-- broader classic NiFi Registry lifecycle management
-- provider parity beyond the current GitHub workflow proof
+## What This Means for Customers
 
-## Versioned Flow Selection Proof
+The project does not treat “renders successfully” and “runtime-proven” as the same thing.
 
-The current focused bounded-selection workflow command is:
-
-- `make kind-versioned-flow-selection-fast-e2e`
-- `make kind-versioned-flow-selection-fast-e2e-reuse`
-
-What it proves:
-
-- NiFi `2.8.0` starts healthy with the chart-prepared GitHub Flow Registry Client and versioned-flow import overlays plus the runtime-managed Parameter Context overlay
-- the external client is created successfully through the NiFi runtime API from the prepared client catalog
-- a real versioned flow with the catalog-selected bucket and flow name is written to the GitHub-compatible evaluator through the existing user-driven save workflow
-- the chart-rendered bounded selection catalog is present in-cluster with the expected selected registry client, bucket, flow, version, intended target name, and Parameter Context references
-- the selected flow and available versions are discoverable live through the NiFi API for that registry client
-- `version=latest` resolves to the live latest provider-native version identifier on the focused GitHub workflow path
-
-What it does not prove:
-
-- product-owned automated import into a NiFi process group
-- product-owned process-group creation or placement
-- product-owned Parameter Context attachment to imported process groups
-- controller-managed or continuous version synchronization
-
-## Versioned Flow Import Runtime Proof
-
-The current focused bounded versioned-flow import runtime commands are:
-
-- `make kind-platform-managed-versioned-flow-import-fast-e2e`
-- `make kind-platform-managed-versioned-flow-import-fast-e2e-reuse`
-- `make kind-platform-managed-versioned-flow-import-nifi-registry-fast-e2e`
-- `make kind-platform-managed-versioned-flow-import-nifi-registry-fast-e2e-reuse`
-
-What they prove:
-
-- `charts/nifi-platform` installs the bounded `versionedFlowImports.*` config through the standard product path
-- the GitHub path reuses an operator-owned live Flow Registry Client created through the existing workflow helper path
-- the NiFi Registry compatibility path can create and reconcile the declared live `provider=nifiRegistry` Flow Registry Client it needs through the bounded in-pod runtime bundle
-- the focused proof uses a single-node managed platform install, upgrades the release with `versionedFlowImports.*` enabled, and relies on the chart-mounted live reconcile loop in pod `-0`
-- pod `-0` imports the selected registry-backed flow into the declared root child process group and then attaches or updates the selected version through the NiFi versions API without provider write-back
-- the resulting process group exists in NiFi with version-control state for the selected registry, bucket, flow, and resolved version
-- the imported process group includes the seeded bounded flow contents from the registry-backed snapshot
-- the declared direct Parameter Context attachment is present on the imported process group
-- the imported process group carries the explicit `versionedFlowImports` ownership marker
-- a later declared version change is reconciled live without replacing pod `-0`
-- the feature remains bounded to one declared root-child import target per entry and does not widen into ongoing synchronization
-- the focused NiFi Registry compatibility proof also validates explicit historical version import and later reconcile back to `latest` on the platform chart path
-
-What they do not prove:
-
-- arbitrary provider creation beyond the bounded `provider=nifiRegistry` compatibility path
-- automatic preservation or adoption of arbitrary operator-owned same-name live Flow Registry Clients beyond the bounded ownership rules
-- arbitrary mutation inside the imported process group
-- automatic upgrade to newer registry versions on an ongoing basis
-- provider write-back or registry-side commits from the product
-- deletion of removed imports
-- enterprise-auth runtime proof; `oidc` and `ldap` are render-validated and supported with explicit `authz.bootstrap.initialAdminIdentity`, but the focused kind runtime proof remains on the standard `singleUser` path
-
-## Parameter Context Runtime Proof
-
-The current focused bounded Parameter Context runtime commands are:
-
-- `make kind-parameter-contexts-runtime-fast-e2e`
-- `make kind-parameter-contexts-runtime-fast-e2e-reuse`
-
-What they prove:
+In practice:
 
-- `charts/nifi-platform` installs the bounded `parameterContexts.*` config through the standard product path
-- the focused kind proof overlay also enables the bounded mutable-flow bootstrap permission needed to seed one proof-only direct root-child attachment target
-- pod `-0` creates the declared Parameter Context in NiFi
-- inline non-sensitive values are applied as declared
-- sensitive values are loaded from the referenced Kubernetes Secret and applied as sensitive parameters
-- the runtime status file records successful live reconciliation and Secret resolution
-- a changed declared value is reconciled without replacing the NiFi pod
-- the live update path tolerates the normal Kubernetes projected `ConfigMap` and Secret refresh delay without requiring a NiFi pod replacement
-- a removed product-owned context is deleted from NiFi
-- the declared direct root-child Parameter Context attachment is applied and can be reassigned within the bounded supported scope
-- the feature remains bounded to product-owned create/update/delete plus direct root-child attachment and does not broaden into arbitrary graph mutation or generic Parameter Provider management
+- the standard install path has the strongest verification focus
+- advanced paths are supported, but some are documented more conservatively
+- feature-specific support detail lives on the relevant install, manage, and compatibility pages
 
-What they do not prove:
-
-- Parameter Provider creation or refresh
-- arbitrary process-group assignment outside the declared direct root-child scope
-- enterprise-auth runtime proof; `oidc` and `ldap` are render-validated and supported with explicit `authz.bootstrap.initialAdminIdentity`, but the focused kind runtime proof remains on the standard `singleUser` path
-
-## Autoscaling Runtime Proof
-
-The focused autoscaling scale-down runtime commands are:
-
-- `make kind-autoscaling-scale-down-fast-e2e`
-- `make kind-autoscaling-scale-down-fast-e2e-reuse`
-- `make kind-autoscaling-scale-up-fast-e2e`
-- `make kind-autoscaling-scale-up-fast-e2e-reuse`
-
-What they prove:
-
-- the controller remains the only executor of actual scale-up and scale-down
-- the focused proof covers the bounded production-ready autoscaling model rather than a generic scheduler or predictor
-- scale-up recommendations stay bounded to explainable queue-pressure and CPU signals rather than a generic predictor
-- single-signal scale-up pressure now needs corroboration or consecutive evaluations before it becomes a stronger recommendation
-- corroborated queue plus CPU pressure can still promote an immediate one-step scale-up recommendation
-- the controller remains the only executor of actual scale-down
-- scale-down stays one-node-at-a-time even when a bounded sequential episode includes more than one removal
-- scale-down candidate selection now qualifies the actual StatefulSet `N -> N-1` removal pod from live pod state instead of trusting the highest observed pod blindly
-- bounded multi-node scale-down now executes only as sequential one-node episodes, and repo tests cover continue, cooldown-blocked continuation, restart-safe resume, and stop-on-requalification-loss behavior between steps
-- repo tests now cover selected-candidate, missing-candidate, terminating-candidate, and not-Ready-candidate reasoning without widening into hidden scheduling logic
-- a removal step is gated on sustained low-pressure evidence instead of a single quiet sample
-- low-pressure needs repeated zero-backlog observations and then still waits through stabilization and cooldown
-- transient zero-backlog dips do not trigger removal when executor activity is still above the low-pressure threshold
-- the operator-facing decision text stays explicit about why scale-down is allowed or blocked
-- focused unit coverage now also checks richer signal qualification, scale-up confidence hysteresis, blocked lifecycle visibility, ignored external downscale visibility, execution-event context, and deferred decision stability when cooldown or stabilization timestamps are carried in `lastScalingDecision`
-- repo tests also cover stuck offload, stage-specific retry or timeout reasons, stalled post-removal drain, restart-safe resume of blocked prepare or settle work, safe re-establishment after pod churn, and clean pause or resume behavior when rollout, TLS, hibernation, or restore precedence interrupts autoscaling intent
-- the degraded-path proof in `kind-autoscaling-scale-up-fast-e2e` intentionally removes controller pod-delete RBAC for one step so the proof can verify that rollout failure degrades the cluster and blocks autoscaling; that forbidden delete is test-induced, not a product regression
-
-Current support reading for those proofs:
-
-- the focused autoscaling proofs back the production-ready built-in bounded model, including richer signal qualification, bounded capacity reasoning, actual removal-candidate qualification, and bounded sequential multi-step scale-down
-- the separate KEDA kind proofs plus repo tests justify GA for the bounded KEDA external scale-up intent path; they do not change the primary support position of the built-in controller-owned autoscaler
-- the same KEDA kind proofs plus repo tests now also justify GA for controller-mediated external downscale intent through the bounded safe scale-down path
-- repo tests add the KEDA conflict and restart-safe support story without broadening KEDA into a second executor or requiring a heavier runtime gate for every precedence case
-
-What the KEDA proof set now covers together:
-
-- KEDA writes external intent through `NiFiCluster` `/scale`
-- the controller remains the only executor of real scale actions
-- rollout, TLS, restore, hibernation, degraded state, and already-running destructive work block KEDA intent cleanly
-- lifecycle precedence is reported as blocked external intent, while cooldown or low-pressure waiting remains deferred external intent
-- the runtime-managed KEDA request survives controller restart and converges only after the conflict clears
-- GA claim: external scale-up intent through the bounded controller-owned execution path
-- GA claim: controller-mediated external downscale intent through the bounded safe scale-down path, still reusing the normal low-pressure, cooldown, stabilization, and safe node-removal checks after a conflict clears
-
-What they do not prove:
-
-- a generic forecasting or prediction engine; the model remains heuristic and bounded
-- a runtime-injected stalled offload or drain failure harness on kind in this slice
-- broader bulk policy depth beyond the current bounded sequential-episode model
-- broader per-node drainability ranking beyond the current bounded removal-candidate qualification
-
-## Bounded Restore Workflow Proof
-
-The current focused bounded-restore workflow command is:
-
-- `make kind-platform-managed-restore-fast-e2e`
-- `make kind-platform-managed-restore-fast-e2e-reuse`
-
-What it proves:
-
-- `charts/nifi-platform` can be used as the product-facing install and reinstall path for the restore exercise
-- a control-plane bundle exported by `hack/export-control-plane-backup.sh` is sufficient to drive `hack/recover-control-plane-backup.sh` for a working platform reinstall
-- deleting the NiFi PVCs does not block recovery of the declarative platform layer
-- the restored Flow Registry Client catalog can be used to recreate the runtime client and reconnect to the registry-backed flow source
-- the restored Parameter Context config is reconciled back into NiFi through the bounded runtime-managed bootstrap
-- the restored bounded flow-selection catalog can be used to identify the selected registry-backed flow and intended target process group
-- a functional imported flow configuration can be rebuilt after reinstall by importing the registry-backed snapshot and attaching the reconciled Parameter Context
-
-What it does not prove:
-
-- queue, content, database, or provenance repository replay
-- full NiFi internal runtime-state recovery
-- controller-managed flow sync or generic runtime-object restore
-- historical version replay beyond the current `version=latest` focused restore path
-
-## Customer Meaning of Support Levels
-
-Use the categories in [Compatibility](compatibility.md):
-
-- `Focused-runtime-proven` means the feature is exercised in focused runtime workflows in this repository
-- `Prepared / render-validated` means the shape is intentionally documented and rendered, but the repo does not claim runtime proof yet
-- `Production-proven` is reserved for broader runtime proof than the current focused kind baseline
-
-## Validation Used for Documentation Consistency
-
-Customer-facing docs should stay aligned with:
-
-- `go test ./...`
-- `helm lint charts/nifi`
-- `helm lint charts/nifi-platform`
-- `bash -n hack/export-control-plane-backup.sh`
-- `bash -n hack/recover-control-plane-backup.sh`
-- `bash -n hack/prove-parameter-contexts-runtime.sh`
-- `bash -n hack/kind-parameter-contexts-runtime-e2e.sh`
-- `bash -n hack/prove-versioned-flow-import-runtime.sh`
-- `bash -n hack/kind-platform-managed-versioned-flow-import-e2e.sh`
-- `bash -n hack/prove-bounded-flow-config-restore.sh`
-- `bash -n hack/kind-platform-managed-restore-e2e.sh`
-- `bash -n hack/openshift-platform-managed-proof.sh`
-- `helm template` for the standard chart install paths
-- `helm template` for the OpenShift managed platform overlay when OpenShift docs or overlays change
-- `helm template` for the Parameter Context example overlays when Parameter Context docs or values change
-- `helm template` for the versioned-flow import example overlay when flow docs or values change
-- `helm template` for the bounded platform restore overlay when DR docs or flow-recovery docs change
-- `helm template` for optional trust-manager overlays when trust-manager docs or values change
-- `jq empty` for any added starter Grafana dashboard JSON
-- focused checks for the feature being documented
-- focused auth and exposure render checks for OIDC internal, OIDC external URL, AKS managed, and OpenShift managed overlays when auth docs change
-
-Documentation-only operations packaging does not require a heavier runtime gate unless it also changes shared lifecycle or e2e behavior.
-
-## Metrics Runtime Proof Matrix
-
-The current focused metrics runtime command is:
-
-- `make kind-metrics-fast-e2e`
-- `make kind-metrics-native-api-trust-manager-fast-e2e`
-- `make kind-metrics-exporter-trust-manager-fast-e2e`
-- `make kind-metrics-site-to-site-fast-e2e`
-- `make kind-site-to-site-status-fast-e2e`
-- `make kind-site-to-site-provenance-fast-e2e`
-
-That matrix runs:
-
-- `make kind-metrics-native-api-fast-e2e`
-- `make kind-metrics-exporter-fast-e2e`
-
-What it proves for `nativeApi`:
-
-- the metrics-enabled platform overlay renders and applies
-- the dedicated metrics `Service` and named `ServiceMonitor` resources exist with the expected TLS and auth wiring
-- the machine-auth Secret and CA Secret contract works with operator-provided material
-- the secured NiFi flow metrics endpoint can be scraped live end to end
-- the recommended default shape, dedicated metrics `Service` plus multiple named scrape profiles, stays green on kind
-- the optional trust-manager overlay can distribute the CA bundle that `nativeApi` consumes for the secured scrape path
-- trust updates propagate from the workload TLS Secret through the mirrored trust-manager source Secret, Bundle target, and mounted probe consumer path
-
-What it proves for `exporter`:
-
-- the exporter overlay renders and applies
-- the exporter `Deployment`, metrics `Service`, and `ServiceMonitor` exist with the expected ports, selectors, and scrape endpoint wiring
-- the same machine-auth Secret and CA Secret contract is mounted and consumed correctly
-- the exporter pod can directly reach the secured `/nifi-api/flow/metrics/prometheus` source path with the mounted machine-auth and CA material
-- the exporter pod can also reach the already-implemented supplemental `/nifi-api/flow/status` source path
-- Prometheus can scrape the exporter `/metrics` endpoint live end to end
-- the exporter `/metrics` endpoint republishes live NiFi metric families from the secured `/nifi-api/flow/metrics/prometheus` source
-- the exporter `/metrics` endpoint also appends selected controller-status gauges derived from `/nifi-api/flow/status`
-- exporter self-diagnostics report successful refresh for both upstream sources during the scrape
-- the exporter readiness probe tracks upstream secured-scrape health instead of only local process health
-- the exporter recovers after mounted auth Secret rotation without restarting the exporter pod
-- the focused proof uses a freshly minted token written into the referenced Secret; long-lived rotation remains operator-owned
-
-What `make kind-metrics-exporter-trust-manager-fast-e2e` proves in addition:
-
-- the trust-manager `Bundle` and mirrored source Secret render and reconcile through the product-facing platform chart path
-- the exporter consumes the trust-manager-distributed CA bundle from the expected mount path
-- the secured exporter upstream scrape succeeds with that distributed trust material instead of a manually created CA Secret
-- exporter `/metrics`, `Service`, and `ServiceMonitor` stay healthy in the trust-manager-backed configuration
-
-What `make kind-metrics-site-to-site-fast-e2e` proves:
-
-- the typed site-to-site metrics overlay renders and applies through `charts/nifi-platform`
-- the app chart mounts the bounded Site-to-Site bootstrap config into the NiFi pod
-- pod `-0` bootstraps exactly one `SiteToSiteMetricsReportingTask`
-- pod `-0` bootstraps exactly one `StandardRestrictedSSLContextService` when secure site-to-site transport is configured
-- the reporting task reaches `RUNNING` state with the expected typed destination, transport, and format properties
-- the SSL context service reaches `ENABLED` state with the expected keystore and truststore wiring
-- a proof-only receiver NiFi harness comes up on kind with the expected public input port and minimal downstream processor
-- the sender authenticates to that receiver over secure Site-to-Site as documented by the typed Secret/TLS contract
-- live metrics delivery is observed on the receiver side through processor status, not just sender-side object state
-- the feature remains chart-scoped and does not add controller-owned Site-to-Site orchestration
-
-What `make kind-site-to-site-status-fast-e2e` proves:
-
-- the typed site-to-site status overlay renders and applies through `charts/nifi-platform`
-- the app chart mounts the bounded Site-to-Site status bootstrap config into the NiFi pod
-- pod `-0` bootstraps exactly one `SiteToSiteStatusReportingTask`
-- pod `-0` bootstraps exactly one `StandardRestrictedSSLContextService` when secure site-to-site transport is configured
-- the reporting task reaches `RUNNING` state with the expected typed destination and transport properties
-- the SSL context service reaches `ENABLED` state with the expected keystore and truststore wiring
-- a proof-only receiver NiFi harness comes up on kind with the expected public input port and minimal downstream processor
-- the sender authenticates to that receiver over secure Site-to-Site as documented by the typed Secret/TLS contract
-- live status delivery is observed on the receiver side through processor status, not just sender-side object state
-- the feature remains chart-scoped and does not add controller-owned Site-to-Site orchestration
-
-What `make kind-site-to-site-provenance-fast-e2e` proves:
-
-- the typed site-to-site provenance overlay renders and applies through `charts/nifi-platform`
-- the app chart mounts the bounded Site-to-Site provenance bootstrap config into the NiFi pod
-- pod `-0` bootstraps exactly one `SiteToSiteProvenanceReportingTask`
-- pod `-0` bootstraps exactly one `StandardRestrictedSSLContextService` when secure site-to-site transport is configured
-- the reporting task reaches `RUNNING` state with the expected typed destination, transport, and provenance cursor properties
-- the generated bootstrap config preserves the expected `auth.type`, `auth.authorizedIdentity`, material references, and required receiver-side policy contract
-- the SSL context service reaches `ENABLED` state with the expected keystore and truststore wiring
-- a proof-only receiver NiFi harness comes up on kind with the expected public input port and minimal downstream processor
-- the sender authenticates to that receiver over secure Site-to-Site as documented by the typed Secret/TLS contract
-- the focused proof verifies that the receiver-side authorized identity exists and is bound to `/controller` read, `/site-to-site` read, and destination input-port write
-- live provenance delivery is observed on the receiver side through processor status, not just sender-side object state
-- the feature remains chart-scoped and does not add controller-owned Site-to-Site orchestration
-- both sides are driven from the same declared `auth.authorizedIdentity`
-- exactly one bounded `SiteToSiteProvenanceReportingTask` is reconciled
-- exactly one bounded `StandardRestrictedSSLContextService` is reconciled when secure transport is enabled
-
-Current honest limit:
-
-- `nativeApi` runtime proof still covers the flow Prometheus endpoint only
-- exporter runtime proof adds a second secured endpoint, `/nifi-api/flow/status`, but not a JVM or system-diagnostics family
-- the second native scrape profile is still a cadence variant of the same flow endpoint
-- exporter remains optional and bounded even with the stronger runtime gate
-- trust-manager-backed exporter proof currently covers PEM bundle distribution only; additional Bundle output formats are still future work for exporter mode
-- `siteToSite` proof is intentionally bounded to the typed sender path plus a proof-only receiver harness on kind
-- that focused proof now justifies a GA claim for the typed sender-side metrics path only
-- the current `siteToSite` GA boundary still assumes the single-user bootstrap path for the sender-side local NiFi API reconciliation loop
-- that proof now also checks the declared secure receiver identity and the minimum receiver-side policy bindings needed for delivery
-- `siteToSiteStatus` proof is intentionally bounded to the typed sender path plus that same proof-only receiver harness on kind, and that focused proof now justifies a GA claim only for the typed sender-side status-export path
-- `siteToSiteProvenance` proof is intentionally bounded to the typed sender path plus that same proof-only receiver harness on kind, and that focused proof now justifies a GA claim only for the typed sender-side provenance-export path
-- the current `siteToSiteProvenance` GA boundary still assumes the single-user bootstrap path for the sender-side local NiFi API reconciliation loop
-- that proof now also checks the declared secure receiver identity, the minimum receiver-side policy bindings needed for delivery, and the bounded public provenance cursor contract
-- Parameter Context support is intentionally limited to product-owned create/update/delete plus direct root-child attachment; it does not claim arbitrary graph mutation or Parameter Provider reconciliation
-- versioned-flow import support is intentionally limited to restart-scoped bounded import creation, bounded source verification, and optional direct Parameter Context attachment; automatic client creation, ongoing sync, and broader process-group mutation remain out of scope
-- destination receiver topology and destination-side policy lifecycle remain operator-owned outside that focused proof harness
-- the current receiver harness still uses a proof-only local admin path to seed those bindings on kind
-- proxy-controller-service wiring, non-Ambari record-writer ownership, downstream provenance storage or retention ownership, broader status-task tuning, and broader provenance event-selection or batching controls remain future work for Site-to-Site typed exports
-
-## Current Conservative Boundaries
-
-- the repo does not yet claim a production-proven cloud runtime matrix
-- AKS remains conservative until real-cluster proof is recorded
-- OpenShift remains conservative outside the internal managed `charts/nifi-platform` baseline now proven by `make openshift-platform-managed-proof`
-- experimental features stay explicitly marked experimental only when their support contract has not yet been promoted beyond bounded runtime proof
+## Standard Verified Areas
+
+Repository verification is centered on:
+
+- the standard managed install through `charts/nifi-platform`
+- cert-manager-first TLS
+- core lifecycle behavior such as rollout, TLS restart handling, hibernation, and restore
+- primary authentication and metrics paths
+- controller-owned autoscaling
+
+## How to Read Support Claims
+
+Use these pages together:
+
+- [Compatibility](compatibility.md) for supported versions and environments
+- [Install with Helm](install/helm.md) for the standard install path
+- [Advanced Install Paths](install/advanced.md) for non-standard installs
+- [Experimental Features](experimental-features.md) for intentionally non-GA areas
+
+When a feature needs more nuance, the detailed support position belongs on that feature page rather than being repeated everywhere.
+
+## Internal Verification Detail
+
+This repository also contains focused runtime workflows, proof commands, and narrower validation paths used by maintainers.
+
+Those details are useful for engineering work, but they are not the main customer entrypoint. Customer-facing docs should prefer:
+
+- what is supported
+- what the standard path is
+- where the advanced path begins
+
+over raw proof-command inventories.

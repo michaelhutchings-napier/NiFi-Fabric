@@ -1,17 +1,17 @@
 # Experimental Features
 
-NiFi-Fabric keeps experimental scope explicit.
+This page lists features that are available but not part of the main supported path yet.
 
 ## Experimental Today
 
 ### Route-Backed External-Host OIDC
 
-- Route-backed external-host OIDC remains outside the GA claim because the repo still does not have a real Route/router runtime proof path
+Route-backed external-host OIDC remains outside the main GA support path.
 
-## Experimental Design Rule
+## Design Rule
 
-An experimental feature in NiFi-Fabric must still keep:
+Even experimental features in NiFi-Fabric are expected to keep:
 
 - one lifecycle control plane
 - explicit ownership of destructive actions
-- conservative support claims
+- clear support boundaries

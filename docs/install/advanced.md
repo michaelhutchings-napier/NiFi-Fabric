@@ -61,17 +61,6 @@ For advanced managed installs:
 
 See [Authentication](../manage/authentication.md) for the auth-mode details and supported value shapes.
 
-## Standalone Chart
-
-Use `charts/nifi` when you want the app chart without the managed controller path:
-
-```bash
-helm upgrade --install nifi charts/nifi \
-  --namespace nifi \
-  --create-namespace \
-  -f examples/standalone/values.yaml
-```
-
 ## Generated Manifest Bundle
 
 If you need a manifest-based workflow without copying chart logic, render a generated bundle from `charts/nifi-platform`:
@@ -95,36 +84,8 @@ make render-platform-standalone-bundle
 kubectl apply -f dist/nifi-platform-standalone-bundle.yaml
 ```
 
-## Manual Managed Assembly
-
-If you want to assemble the managed path in separate steps, use:
-
-- `charts/nifi`
-- the CRD in `config/crd/bases/platform.nifi.io_nificlusters.yaml`
-- the controller manifests in `config/`
-- the example `NiFiCluster` manifests in `examples/managed/`
-
-This is useful for advanced platform teams, but it is not the recommended customer entrypoint.
-
-## Control-Plane Backup Bundle
-
-For production recovery planning, the repo also includes a thin control-plane export path:
-
-```bash
-bash hack/export-control-plane-backup.sh \
-  --release nifi \
-  --namespace nifi \
-  --output-dir ./backup/nifi-control-plane
-```
-
-That bundle is not a second install architecture. It is an audit and recovery artifact for the existing Helm-centered install model.
-
-Recover with:
-
-```bash
-bash hack/recover-control-plane-backup.sh \
-  --backup-dir ./backup/nifi-control-plane
-```
+For standalone chart use and lower-level platform-team assembly, see [Platform Team Notes](../internals/platform-team.md).
+For backup and recovery, see [Backup, Restore, and Disaster Recovery](../dr.md).
 
 ## When to Use an Advanced Path
 
@@ -132,7 +93,5 @@ Use an advanced path when you need:
 
 - explicit auth or TLS Secret ownership
 - OIDC or LDAP with explicit identity-provider inputs
-- standalone NiFi without the controller
 - generated manifest workflows
-- lower-level platform integration work
 - manifest-based GitOps assembly beyond the standard one-release chart
