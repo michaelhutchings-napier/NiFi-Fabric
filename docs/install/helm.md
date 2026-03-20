@@ -5,8 +5,9 @@
 The standard install story is:
 
 1. install cert-manager
-2. create or choose the `Issuer` or `ClusterIssuer`
-3. install NiFi-Fabric
+2. verify cert-manager is ready
+3. create or choose the `Issuer` or `ClusterIssuer`
+4. install NiFi-Fabric
 
 You do not need to pre-create bootstrap auth or TLS Secrets for this standard path.
 
@@ -23,12 +24,9 @@ helm install cert-manager jetstack/cert-manager \
   --create-namespace \
   --set crds.enabled=true \
   --version <current-cert-manager-version>
-kubectl -n cert-manager wait deploy/cert-manager deploy/cert-manager-cainjector deploy/cert-manager-webhook \
-  --for=condition=Available=True \
-  --timeout=180s
 ```
 
-Then create or choose the `Issuer` or `ClusterIssuer` your cluster will use for NiFi.
+Then verify cert-manager is ready, create or choose the `Issuer` or `ClusterIssuer` your cluster will use for NiFi, and install NiFi-Fabric.
 
 The standard example expects:
 
