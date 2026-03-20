@@ -19,9 +19,6 @@ Common values files:
 
 - `examples/platform-managed-values.yaml`: standard managed install
 - `examples/platform-managed-cert-manager-values.yaml`: managed install with cert-manager-owned TLS
-- `examples/platform-managed-linkerd-values.yaml`: optional Linkerd workload overlay
-- `examples/platform-managed-istio-values.yaml`: optional Istio sidecar-mode workload overlay
-- `examples/platform-managed-istio-ambient-values.yaml`: optional Istio Ambient workload overlay
 
 ## What This Installs
 
@@ -76,13 +73,15 @@ For TLS behavior and cert-manager details, see [TLS and cert-manager](../manage/
 
 ### Optional Service Mesh Variants
 
-If you use one of the service mesh overlays, the mesh remains a cluster prerequisite:
+Service mesh profiles are optional and documented separately so the standard install path stays focused.
+
+If you use one of those overlays, the mesh remains a cluster prerequisite:
 
 - Linkerd: install and operate Linkerd separately
 - Istio sidecar mode: install Istio separately and enable injection only for the NiFi namespace
 - Istio Ambient: install Istio Ambient separately
 
-These overlays affect the NiFi workload only. The controller stays outside the mesh.
+These overlays affect the NiFi workload only. The controller stays outside the mesh. See [Optional Service Mesh Profiles](service-mesh.md).
 
 ## Optional Install Variants
 
@@ -98,45 +97,7 @@ helm upgrade --install nifi charts/nifi-platform \
   -f examples/platform-managed-cert-manager-values.yaml
 ```
 
-### Linkerd
-
-Use this when you want the bounded Linkerd-compatible NiFi workload profile:
-
-```bash
-helm upgrade --install nifi charts/nifi-platform \
-  --namespace nifi \
-  --create-namespace \
-  -f examples/platform-managed-values.yaml \
-  -f examples/platform-managed-linkerd-values.yaml
-```
-
-### Istio Sidecar Mode
-
-Use this when you want the bounded Istio sidecar-mode NiFi workload profile:
-
-```bash
-helm upgrade --install nifi charts/nifi-platform \
-  --namespace nifi \
-  --create-namespace \
-  -f examples/platform-managed-values.yaml \
-  -f examples/platform-managed-istio-values.yaml
-```
-
-The supported profile expects Istio sidecar injection on the NiFi namespace only. Leave the controller namespace outside the mesh.
-
-### Istio Ambient
-
-Use this when you want the bounded Istio Ambient NiFi workload profile:
-
-```bash
-helm upgrade --install nifi charts/nifi-platform \
-  --namespace nifi \
-  --create-namespace \
-  -f examples/platform-managed-values.yaml \
-  -f examples/platform-managed-istio-ambient-values.yaml
-```
-
-For supported boundaries and troubleshooting for these overlays, see [Compatibility](../compatibility.md) and [Operations and Troubleshooting](../operations.md).
+For optional service mesh install commands, see [Optional Service Mesh Profiles](service-mesh.md).
 
 ## Standalone Chart
 

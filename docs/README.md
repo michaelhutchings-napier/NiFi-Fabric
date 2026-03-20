@@ -12,6 +12,7 @@ Use this documentation set as the customer-facing guide to install, operate, and
 ## Install
 
 - [Install with Helm](install/helm.md)
+- [Optional Service Mesh Profiles](install/service-mesh.md)
 - [Advanced Install Paths](install/advanced.md)
 
 ## Manage NiFi
