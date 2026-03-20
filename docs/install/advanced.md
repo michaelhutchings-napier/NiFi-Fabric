@@ -53,11 +53,15 @@ That means:
 - IdP or LDAP-specific Secrets stay explicit and operator-owned
 - `Initial Admin Identity` or `Initial Admin Group` remains explicit
 
-See [Authentication](../manage/authentication.md) for the auth-mode details.
+For advanced managed installs:
 
-## Secondary Paths
+- start from the explicit managed path
+- add the equivalent `nifi.auth.*` and `nifi.authz.*` values for OIDC or LDAP
+- keep the provider-specific Secrets and bootstrap admin settings explicit
 
-### Standalone App Chart
+See [Authentication](../manage/authentication.md) for the auth-mode details and supported value shapes.
+
+## Standalone Chart
 
 Use `charts/nifi` when you want the app chart without the managed controller path:
 
@@ -68,18 +72,7 @@ helm upgrade --install nifi charts/nifi \
   -f examples/standalone/values.yaml
 ```
 
-### Manual Managed Assembly
-
-If you want to assemble the managed path in separate steps, use:
-
-- `charts/nifi`
-- the CRD in `config/crd/bases/platform.nifi.io_nificlusters.yaml`
-- the controller manifests in `config/`
-- the example `NiFiCluster` manifests in `examples/managed/`
-
-This is useful for advanced platform teams, but it is not the recommended customer entrypoint.
-
-### Generated Platform Bundle
+## Generated Manifest Bundle
 
 If you need a manifest-based workflow without copying chart logic, render a generated bundle from `charts/nifi-platform`:
 
@@ -102,11 +95,16 @@ make render-platform-standalone-bundle
 kubectl apply -f dist/nifi-platform-standalone-bundle.yaml
 ```
 
-This path stays secondary on purpose:
+## Manual Managed Assembly
 
-- the product architecture stays centered on Helm
-- `charts/nifi-platform` remains the primary customer install surface
-- the bundle is generated from the same chart and example overlays, so there is no second install architecture
+If you want to assemble the managed path in separate steps, use:
+
+- `charts/nifi`
+- the CRD in `config/crd/bases/platform.nifi.io_nificlusters.yaml`
+- the controller manifests in `config/`
+- the example `NiFiCluster` manifests in `examples/managed/`
+
+This is useful for advanced platform teams, but it is not the recommended customer entrypoint.
 
 ## Control-Plane Backup Bundle
 
@@ -135,5 +133,6 @@ Use an advanced path when you need:
 - explicit auth or TLS Secret ownership
 - OIDC or LDAP with explicit identity-provider inputs
 - standalone NiFi without the controller
+- generated manifest workflows
 - lower-level platform integration work
 - manifest-based GitOps assembly beyond the standard one-release chart
