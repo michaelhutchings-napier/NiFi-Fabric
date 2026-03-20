@@ -1,15 +1,12 @@
 # Install with Helm
 
-This is the standard customer-facing install path.
+`charts/nifi-platform` is the standard customer-facing install path.
 
-Environment note:
+This page starts with the normal managed install, then lists optional variants and secondary paths. It does not cover local test harnesses or focused proof overlays.
 
-- kind is the current runtime-proof baseline for this install path
-- AKS and OpenShift overlays are validated through Helm rendering and docs in this slice, not by real-cluster runtime gates
+## Standard Install
 
-## Standard Path
-
-Use `charts/nifi-platform` for a one-release install.
+Use the managed platform chart for a one-release install:
 
 ```bash
 helm upgrade --install nifi charts/nifi-platform \
@@ -18,132 +15,80 @@ helm upgrade --install nifi charts/nifi-platform \
   -f examples/platform-managed-values.yaml
 ```
 
+Common values files:
+
+- `examples/platform-managed-values.yaml`: standard managed install
+- `examples/platform-managed-cert-manager-values.yaml`: managed install with cert-manager-owned TLS
+- `examples/platform-managed-linkerd-values.yaml`: optional Linkerd workload overlay
+- `examples/platform-managed-istio-values.yaml`: optional Istio sidecar-mode workload overlay
+- `examples/platform-managed-istio-ambient-values.yaml`: optional Istio Ambient workload overlay
+
 ## What This Installs
 
-In managed mode, the platform chart installs:
+With the standard managed example, Helm installs:
 
 - the `NiFiCluster` CRD
-- the controller Deployment and RBAC
-- the `charts/nifi` app chart
-- a `NiFiCluster` resource that targets the chart-managed `StatefulSet`
+- the controller Deployment, ServiceAccount, and RBAC
+- a `NiFiCluster` resource for the managed NiFi deployment
+- the nested `charts/nifi` workload, including the NiFi `StatefulSet`, Services, and PVC-backed storage resources
+
+The exact namespaces and names come from your Helm values. In the example files:
+
+- the NiFi release is installed into `nifi`
+- the controller runs in `nifi-system`
 
 ## Prerequisites
 
-Before install, make sure the target cluster can access:
+### Common Prerequisites
 
-- the controller image configured in `charts/nifi-platform`
-- the NiFi image configured in `charts/nifi`
+Before installing, make sure:
 
-Required Secrets in the NiFi namespace:
+- you can reach the controller image configured in `charts/nifi-platform`
+- you can reach the NiFi image configured in `charts/nifi`
+- the cluster can provision the persistent volumes requested by the NiFi chart
 
-- `Secret/nifi-tls`
+The chart creates the platform resources. It does not create your authentication Secrets, your external TLS input Secret, or optional cluster integrations such as cert-manager or a service mesh control plane.
+
+### Standard External-Secret Path
+
+The standard example in `examples/platform-managed-values.yaml` expects these Secrets to already exist in the NiFi namespace:
+
 - `Secret/nifi-auth`
+- `Secret/nifi-tls`
 
-If you use cert-manager TLS mode:
+This is the default managed path shown in the main install command above.
 
-- cert-manager must already be installed in the cluster
-- the issuer and supporting password Secrets must already exist
+### Cert-Manager Variant
 
-## Standard Overlay Files
+If you use `examples/platform-managed-cert-manager-values.yaml`, these inputs change:
 
-Common starting overlays:
+- `Secret/nifi-auth` must still already exist
+- `Secret/nifi-tls` is created by cert-manager, not pre-created by you
+- `Secret/nifi-tls-params` must already exist for the PKCS12 password and `nifi.sensitive.props.key`
+- cert-manager must already be installed
+- the issuer referenced by the example values must already exist
 
-- `examples/platform-managed-values.yaml`
-- `examples/platform-managed-cert-manager-values.yaml`
-- `examples/platform-managed-linkerd-values.yaml` for the bounded Linkerd-compatible NiFi workload profile
-- `examples/platform-managed-istio-values.yaml` for the bounded Istio sidecar-mode NiFi workload profile
-- `examples/platform-managed-istio-ambient-values.yaml` for the bounded Istio Ambient NiFi workload profile
-- `examples/platform-fast-values.yaml` for smaller focused evaluations only
+The example overlay expects:
 
-The shared NiFi `2.x` compatibility contract composes:
+- `ClusterIssuer/nifi-ca`
 
-- `examples/platform-managed-values.yaml`
-- `examples/platform-managed-metrics-native-values.yaml`
-- `examples/platform-fast-values.yaml`
-- an inline NiFi image tag selection inside the focused harness
+For TLS behavior and cert-manager details, see [TLS and cert-manager](../manage/tls-and-cert-manager.md).
 
-Focused matrix command:
+### Optional Service Mesh Variants
 
-- `make kind-nifi-compatibility-fast-e2e`
+If you use one of the service mesh overlays, the mesh remains a cluster prerequisite:
 
-## Linkerd-Compatible Install Variant
+- Linkerd: install and operate Linkerd separately
+- Istio sidecar mode: install Istio separately and enable injection only for the NiFi namespace
+- Istio Ambient: install Istio Ambient separately
 
-Use this when you want the bounded supported Linkerd profile:
+These overlays affect the NiFi workload only. The controller stays outside the mesh.
 
-```bash
-helm upgrade --install nifi charts/nifi-platform \
-  --namespace nifi \
-  --create-namespace \
-  -f examples/platform-managed-values.yaml \
-  -f examples/platform-managed-linkerd-values.yaml
-```
+## Optional Install Variants
 
-Boundaries of this install variant:
+### Cert-Manager
 
-- it injects only the NiFi StatefulSet pods
-- it does not mesh the controller
-- it marks the NiFi cluster protocol and load-balance ports opaque by default
-- it leaves the HTTPS port non-opaque in the documented baseline profile
-- it does not introduce any mesh-specific controller behavior
-
-Operational note:
-
-- prefer the workload overlay over namespace-wide Linkerd injection so the controller stays mesh-agnostic and the supported profile remains explicit
-- the Linkerd control plane and any mesh prerequisites remain operator-owned; this overlay only makes the NiFi workload compatible with the documented bounded profile
-
-## Istio Sidecar-Compatible Install Variant
-
-Use this when you want the bounded supported Istio sidecar-mode profile:
-
-```bash
-helm upgrade --install nifi charts/nifi-platform \
-  --namespace nifi \
-  --create-namespace \
-  -f examples/platform-managed-values.yaml \
-  -f examples/platform-managed-istio-values.yaml
-```
-
-Boundaries of this install variant:
-
-- it expects the operator to enable sidecar injection on the NiFi namespace only
-- it injects only the NiFi StatefulSet pods
-- it supports Istio sidecar mode only, not ambient mode
-- it does not mesh the controller
-- it enables explicit pod annotations for probe rewrite and holding NiFi startup until the sidecar proxy is ready
-- it does not introduce any mesh-specific controller behavior
-
-Operational note:
-
-- prefer the workload overlay over namespace-wide Istio injection so the controller stays mesh-agnostic and the supported profile remains explicit
-- when using the bounded supported profile, label the NiFi namespace for Istio injection and leave the controller namespace unlabeled
-- the Istio control plane, namespace conventions, and any ingress or gateway resources remain operator-owned; this overlay only makes the NiFi workload compatible with the documented bounded sidecar profile
-
-## Istio Ambient-Compatible Install Variant
-
-Use this when you want the bounded supported Istio Ambient profile:
-
-```bash
-helm upgrade --install nifi charts/nifi-platform \
-  --namespace nifi \
-  --create-namespace \
-  -f examples/platform-managed-values.yaml \
-  -f examples/platform-managed-istio-ambient-values.yaml
-```
-
-Boundaries of this install variant:
-
-- it enrolls only the NiFi StatefulSet pods through pod-template labels
-- it supports Istio Ambient L4 mode only
-- it does not add sidecars, waypoint behavior, or probe-rewrite logic
-- it does not mesh the controller
-- it does not introduce any mesh-specific controller behavior
-
-Operational note:
-
-- prefer the workload overlay over namespace-wide Ambient enrollment so the controller stays mesh-agnostic and the supported profile remains explicit
-- the Istio Ambient control plane, any waypoint configuration, and any ingress or gateway resources remain operator-owned; this overlay only makes the NiFi workload compatible with the documented bounded Ambient profile
-
-## Cert-Manager Install Variant
+Use this when cert-manager already exists in the cluster and you want cert-manager to own the workload TLS Secret:
 
 ```bash
 helm upgrade --install nifi charts/nifi-platform \
@@ -153,11 +98,49 @@ helm upgrade --install nifi charts/nifi-platform \
   -f examples/platform-managed-cert-manager-values.yaml
 ```
 
-Use this only when cert-manager is already available in the cluster.
+### Linkerd
+
+Use this when you want the bounded Linkerd-compatible NiFi workload profile:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  -f examples/platform-managed-values.yaml \
+  -f examples/platform-managed-linkerd-values.yaml
+```
+
+### Istio Sidecar Mode
+
+Use this when you want the bounded Istio sidecar-mode NiFi workload profile:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  -f examples/platform-managed-values.yaml \
+  -f examples/platform-managed-istio-values.yaml
+```
+
+The supported profile expects Istio sidecar injection on the NiFi namespace only. Leave the controller namespace outside the mesh.
+
+### Istio Ambient
+
+Use this when you want the bounded Istio Ambient NiFi workload profile:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  -f examples/platform-managed-values.yaml \
+  -f examples/platform-managed-istio-ambient-values.yaml
+```
+
+For supported boundaries and troubleshooting for these overlays, see [Compatibility](../compatibility.md) and [Operations and Troubleshooting](../operations.md).
 
 ## Standalone Chart
 
-If you do not want the controller-managed path, install `charts/nifi` directly:
+If you want the reusable NiFi app chart without the managed controller path, install `charts/nifi` directly:
 
 ```bash
 helm upgrade --install nifi charts/nifi \
@@ -166,17 +149,20 @@ helm upgrade --install nifi charts/nifi \
   -f examples/standalone/values.yaml
 ```
 
-That is a valid install path, but it is not the standard product path.
+This is a valid secondary path, but it is not the standard product install story.
 
 ## Secondary Manifest Bundle
 
-If you need a manifest-based workflow, use the generated bundle path documented in [Advanced Install Paths](advanced.md).
+If you need a manifest-based workflow, use the generated bundle path in [Advanced Install Paths](advanced.md):
 
-That bundle is rendered from `charts/nifi-platform`, so Helm remains the source of truth even when you do not install with `helm upgrade --install`.
+```bash
+make render-platform-managed-bundle
+kubectl apply -f dist/nifi-platform-managed-bundle.yaml
+```
 
-## After Install
+This bundle is rendered from `charts/nifi-platform`, so Helm remains the source of truth.
 
-Read next:
+## Next Steps
 
 - [TLS and cert-manager](../manage/tls-and-cert-manager.md)
 - [Authentication](../manage/authentication.md)

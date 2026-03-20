@@ -59,7 +59,7 @@ helm upgrade --install nifi charts/nifi-platform \
   -f examples/platform-managed-values.yaml
 ```
 
-You provide the required Secrets and, if needed, cert-manager or trust-manager as cluster prerequisites. See [Install with Helm](install/helm.md).
+You provide the Secrets and any optional cluster prerequisites required by your chosen install variant. See [Install with Helm](install/helm.md) for the mode-specific prerequisites.
 
 If you need a manifest-based secondary path, NiFi-Fabric also ships a generated install bundle rendered from the same platform chart. See [Advanced Install Paths](install/advanced.md). Helm remains the primary recommendation.
 
