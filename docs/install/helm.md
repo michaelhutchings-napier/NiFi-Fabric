@@ -2,7 +2,7 @@
 
 `charts/nifi-platform` is the standard customer-facing install path.
 
-This page starts with the normal managed install, then lists optional variants and secondary paths. It does not cover local test harnesses or focused proof overlays.
+This page covers the normal managed install first. Optional and secondary paths stay separate so the default install is easy to follow.
 
 ## Standard Install
 
@@ -15,10 +15,13 @@ helm upgrade --install nifi charts/nifi-platform \
   -f examples/platform-managed-values.yaml
 ```
 
-Common values files:
+For a standard first install, start with:
 
-- `examples/platform-managed-values.yaml`: standard managed install
-- `examples/platform-managed-cert-manager-values.yaml`: managed install with cert-manager-owned TLS
+- `examples/platform-managed-values.yaml`
+
+If you want cert-manager to own the workload TLS Secret, use:
+
+- `examples/platform-managed-cert-manager-values.yaml`
 
 ## What This Installs
 
@@ -26,64 +29,61 @@ With the standard managed example, Helm installs:
 
 - the `NiFiCluster` CRD
 - the controller Deployment, ServiceAccount, and RBAC
-- a `NiFiCluster` resource for the managed NiFi deployment
+- a managed `NiFiCluster` resource
 - the nested `charts/nifi` workload, including the NiFi `StatefulSet`, Services, and PVC-backed storage resources
 
-The exact namespaces and names come from your Helm values. In the example files:
+The NiFi release runs in the Helm release namespace. In the example command above, that is `nifi`.
 
-- the NiFi release is installed into `nifi`
-- the controller runs in `nifi-system`
+The example values also place the controller in a separate namespace:
+
+- release namespace: `nifi`
+- controller namespace: `nifi-system`
 
 ## Prerequisites
 
-### Common Prerequisites
-
 Before installing, make sure:
 
-- you can reach the controller image configured in `charts/nifi-platform`
-- you can reach the NiFi image configured in `charts/nifi`
+- the cluster can reach the controller image configured in `charts/nifi-platform`
+- the cluster can reach the NiFi image configured in `charts/nifi`
 - the cluster can provision the persistent volumes requested by the NiFi chart
 
-The chart creates the platform resources. It does not create your authentication Secrets, your external TLS input Secret, or optional cluster integrations such as cert-manager or a service mesh control plane.
+The remaining prerequisites depend on which install variant you choose.
 
-### Standard External-Secret Path
+### Standard Managed Example
 
-The standard example in `examples/platform-managed-values.yaml` expects these Secrets to already exist in the NiFi namespace:
+If you use `examples/platform-managed-values.yaml`, create these Secrets in the release namespace before installing:
 
 - `Secret/nifi-auth`
 - `Secret/nifi-tls`
 
-This is the default managed path shown in the main install command above.
+### Managed + Cert-Manager Example
 
-### Cert-Manager Variant
+If you use `examples/platform-managed-cert-manager-values.yaml`:
 
-If you use `examples/platform-managed-cert-manager-values.yaml`, these inputs change:
+- create `Secret/nifi-auth` in the release namespace before installing
+- create `Secret/nifi-tls-params` in the release namespace before installing
+- install cert-manager before installing this chart
+- create the referenced issuer before installing this chart
 
-- `Secret/nifi-auth` must still already exist
-- `Secret/nifi-tls` is created by cert-manager, not pre-created by you
-- `Secret/nifi-tls-params` must already exist for the PKCS12 password and `nifi.sensitive.props.key`
-- cert-manager must already be installed
-- the issuer referenced by the example values must already exist
-
-The example overlay expects:
+In the example overlay, the referenced issuer is:
 
 - `ClusterIssuer/nifi-ca`
 
 For TLS behavior and cert-manager details, see [TLS and cert-manager](../manage/tls-and-cert-manager.md).
 
-### Optional Service Mesh Variants
+## Who Creates What?
 
-Service mesh profiles are optional and documented separately so the standard install path stays focused.
+| Item | Standard managed example | Managed + cert-manager example |
+| --- | --- | --- |
+| `Secret/nifi-auth` | You create it in the release namespace before install | You create it in the release namespace before install |
+| `Secret/nifi-tls` | You create it in the release namespace before install | cert-manager creates it after Helm renders the `Certificate` |
+| `Secret/nifi-tls-params` | Not used by the standard example | You create it in the release namespace before install |
+| cert-manager | Not used by the standard example | You install it before installing this chart |
+| issuer / `ClusterIssuer` | Not used by the standard example | You create it before installing this chart |
 
-If you use one of those overlays, the mesh remains a cluster prerequisite:
+Helm creates the platform resources and workload objects. It does not create `nifi-auth`, the external TLS Secret used by the standard example, or the cert-manager prerequisites used by the cert-manager example.
 
-- Linkerd: install and operate Linkerd separately
-- Istio sidecar mode: install Istio separately and enable injection only for the NiFi namespace
-- Istio Ambient: install Istio Ambient separately
-
-These overlays affect the NiFi workload only. The controller stays outside the mesh. See [Optional Service Mesh Profiles](service-mesh.md).
-
-## Optional Install Variants
+## Optional Variants
 
 ### Cert-Manager
 
@@ -97,7 +97,9 @@ helm upgrade --install nifi charts/nifi-platform \
   -f examples/platform-managed-cert-manager-values.yaml
 ```
 
-For optional service mesh install commands, see [Optional Service Mesh Profiles](service-mesh.md).
+### Service Mesh Profiles
+
+Service mesh profiles are optional and secondary. They are documented separately in [Optional Service Mesh Profiles](service-mesh.md).
 
 ## Standalone Chart
 

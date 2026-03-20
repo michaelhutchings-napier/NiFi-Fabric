@@ -22,13 +22,7 @@ It provides a product-facing one-release install path through `charts/nifi-platf
 
 The standard customer path is `charts/nifi-platform`.
 
-Prerequisites:
-
-- a reachable controller image for the target cluster
-- `Secret/nifi-tls`
-- `Secret/nifi-auth`
-- cert-manager only when you choose cert-manager TLS mode
-- trust-manager only when you choose the optional trust-manager bundle overlay
+Prerequisites depend on the install variant you choose. For the standard managed example, the required Secrets live in the Helm release namespace. For the cert-manager variant, cert-manager and the issuer must already exist and cert-manager creates the workload TLS Secret. See [Install with Helm](docs/install/helm.md).
 
 Managed platform install:
 
