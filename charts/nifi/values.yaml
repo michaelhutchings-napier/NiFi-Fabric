@@ -4,13 +4,13 @@
 # as the workload nested under `charts/nifi-platform`.
 #
 # Start here:
-# - Install guide: ../../docs/install/helm.md
-# - App chart values reference: ../../docs/reference/app-chart-values.md
-# - NiFiCluster reference for managed mode: ../../docs/reference/nificluster.md
+# - Install guide: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/install/helm.md
+# - App chart values reference: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/reference/app-chart-values.md
+# - NiFiCluster reference for managed mode: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/reference/nificluster.md
 
 # ------------------------------------------------------------------------------
 # Workload Shape and Version
-# Docs: ../../docs/install/helm.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/install/helm.md
 # ------------------------------------------------------------------------------
 
 # -- Number of NiFi pods.
@@ -47,8 +47,8 @@ controllerManaged:
 
 # ------------------------------------------------------------------------------
 # Identity, Service, and Exposure
-# Docs: ../../docs/manage/authentication.md
-# Docs: ../../docs/install/advanced.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/authentication.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/install/advanced.md
 # ------------------------------------------------------------------------------
 
 # -- Workload ServiceAccount settings.
@@ -136,7 +136,7 @@ openshift:
 
 # ------------------------------------------------------------------------------
 # TLS and Certificates
-# Docs: ../../docs/manage/tls-and-cert-manager.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/tls-and-cert-manager.md
 # ------------------------------------------------------------------------------
 
 # -- TLS source, mounted Secret keys, and optional cert-manager integration.
@@ -213,7 +213,7 @@ trustManagerBundleRef:
 
 # ------------------------------------------------------------------------------
 # Authentication and Authorization
-# Docs: ../../docs/manage/authentication.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/authentication.md
 # ------------------------------------------------------------------------------
 
 # -- NiFi authentication mode and provider settings.
@@ -313,7 +313,7 @@ authz:
 
 # ------------------------------------------------------------------------------
 # Observability and Metrics
-# Docs: ../../docs/manage/observability-metrics.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/observability-metrics.md
 # ------------------------------------------------------------------------------
 
 # -- Deprecated compatibility shim for older ServiceMonitor-only values.
@@ -327,7 +327,7 @@ serviceMonitor:
 # -- First-class metrics subsystem.
 # `nativeApi` is the primary supported mode.
 # `exporter` is a supported secondary mode for a clean `/metrics` endpoint.
-# `siteToSite` is an optional experimental typed metrics-export path.
+# `siteToSite` is an optional bounded typed metrics-export path.
 observability:
   metrics:
     mode: disabled
@@ -568,7 +568,7 @@ observability:
 
 # ------------------------------------------------------------------------------
 # Flow Registry Clients
-# Docs: ../../docs/manage/flow-registry-clients.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/flow-registry-clients.md
 # ------------------------------------------------------------------------------
 
 # -- Prepared Flow Registry Client catalog entries mounted into the NiFi pod.
@@ -579,7 +579,7 @@ flowRegistryClients:
 
 # ------------------------------------------------------------------------------
 # Parameter Contexts
-# Docs: ../../docs/manage/parameters.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/parameters.md
 # ------------------------------------------------------------------------------
 
 # -- Runtime-managed Parameter Context definitions.
@@ -599,7 +599,7 @@ parameterContexts:
 
 # ------------------------------------------------------------------------------
 # Versioned Flow Imports
-# Docs: ../../docs/manage/flows.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/flows.md
 # ------------------------------------------------------------------------------
 
 # -- Runtime-managed versioned-flow import definitions.
@@ -624,7 +624,7 @@ versionedFlowImports:
 
 # ------------------------------------------------------------------------------
 # Availability, Storage, and Resources
-# Docs: ../../docs/reference/app-chart-values.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/reference/app-chart-values.md
 # ------------------------------------------------------------------------------
 
 # -- Pod disruption budget settings.
@@ -672,7 +672,7 @@ extraVolumeMounts: []
 
 # ------------------------------------------------------------------------------
 # Scheduling and Security
-# Docs: ../../docs/reference/app-chart-values.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/reference/app-chart-values.md
 # ------------------------------------------------------------------------------
 
 # -- Additional labels attached to the NiFi pod template.
@@ -776,7 +776,7 @@ securityContext:
 
 # ------------------------------------------------------------------------------
 # NiFi Runtime and Health Checks
-# Docs: ../../docs/reference/app-chart-values.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/reference/app-chart-values.md
 # ------------------------------------------------------------------------------
 
 # -- Core NiFi runtime settings rendered into the workload.

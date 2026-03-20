@@ -1,14 +1,14 @@
 # NiFiCluster Reference
 
-`NiFiCluster` is the managed operational API used by `charts/nifi-platform`.
+`NiFiCluster` is the managed API used by `charts/nifi-platform`.
 
-- API version: `platform.nifi.io/v1alpha1`
-- Scope: namespaced
-- Installed by: `charts/nifi-platform` in managed mode
+See also:
 
-For lifecycle behavior, see [Hibernation and Restore](../manage/hibernation-and-restore.md), [Autoscaling](../manage/autoscaling.md), and [Architecture Summary](../architecture.md).
+- [Hibernation and Restore](../manage/hibernation-and-restore.md)
+- [Autoscaling](../manage/autoscaling.md)
+- [Architecture Summary](../architecture.md)
 
-Defaults in this page are shown only when they are real API defaults or fixed enum values. Many practical defaults come from the platform chart or controller behavior and are intentionally left blank here.
+Defaults in this page are shown only when they are real API defaults or fixed enum values.
 
 ## NiFiCluster
 
@@ -42,8 +42,6 @@ Defaults in this page are shown only when they are real API defaults or fixed en
 
 ## RestartTriggers
 
-The platform chart wires chart-owned config surfaces into `spec.restartTriggers` only when those features need a restart-aware reconcile path. In the current bounded model, both `parameterContexts` and `versionedFlowImports` reconcile live in-pod on pod `-0` and are intentionally not wired into `spec.restartTriggers`.
-
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
 | `spec.restartTriggers.configMaps[]` | `LocalObjectReference` | ConfigMaps observed for restart or rollout decisions. | No |  |
@@ -76,13 +74,6 @@ The platform chart wires chart-owned config surfaces into `spec.restartTriggers`
 | `spec.safety.requireClusterHealthy` | boolean | Requires a healthy cluster before destructive managed actions. | No |  |
 
 ## Autoscaling
-
-The current supported built-in autoscaling model is the bounded controller-owned production path:
-
-- `Advisory` remains the production-ready recommendation path
-- `Enforced` remains the production-ready execution path for bounded scale-up and bounded sequential one-node scale-down work
-- the richer built-in policy depth is part of that support claim, including confidence-based scale-up, bounded capacity reasoning, actual StatefulSet removal-candidate qualification, and sequential multi-step scale-down episodes with fresh requalification between steps
-- optional KEDA external intent is a supported bounded integration layered onto this autoscaling surface
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
@@ -263,5 +254,3 @@ The current supported built-in autoscaling model is the bounded controller-owned
 | `/scale spec` | integer | Writes `spec.autoscaling.external.requestedReplicas`. | No |  |
 | `/scale status` | integer | Reads back through `status.replicas.desired`. | No |  |
 | `/scale selector` | string | Reads back through `status.scaleSelector`. | No |  |
-
-The `/scale` subresource exists to support controller-mediated external intent, including optional KEDA integration. The controller still remains the only executor that mutates the NiFi `StatefulSet`.

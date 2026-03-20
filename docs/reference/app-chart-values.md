@@ -1,12 +1,14 @@
 # App Chart Values Reference
 
-This page summarizes the customer-facing configuration surface of `charts/nifi`.
+This page lists the main values in `charts/nifi`.
 
-File of record:
+See also:
 
-- `charts/nifi/values.yaml`
-
-For install guidance, see [Install with Helm](../install/helm.md). For feature behavior, use the manage pages such as [TLS and cert-manager](../manage/tls-and-cert-manager.md), [Authentication](../manage/authentication.md), [Parameter Contexts](../manage/parameters.md), [Flows](../manage/flows.md), [Observability and Metrics](../manage/observability-metrics.md), and [Flow Registry Clients](../manage/flow-registry-clients.md).
+- [Install with Helm](../install/helm.md)
+- [Advanced Install Paths](../install/advanced.md)
+- [TLS and cert-manager](../manage/tls-and-cert-manager.md)
+- [Authentication](../manage/authentication.md)
+- [Observability and Metrics](../manage/observability-metrics.md)
 
 ## Workload Shape and Version
 
@@ -111,6 +113,7 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | `auth.oidc.discoveryUrl` | string | OIDC discovery URL. | No | `""` |
 | `auth.oidc.clientId` | string | OIDC client ID. | No | `""` |
 | `auth.oidc.clientSecret.*` | object | OIDC client Secret reference. | No | empty |
+| `auth.oidc.preferredJwsAlgorithm` | string | Preferred JWS algorithm for ID token verification. Leave empty to use the provider default. | No | `""` |
 | `auth.oidc.additionalScopes[]` | string list | Additional OIDC scopes. | No | `["openid","profile","email"]` |
 | `auth.oidc.claims.identifyingUser` | string | Claim used as the NiFi user identity. | No | `email` |
 | `auth.oidc.claims.groups` | string | Claim used for group mapping. | No | `groups` |
@@ -118,7 +121,17 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | `auth.ldap.url` | string | LDAP server URL. | No | `""` |
 | `auth.ldap.authenticationStrategy` | string | LDAP authentication strategy. | No | `START_TLS` |
 | `auth.ldap.identityStrategy` | string | LDAP identity strategy. | No | `USE_DN` |
+| `auth.ldap.authenticationExpiration` | string | LDAP authentication expiration window. | No | `12 hours` |
+| `auth.ldap.referralStrategy` | string | LDAP referral strategy. | No | `FOLLOW` |
+| `auth.ldap.connectTimeout` | string | LDAP connect timeout. | No | `10 secs` |
+| `auth.ldap.readTimeout` | string | LDAP read timeout. | No | `10 secs` |
+| `auth.ldap.pageSize` | string | Optional LDAP page size override. Leave empty to use the provider default. | No | `""` |
+| `auth.ldap.syncInterval` | string | LDAP sync interval for group and user refresh. | No | `30 mins` |
+| `auth.ldap.groupMembershipEnforceCaseSensitivity` | boolean | Preserves case sensitivity when evaluating LDAP group membership. | No | `false` |
 | `auth.ldap.managerSecret.*` | object | LDAP manager credential Secret reference. | No | empty |
+| `auth.ldap.tls.clientAuth` | string | LDAP TLS client-auth mode. | No | `NONE` |
+| `auth.ldap.tls.protocol` | string | LDAP TLS protocol. | No | `TLS` |
+| `auth.ldap.tls.shutdownGracefully` | boolean | Enables graceful LDAP TLS shutdown. | No | `false` |
 | `auth.ldap.userSearch.*` | object | LDAP user search settings. | No | see values file |
 | `auth.ldap.groupSearch.*` | object | LDAP group search settings. | No | see values file |
 | `authz.mode` | string | Authorization mode. | No | `fileManaged` |
@@ -188,7 +201,7 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 
 ## Parameter Contexts
 
-`parameterContexts.*` is a bounded runtime-managed feature. It creates, updates, deletes, and optionally attaches only the declared product-owned Parameter Contexts, supports `auth.mode=singleUser`, `oidc`, and `ldap` with the explicit bounded trusted-proxy assumptions documented in [Parameter Contexts](../manage/parameters.md), keeps `providerRefs[]` reference-only, and does not introduce arbitrary graph editing or generic runtime-object management.
+For behavior and examples, see [Parameter Contexts](../manage/parameters.md).
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
@@ -198,7 +211,7 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 
 ## Versioned Flow Imports
 
-`versionedFlowImports.*` is a bounded runtime-managed feature. It creates only the declared root-child imported process groups owned by the product, reconciles their selected registry-backed version live on pod `-0` without provider write-back, records explicit ownership in the imported process-group comments, and supports at most one direct Parameter Context attachment per import. In this slice, declared prepared `provider=nifiRegistry` clients can also be created and reconciled live for the bounded compatibility path; other providers still reuse an already live Flow Registry Client by name. `singleUser` requires the bounded mutable-flow or flow-version-manager bootstrap access path. `oidc` and `ldap` require `authz.bootstrap.initialAdminIdentity` for the trusted-proxy management identity.
+For behavior and examples, see [Flows](../manage/flows.md).
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
@@ -261,13 +274,3 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | `probes.readiness.*` | object | Readiness probe timings. | No | see values file |
 | `probes.liveness.*` | object | Liveness probe timings. | No | see values file |
 | `config.extraProperties` | object | Extra `nifi.properties` entries rendered by the chart. | No | `{}` |
-
-## Metrics Mode Support Summary
-
-| Field | Type | Description | Required | Default |
-| --- | --- | --- | --- | --- |
-| `observability.metrics.mode=nativeApi` | support status | Primary production-ready metrics mode. | No |  |
-| `observability.metrics.mode=exporter` | support status | Optional GA secondary mode with focused runtime proof for render/deploy, secured upstream reachability, Prometheus scraping of `/metrics`, selected `/flow/status` gauges, auth Secret rotation without exporter pod restart, and the bounded trust-manager CA-consumer path. | No |  |
-| `observability.metrics.mode=siteToSite` | support status | Optional GA typed sender-side Site-to-Site metrics-export path. Runtime support is bounded to one `SiteToSiteMetricsReportingTask`, one `StandardRestrictedSSLContextService` when secure transport is used, `AmbariFormat`, the current single-user bootstrap path, and the documented receiver authorization assumptions. It is not a generic NiFi runtime-object framework. | No |  |
-| `observability.siteToSiteStatus.enabled=true` | support status | Optional GA typed sender-side Site-to-Site status-export path. Runtime support is bounded to one `SiteToSiteStatusReportingTask`, one `StandardRestrictedSSLContextService` when secure transport is used, fixed JSON status payload defaults, the documented secure receiver-authorized identity requirement, and the current single-user bootstrap path. It is not a generic NiFi runtime-object framework. | No |  |
-| `observability.siteToSiteProvenance.enabled=true` | support status | Optional GA typed sender-side Site-to-Site provenance-export path. Runtime support is bounded to one `SiteToSiteProvenanceReportingTask`, one `StandardRestrictedSSLContextService` when secure transport is used, a small fixed sender contract, the documented secure receiver-authorized identity requirement, one public provenance cursor knob, and the current single-user bootstrap path. It is not a generic NiFi runtime-object framework. | No |  |

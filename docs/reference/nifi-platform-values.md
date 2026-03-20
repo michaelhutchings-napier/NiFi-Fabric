@@ -1,12 +1,13 @@
 # Platform Chart Values Reference
 
-This page summarizes the customer-facing configuration surface of `charts/nifi-platform`.
+This page lists the main values in `charts/nifi-platform`.
 
-File of record:
+See also:
 
-- `charts/nifi-platform/values.yaml`
-
-For install steps, see [Install with Helm](../install/helm.md). For managed lifecycle behavior, see [Hibernation and Restore](../manage/hibernation-and-restore.md), [Autoscaling](../manage/autoscaling.md), and [Observability and Metrics](../manage/observability-metrics.md).
+- [Install with Helm](../install/helm.md)
+- [Advanced Install Paths](../install/advanced.md)
+- [Hibernation and Restore](../manage/hibernation-and-restore.md)
+- [Autoscaling](../manage/autoscaling.md)
 
 ## Install Mode
 
@@ -42,17 +43,7 @@ For install steps, see [Install with Helm](../install/helm.md). For managed life
 
 ## Quickstart Settings
 
-`quickstart.*` is optional and applies only to the bounded managed quickstart paths on `charts/nifi-platform`.
-
-Quickstart is intentionally limited to:
-
-- managed platform modes
-- `singleUser` authentication
-- explicit release-namespace bootstrap Secret ownership by the platform chart
-- the standard cert-manager-first bootstrap path for generated auth and parameter Secrets
-- the secondary self-signed external-Secret bootstrap path
-
-It does not change the explicit production-style auth or TLS paths, and it does not apply to OIDC or LDAP.
+`quickstart.*` is optional and applies only to the bounded managed quickstart paths.
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
@@ -70,7 +61,7 @@ It does not change the explicit production-style auth or TLS paths, and it does 
 
 ## Managed NiFiCluster Settings
 
-These values render the managed `NiFiCluster` resource when `mode=managed`.
+These values render the managed `NiFiCluster` resource when `mode=managed` or `mode=managed-cert-manager`.
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
@@ -109,13 +100,7 @@ These values render the managed `NiFiCluster` resource when `mode=managed`.
 
 ## Optional trust-manager Integration
 
-`trustManager.*` is optional. It renders a trust-manager `Bundle` for the NiFi release namespace. Source objects can be operator-provided in trust-manager's configured trust namespace, or the platform chart can mirror the workload TLS `ca.crt` into a trust-manager source Secret automatically.
-
-The same bundle can be consumed by:
-
-- `nifi.tls.additionalTrustBundle.*`
-- `nifi.observability.metrics.nativeApi.tlsConfig.ca.useTrustManagerBundle=true`
-- `nifi.observability.metrics.exporter.source.tlsConfig.ca.useTrustManagerBundle=true`
+`trustManager.*` is optional. For behavior and examples, see [TLS and cert-manager](../manage/tls-and-cert-manager.md).
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
@@ -150,7 +135,7 @@ The same bundle can be consumed by:
 
 ## Optional KEDA Integration
 
-`keda.*` is optional and supported as an external intent input path. For behavior details, see [KEDA integration](../keda.md).
+`keda.*` is optional. For behavior details, see [KEDA integration](../keda.md).
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
@@ -163,7 +148,7 @@ The same bundle can be consumed by:
 
 ## Nested App Chart Values
 
-`nifi.*` is the full nested `charts/nifi` configuration surface.
+`nifi.*` passes through to the nested `charts/nifi` values surface.
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
@@ -198,4 +183,4 @@ The same bundle can be consumed by:
 | `nifi.sidecarsSecurityContext.*` | object | Default security context merged into nested sidecars. | No | chart-derived |
 | `nifi.securityContext.*` | object | Base container security context for chart-managed nested NiFi containers, including the default non-root, no-privilege-escalation, drop-all-capabilities, and `RuntimeDefault` seccomp posture. | No | chart-derived |
 
-Use [App Chart Values Reference](app-chart-values.md) for the detailed app-chart field map.
+See [App Chart Values Reference](app-chart-values.md) for the detailed nested chart field map.

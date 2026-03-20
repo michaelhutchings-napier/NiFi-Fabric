@@ -5,24 +5,25 @@
 # and `NiFiCluster`.
 #
 # Start here:
-# - Install guide: ../../docs/install/helm.md
-# - Platform chart values reference: ../../docs/reference/nifi-platform-values.md
-# - App chart values reference for `nifi.*`: ../../docs/reference/app-chart-values.md
+# - Install guide: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/install/helm.md
+# - Platform chart values reference: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/reference/nifi-platform-values.md
+# - App chart values reference for `nifi.*`: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/reference/app-chart-values.md
 
 # ------------------------------------------------------------------------------
 # Install Mode
-# Docs: ../../docs/install/helm.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/install/helm.md
 # ------------------------------------------------------------------------------
 
 # -- Install mode for this release.
 # Use `standalone` for Helm-only NiFi.
 # Use `managed` for the standard platform path with the controller and `NiFiCluster`.
+# Use `managed-cert-manager` for the cert-manager-first managed platform path.
 # @default -- "standalone"
 mode: standalone
 
 # ------------------------------------------------------------------------------
 # Controller Settings
-# Docs: ../../docs/architecture.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/architecture.md
 # ------------------------------------------------------------------------------
 
 # -- Controller namespace, image, arguments, and resources.
@@ -64,9 +65,9 @@ controller:
 
 # ------------------------------------------------------------------------------
 # Managed NiFiCluster Settings
-# Docs: ../../docs/reference/nificluster.md
-# Docs: ../../docs/manage/hibernation-and-restore.md
-# Docs: ../../docs/manage/autoscaling.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/reference/nificluster.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/hibernation-and-restore.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/autoscaling.md
 # ------------------------------------------------------------------------------
 
 # -- Managed-mode `NiFiCluster` settings rendered by the platform chart.
@@ -116,9 +117,9 @@ cluster:
 
 # ------------------------------------------------------------------------------
 # Optional Quickstart Bootstrap
-# Docs: ../../docs/install/helm.md
-# Docs: ../../docs/manage/authentication.md
-# Docs: ../../docs/manage/tls-and-cert-manager.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/install/helm.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/authentication.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/tls-and-cert-manager.md
 # ------------------------------------------------------------------------------
 
 # -- Optional bounded quickstart bootstrap for the managed platform path.
@@ -152,8 +153,8 @@ quickstart:
 
 # ------------------------------------------------------------------------------
 # Optional trust-manager Integration
-# Docs: ../../docs/manage/tls-and-cert-manager.md
-# Docs: ../../docs/manage/observability-metrics.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/tls-and-cert-manager.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/observability-metrics.md
 # ------------------------------------------------------------------------------
 
 # -- Optional trust-manager integration for distributing a shared CA bundle into the
@@ -211,7 +212,7 @@ trustManager:
 
 # ------------------------------------------------------------------------------
 # Optional KEDA Integration
-# Docs: ../../docs/keda.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/keda.md
 # ------------------------------------------------------------------------------
 
 # -- Optional supported KEDA integration for managed mode.
@@ -229,10 +230,10 @@ keda:
 
 # ------------------------------------------------------------------------------
 # Nested App Chart Values
-# Docs: ../../docs/reference/app-chart-values.md
-# Docs: ../../docs/manage/tls-and-cert-manager.md
-# Docs: ../../docs/manage/authentication.md
-# Docs: ../../docs/manage/observability-metrics.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/reference/app-chart-values.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/tls-and-cert-manager.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/authentication.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/observability-metrics.md
 # ------------------------------------------------------------------------------
 
 # -- Nested `charts/nifi` values passed through by the platform chart.
