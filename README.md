@@ -10,6 +10,7 @@ It provides a standard product install path through `charts/nifi-platform`, keep
 - secure-by-default, cert-manager-first installation
 - safe lifecycle handling for rollout, TLS restart policy, hibernation, restore, and controller-owned autoscaling
 - first-class managed authentication options, including OIDC and LDAP
+- native NiFi 2 Prometheus metrics support through direct secured API scraping
 - a simpler product surface than a large NiFi-specific operator stack
 
 ## Standard Install
