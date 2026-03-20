@@ -4,11 +4,9 @@ NiFi-Fabric keeps experimental scope explicit.
 
 ## Experimental Today
 
-### Local OIDC Browser-Flow Hardening
+### Route-Backed External-Host OIDC
 
-- focused kind evaluator only
-- used to harden ingress and group-claims proof paths
-- current local Keycloak `26.x` browser-flow coverage remains conservative until the focused gate is green again
+- Route-backed external-host OIDC remains outside the GA claim because the repo still does not have a real Route/router runtime proof path
 
 ## Experimental Design Rule
 

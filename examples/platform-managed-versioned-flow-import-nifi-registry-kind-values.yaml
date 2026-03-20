@@ -1,0 +1,12 @@
+nifi:
+  replicaCount: 1
+  image:
+    tag: 2.8.0
+  flowRegistryClients:
+    enabled: true
+    clients:
+    - name: nifi-registry-flows
+      provider: nifiRegistry
+      description: Kind-focused NiFi Registry client for bounded versioned-flow import proof.
+      nifiRegistry:
+        url: http://nifi-registry.nifi.svc.cluster.local:18080

@@ -17,6 +17,15 @@ func preparedGitHubFlowRegistryClientArgs() []string {
 	}
 }
 
+func preparedNiFiRegistryFlowRegistryClientArgs() []string {
+	return []string{
+		"--set", "flowRegistryClients.enabled=true",
+		"--set", "flowRegistryClients.clients[0].name=nifi-registry-flows",
+		"--set", "flowRegistryClients.clients[0].provider=nifiRegistry",
+		"--set", "flowRegistryClients.clients[0].nifiRegistry.url=http://nifi-registry.nifi.svc.cluster.local:18080",
+	}
+}
+
 func TestVersionedFlowImportsValidationFailsWithoutImports(t *testing.T) {
 	args := append(
 		preparedGitHubFlowRegistryClientArgs(),
@@ -290,7 +299,7 @@ func TestVersionedFlowImportsValidationFailsForUnsupportedPreparedClientProvider
 	if err == nil {
 		t.Fatalf("expected helm template to fail for non-GitHub prepared client provider\n%s", output)
 	}
-	if !strings.Contains(output, `versionedFlowImports.imports[0].registryClientName="github-flows" currently requires flowRegistryClients.clients[].provider=github for bounded runtime-managed import`) {
+	if !strings.Contains(output, `versionedFlowImports.imports[0].registryClientName="github-flows" currently requires flowRegistryClients.clients[].provider=github or nifiRegistry for bounded runtime-managed import`) {
 		t.Fatalf("expected provider validation error\n%s", output)
 	}
 }
@@ -324,6 +333,40 @@ func TestVersionedFlowImportsValidationFailsForUnsupportedPreparedClientAuthType
 	}
 	if !strings.Contains(output, `versionedFlowImports.imports[0].registryClientName="github-flows" currently supports github.auth.type none or personalAccessToken; appInstallation remains future work`) {
 		t.Fatalf("expected auth-type validation error\n%s", output)
+	}
+}
+
+func TestVersionedFlowImportsAllowsNiFiRegistryPreparedClientProvider(t *testing.T) {
+	args := append(
+		preparedNiFiRegistryFlowRegistryClientArgs(),
+		"--set", "auth.mode=singleUser",
+		"--set", "authz.bundles.flowVersionManager.includeInitialAdmin=true",
+		"--set", "versionedFlowImports.enabled=true",
+		"--set", "versionedFlowImports.imports[0].name=payments",
+		"--set", "versionedFlowImports.imports[0].registryClientName=nifi-registry-flows",
+		"--set", "versionedFlowImports.imports[0].bucket=team-a",
+		"--set", "versionedFlowImports.imports[0].flowName=payments-api",
+		"--set", "versionedFlowImports.imports[0].version=latest",
+		"--set", "versionedFlowImports.imports[0].target.rootProcessGroupName=payments-root",
+	)
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		args...,
+	)
+	if err != nil {
+		t.Fatalf("expected helm template to allow provider=nifiRegistry for bounded runtime-managed import: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		`"provider": "nifiRegistry"`,
+		`"url": "http://nifi-registry.nifi.svc.cluster.local:18080"`,
+		`"createsFlowRegistryClientsInNiFi": true`,
+		`"requiresLiveRegistryClient": false`,
+		`"snapshotSource": "nifi-flow-registry-api-with-bounded-runtime-managed-nifi-registry-client"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
 	}
 }
 
@@ -431,6 +474,60 @@ func TestPlatformManagedVersionedFlowImportKindExampleRenders(t *testing.T) {
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestNiFiRegistryFlowRegistryKindExampleRenders(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"-f", "examples/managed/values.yaml",
+		"-f", "examples/nifi-2.8.0-values.yaml",
+		"-f", "examples/nifi-registry-flow-registry-kind-values.yaml",
+		"-f", "examples/test-fast-values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("expected NiFi Registry Flow Registry kind example render to succeed: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		`name: test-nifi-flow-registry-clients`,
+		`"name": "nifi-registry-flows-kind"`,
+		`"provider": "nifiRegistry"`,
+		`"url": "http://nifi-registry.nifi.svc.cluster.local:18080"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestPlatformManagedVersionedFlowImportNiFiRegistryExampleRenders(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi-platform",
+		"-f", "examples/platform-managed-values.yaml",
+		"-f", "examples/platform-managed-versioned-flow-import-nifi-registry-values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("expected NiFi Registry versionedFlowImports example render to succeed: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		`name: test-nifi-versioned-flow-imports`,
+		`"name": "payments-api"`,
+		`"name": "nifi-registry-flows"`,
+		`"provider": "nifiRegistry"`,
+		`"createsFlowRegistryClientsInNiFi": true`,
+		`"flowName": "payments-api"`,
+		`"rootProcessGroupName": "payments-api-root"`,
+		`"url": client["nifiRegistry"]["url"]`,
+		`def fetch_nifi_registry_snapshot(config, client_name, bucket_id, flow_id, resolved_version):`,
+		`def selected_snapshot(config, registry_name, registry_id, bucket_name, bucket_id, flow_name, flow_id, version_entry, selected_version):`,
+		`only prepared GitHub and NiFi Registry fallback are supported for non-inline snapshot retrieval in this slice`,
+		`"ssl-context-service"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered platform output to contain %q\n%s", want, output)
 		}
 	}
 }

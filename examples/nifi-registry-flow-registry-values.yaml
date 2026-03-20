@@ -1,0 +1,12 @@
+# Prepared NiFi Registry Flow Registry Client overlay.
+# Compose with standalone or managed values.
+# This renders a validated catalog entry only. It does not auto-create the client in NiFi.
+
+flowRegistryClients:
+  enabled: true
+  clients:
+  - name: nifi-registry-flows
+    provider: nifiRegistry
+    description: NiFi Registry compatibility Flow Registry Client catalog entry
+    nifiRegistry:
+      url: http://nifi-registry.nifi.svc.cluster.local:18080

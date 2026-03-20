@@ -74,15 +74,17 @@ NiFi-Fabric keeps the product surface small and explicit.
 - OIDC for managed browser-facing identity
 - LDAP for enterprise directory integration
 - OIDC and LDAP are first-class managed auth options
+- bounded OIDC is GA on the focused `oidc + externalClaimGroups` path with explicit claims mapping, seeded NiFi groups, bounded file-managed `authz.policies[]` bindings for those groups, focused `Initial Admin Identity` fallback and `Initial Admin Group` primary bootstrap proofs, focused real browser-login proof, and a bounded ingress-backed external-host HTTPS browser-flow profile
 - named viewer, editor, flow-version-manager, and admin bundles provide the recommended customer-facing authz path
 - bounded mutable-flow authz bootstrap can seed the inherited root-canvas policies needed for process-group editing and process-group-level version-control actions
-- richer OIDC group-claims policy seeding is supported in the chart, with current kind browser-flow proof still being hardened conservatively
+- Route-backed external-host OIDC is not yet a separately runtime-proven profile
 
 ## Flow Registry Clients
 
 - Git-based Flow Registry Clients are the supported modern direction
 - GitHub, GitLab, and Bitbucket paths have focused runtime proof on NiFi `2.8.0`
 - GitHub also has a focused end-to-end save-to-registry workflow proof on NiFi `2.8.0`
+- NiFi Registry has a bounded compatibility-oriented typed client path with focused runtime proof on NiFi `2.8.0`
 - the workflow proof is user-driven through the NiFi API; it does not introduce controller-managed flow deployment or synchronization
 - Azure DevOps remains prepared and render-validated
 
@@ -101,8 +103,10 @@ NiFi-Fabric keeps the product surface small and explicit.
 - the public surface is intentionally small and limited to registry client selection, bucket, flow name, one selected version identifier or `latest`, one intended root-child import target name, and optional direct Parameter Context attachment
 - the chart imports only the declared root-child process group instances it owns and reconciles them live on pod `-0`
 - the chart attaches or updates only the selected registry-backed version for those owned process groups, records explicit ownership in the imported process-group comments, and does not write new versions back to the registry
-- the selected live Flow Registry Client must already exist in NiFi; the feature reuses that client instead of broadening into generic registry-client management
+- for bounded `provider=nifiRegistry` declarations, the product can create and reconcile the exact live Flow Registry Client object needed by that path
+- for other prepared providers, the selected live Flow Registry Client must still already exist in NiFi
 - focused kind proof now covers real import of a selected registry-backed flow, resulting process-group creation, version-control state, live declared version change without pod replacement, and bounded Parameter Context attachment on the platform install path
+- the focused NiFi Registry compatibility proof also covers runtime-managed explicit version import plus later reconcile back to `latest` without turning the product into broad Registry management
 - `latest` stays bounded: it is resolved during creation or declared-change reconcile and then pinned to the owned import until the declaration changes again
 - arbitrary process-group mutation, controller-managed ongoing sync, and flow CRDs remain out of scope
 

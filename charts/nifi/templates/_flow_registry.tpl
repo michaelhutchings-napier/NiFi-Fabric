@@ -12,6 +12,8 @@ org.apache.nifi.gitlab.GitLabFlowRegistryClient
 org.apache.nifi.atlassian.bitbucket.BitbucketFlowRegistryClient
 {{- else if eq $provider "azureDevOps" -}}
 org.apache.nifi.azure.devops.AzureDevOpsFlowRegistryClient
+{{- else if eq $provider "nifiRegistry" -}}
+org.apache.nifi.registry.flow.NifiRegistryFlowRegistryClient
 {{- end -}}
 {{- end -}}
 
@@ -65,6 +67,7 @@ ACCESS_TOKEN
   {{- end -}}
   {{- $names := list -}}
   {{- range $index, $client := .Values.flowRegistryClients.clients -}}
+    {{- $repository := default (dict) $client.repository -}}
     {{- if not $client.name -}}
       {{- fail (printf "flowRegistryClients.clients[%d].name is required" $index) -}}
     {{- end -}}
@@ -72,10 +75,11 @@ ACCESS_TOKEN
       {{- fail (printf "flowRegistryClients.clients[%d].name=%q is duplicated; client names must be unique" $index $client.name) -}}
     {{- end -}}
     {{- $names = append $names $client.name -}}
-    {{- if and (ne $client.provider "github") (ne $client.provider "gitlab") (ne $client.provider "bitbucket") (ne $client.provider "azureDevOps") -}}
-      {{- fail (printf "flowRegistryClients.clients[%d].provider must be one of: github, gitlab, bitbucket, azureDevOps" $index) -}}
+    {{- if and (ne $client.provider "github") (ne $client.provider "gitlab") (ne $client.provider "bitbucket") (ne $client.provider "azureDevOps") (ne $client.provider "nifiRegistry") -}}
+      {{- fail (printf "flowRegistryClients.clients[%d].provider must be one of: github, gitlab, bitbucket, azureDevOps, nifiRegistry" $index) -}}
     {{- end -}}
-    {{- if and $client.repository.path (or (hasPrefix "/" $client.repository.path) (hasSuffix "/" $client.repository.path)) -}}
+    {{- $repositoryPath := get $repository "path" -}}
+    {{- if and $repositoryPath (or (hasPrefix "/" $repositoryPath) (hasSuffix "/" $repositoryPath)) -}}
       {{- fail (printf "flowRegistryClients.clients[%d].repository.path must not start or end with '/'" $index) -}}
     {{- end -}}
     {{- if and $client.parameterContextValues (ne $client.parameterContextValues "retain") (ne $client.parameterContextValues "remove") (ne $client.parameterContextValues "ignoreChanges") -}}
@@ -202,6 +206,14 @@ ACCESS_TOKEN
         {{- fail (printf "flowRegistryClients.clients[%d].azureDevOps.oauth2AccessTokenProviderName is required for provider=azureDevOps" $index) -}}
       {{- end -}}
     {{- end -}}
+    {{- if eq $client.provider "nifiRegistry" -}}
+      {{- if not $client.nifiRegistry.url -}}
+        {{- fail (printf "flowRegistryClients.clients[%d].nifiRegistry.url is required for provider=nifiRegistry" $index) -}}
+      {{- end -}}
+      {{- if ne (trim $client.nifiRegistry.url) $client.nifiRegistry.url -}}
+        {{- fail (printf "flowRegistryClients.clients[%d].nifiRegistry.url=%q must not have leading or trailing whitespace" $index $client.nifiRegistry.url) -}}
+      {{- end -}}
+    {{- end -}}
   {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -285,6 +297,12 @@ clients:
       Parameter Context Values: {{ ternary "Ignore Changes" (ternary "Remove" "Retain" (eq $client.parameterContextValues "remove")) (eq $client.parameterContextValues "ignoreChanges") | quote }}
       {{- with $client.sslContextServiceName }}
       SSL Context Service: {{ . | quote }}
+      {{- end }}
+    {{- end }}
+    {{- if eq $client.provider "nifiRegistry" }}
+      url: {{ $client.nifiRegistry.url | quote }}
+      {{- with $client.sslContextServiceName }}
+      ssl-context-service: {{ . | quote }}
       {{- end }}
     {{- end }}
     {{- if or (eq $client.provider "github") (eq $client.provider "gitlab") (eq $client.provider "bitbucket") (eq $client.provider "azureDevOps") }}

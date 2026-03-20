@@ -184,7 +184,7 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 | --- | --- | --- | --- | --- |
 | `flowRegistryClients.enabled` | boolean | Enables prepared Flow Registry Client catalog rendering. | No | `false` |
 | `flowRegistryClients.mountPath` | string | Mount path for the rendered catalog files. | No | `/opt/nifi/fabric/flow-registry-clients` |
-| `flowRegistryClients.clients[]` | object list | Prepared client definitions. | No | `[]` |
+| `flowRegistryClients.clients[]` | object list | Prepared client definitions. Supported providers in this slice: `github`, `gitlab`, `bitbucket`, `azureDevOps`, and bounded compatibility-oriented `nifiRegistry`. | No | `[]` |
 
 ## Parameter Contexts
 
@@ -198,7 +198,7 @@ For install guidance, see [Install with Helm](../install/helm.md). For feature b
 
 ## Versioned Flow Imports
 
-`versionedFlowImports.*` is a bounded runtime-managed feature. It creates only the declared root-child imported process groups owned by the product, reconciles their selected registry-backed version live on pod `-0` without provider write-back, reuses an already live Flow Registry Client by name, records explicit ownership in the imported process-group comments, and supports at most one direct Parameter Context attachment per import. `singleUser` requires the bounded mutable-flow or flow-version-manager bootstrap access path. `oidc` and `ldap` require `authz.bootstrap.initialAdminIdentity` for the trusted-proxy management identity.
+`versionedFlowImports.*` is a bounded runtime-managed feature. It creates only the declared root-child imported process groups owned by the product, reconciles their selected registry-backed version live on pod `-0` without provider write-back, records explicit ownership in the imported process-group comments, and supports at most one direct Parameter Context attachment per import. In this slice, declared prepared `provider=nifiRegistry` clients can also be created and reconciled live for the bounded compatibility path; other providers still reuse an already live Flow Registry Client by name. `singleUser` requires the bounded mutable-flow or flow-version-manager bootstrap access path. `oidc` and `ldap` require `authz.bootstrap.initialAdminIdentity` for the trusted-proxy management identity.
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |

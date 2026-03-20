@@ -974,10 +974,12 @@ app.kubernetes.io/component: metrics
 {{- $preparedClient = $client -}}
 {{- end -}}
 {{- end -}}
-{{- if ne $preparedClient.provider "github" -}}
-{{- fail (printf "versionedFlowImports.imports[%d].registryClientName=%q currently requires flowRegistryClients.clients[].provider=github for bounded runtime-managed import" $importIndex $import.registryClientName) -}}
+{{- $preparedClientGithub := default (dict) $preparedClient.github -}}
+{{- $preparedClientGithubAuth := default (dict) $preparedClientGithub.auth -}}
+{{- if and (ne $preparedClient.provider "github") (ne $preparedClient.provider "nifiRegistry") -}}
+{{- fail (printf "versionedFlowImports.imports[%d].registryClientName=%q currently requires flowRegistryClients.clients[].provider=github or nifiRegistry for bounded runtime-managed import" $importIndex $import.registryClientName) -}}
 {{- end -}}
-{{- if and $preparedClient.github.auth.type (eq $preparedClient.github.auth.type "appInstallation") -}}
+{{- if and (eq $preparedClient.provider "github") $preparedClientGithubAuth.type (eq $preparedClientGithubAuth.type "appInstallation") -}}
 {{- fail (printf "versionedFlowImports.imports[%d].registryClientName=%q currently supports github.auth.type none or personalAccessToken; appInstallation remains future work" $importIndex $import.registryClientName) -}}
 {{- end -}}
 {{- if not $import.bucket -}}

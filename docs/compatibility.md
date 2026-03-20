@@ -83,7 +83,7 @@ The shared harness does not need version-specific values files. It only switches
 | Safe rollout | Focused-runtime-proven | Controller-managed, health-gated rollout sequencing. |
 | Hibernation and restore | Focused-runtime-proven | Controller-owned lifecycle flow. |
 | cert-manager integration | Focused-runtime-proven | cert-manager is a prerequisite. |
-| OIDC | Focused-runtime-proven | First-class managed auth option. The richer browser-flow group-claims proof remains conservative on the current local Keycloak `26.x` path. |
+| OIDC | Focused-runtime-proven | GA on the bounded `oidc + externalClaimGroups` path with explicit claims mapping, seeded NiFi groups, bounded file-managed `authz.policies[]` bindings for those groups, focused `Initial Admin Identity` fallback and `Initial Admin Group` primary bootstrap proofs, focused in-cluster browser-login proof, and focused ingress-backed external-host HTTPS browser-login proof. Route-backed external-host OIDC is not separately runtime-proven yet. |
 | LDAP | Focused-runtime-proven | First-class managed auth option. |
 | Native API metrics | Focused-runtime-proven | Primary metrics path and part of the shared NiFi `2.x` compatibility contract. |
 | Exporter metrics | Focused-runtime-proven | GA as an optional bounded secondary mode. Native API metrics remain the primary recommendation. |
@@ -100,6 +100,8 @@ The shared harness does not need version-specific values files. It only switches
 | GitHub Flow Registry Client | Focused-runtime-proven | NiFi `2.8.0`. |
 | GitLab Flow Registry Client | Focused-runtime-proven | NiFi `2.8.0`. |
 | Bitbucket Flow Registry Client | Focused-runtime-proven | NiFi `2.8.0`. |
+| NiFi Registry Flow Registry Client | Focused-runtime-proven | Compatibility-oriented typed client path on NiFi `2.8.0` through a real in-cluster `apache/nifi-registry` service. |
+| Bounded NiFi Registry versioned-flow import | Focused-runtime-proven | Compatibility-oriented platform-chart import and explicit version selection path on NiFi `2.8.0` through a real in-cluster `apache/nifi-registry` service. |
 | Azure DevOps Flow Registry Client | Prepared / render-validated | Prepared catalog definition only. |
 
 ## Exporter Metrics Boundary
@@ -316,7 +318,7 @@ What remains intentionally unproven or operator-owned:
 - no production-proven cloud runtime claim is made yet
 - no claim is made beyond Apache NiFi `2.0.x` through `2.8.x`
 - no claim is made that version-specific integrations such as Flow Registry Client workflows are supported across the whole line unless this page says so explicitly
-- richer ingress-backed OIDC browser-flow proof is still conservative on kind
+- Route-backed external-host OIDC is not yet separately runtime-proven
 - Linkerd support is bounded to the documented NiFi workload profile; it is not a generic service-mesh support layer
 - Istio support is bounded to the documented sidecar-mode and Ambient workload profiles; it is not a generic service-mesh support layer
 - smarter drainability selection, richer capacity reasoning, and bulk or multi-node autoscaling policies remain future work

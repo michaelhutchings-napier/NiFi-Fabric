@@ -116,16 +116,17 @@ Current supported pairs:
 What is proven on kind now:
 
 - `singleUser + fileManaged` in the main alpha gate
-- focused OIDC login wiring, group-claim prerequisites, Initial Admin Identity fallback bootstrap, and non-admin denial with `make kind-auth-oidc-e2e`
-- focused OIDC login wiring, exact user and groups claim-name wiring, seeded group prerequisites, Initial Admin Identity fallback bootstrap, and non-admin denial on NiFi `2.8.0` with `make kind-auth-oidc-nifi-2-8-fast-e2e`
+- bounded core OIDC on `oidc + externalClaimGroups`, including focused login wiring, exact user and groups claim-name wiring, seeded group prerequisites, `Initial Admin Identity` fallback bootstrap, and non-admin denial with `make kind-auth-oidc-e2e`
+- that same bounded core OIDC contract on NiFi `2.8.0` with `make kind-auth-oidc-nifi-2-8-fast-e2e`
+- ingress-backed external-host HTTPS OIDC on that same bounded contract, including real browser login, callback correctness, and admin/operator/viewer-style authorization through `make kind-auth-oidc-ingress-fast-e2e`
+- custom non-admin OIDC `authz.policies[]` bindings on that same bounded chart-managed path, proven through the focused observer/operator/admin authorization outcomes in `make kind-auth-oidc-ingress-fast-e2e`
+- `Initial Admin Group` as the primary runtime bootstrap path on that same bounded chart-managed contract through `make kind-auth-oidc-initial-admin-group-fast-e2e`
 - focused LDAP login wiring, LDAP provider wiring, Initial Admin Identity bootstrap, and non-admin denial with `make kind-auth-ldap-e2e`
 
 What is still only prepared:
 
-- OIDC custom non-admin policy bindings from `authz.policies`
-- Initial Admin Group as the primary runtime bootstrap path on NiFi `2.8.0`
 - LDAP broader group-policy seeding beyond the focused bootstrap path
-- ingress-backed or Route-backed auth runtime behavior
+- Route-backed external-host auth runtime behavior as a separately proven profile
 - external Flow Registry Client runtime against GitHub, Bitbucket, or Azure DevOps
 - full hosted GitLab runtime beyond the focused kind evaluator
 
@@ -340,13 +341,19 @@ Focused auth evaluator paths:
 
 ```bash
 make kind-auth-oidc-e2e
+make kind-auth-oidc-ingress-fast-e2e
+make kind-auth-oidc-initial-admin-group-fast-e2e
 make kind-auth-oidc-nifi-2-8-fast-e2e
 make kind-auth-ldap-e2e
 ```
 
-`make kind-auth-oidc-e2e` bootstraps Keycloak, deploys NiFi in `oidc + externalClaimGroups`, proves OIDC login wiring, proves exact group-name seeding prerequisites, and uses the documented `Initial Admin Identity` fallback for the first admin path.
+`make kind-auth-oidc-e2e` bootstraps Keycloak, deploys NiFi in `oidc + externalClaimGroups`, proves focused OIDC login wiring, proves exact group-name seeding prerequisites, uses the documented `Initial Admin Identity` fallback for the first admin path, and remains part of the bounded core OIDC GA proof story.
 
-`make kind-auth-oidc-nifi-2-8-fast-e2e` keeps that same chart-first `oidc + externalClaimGroups` model, composes `examples/nifi-2.8.0-values.yaml` with [examples/test-fast-values.yaml](../examples/test-fast-values.yaml), keeps the flow internal to the cluster, and proves the focused OIDC runtime slice on a two-node `apache/nifi:2.8.0` cluster.
+`make kind-auth-oidc-ingress-fast-e2e` adds the focused ingress-backed external-host HTTPS browser flow and is the current green proof target for the bounded non-admin `authz.policies[]` observer/operator/admin outcomes on that same chart-managed contract.
+
+`make kind-auth-oidc-initial-admin-group-fast-e2e` keeps the same focused kind profile but leaves `authz.bootstrap.initialAdminGroup` as the primary bootstrap path and proves that bounded first-admin route cleanly on the chart-managed OIDC contract.
+
+`make kind-auth-oidc-nifi-2-8-fast-e2e` keeps that same chart-first `oidc + externalClaimGroups` model, composes `examples/nifi-2.8.0-values.yaml` with [examples/test-fast-values.yaml](../examples/test-fast-values.yaml), keeps the flow internal to the cluster, and proves the bounded core OIDC runtime slice on a two-node `apache/nifi:2.8.0` cluster.
 
 `make kind-auth-ldap-e2e` bootstraps LDAP, deploys NiFi in `ldap + ldapSync`, proves LDAP login and provider wiring, and uses the documented `Initial Admin Identity` bootstrap path.
 
@@ -372,6 +379,8 @@ make kind-nifi-2-8-fast-e2e
 make kind-cert-manager-fast-e2e
 make kind-cert-manager-nifi-2-8-fast-e2e
 make kind-auth-oidc-fast-e2e
+make kind-auth-oidc-ingress-fast-e2e
+make kind-auth-oidc-initial-admin-group-fast-e2e
 make kind-auth-oidc-nifi-2-8-fast-e2e
 make kind-auth-ldap-fast-e2e
 make kind-flow-registry-gitlab-fast-e2e
@@ -385,6 +394,8 @@ make kind-nifi-2-8-fast-e2e-reuse
 make kind-cert-manager-fast-e2e-reuse
 make kind-cert-manager-nifi-2-8-fast-e2e-reuse
 make kind-auth-oidc-fast-e2e-reuse
+make kind-auth-oidc-ingress-fast-e2e-reuse
+make kind-auth-oidc-initial-admin-group-fast-e2e-reuse
 make kind-auth-oidc-nifi-2-8-fast-e2e-reuse
 make kind-auth-ldap-fast-e2e-reuse
 make kind-flow-registry-gitlab-fast-e2e-reuse

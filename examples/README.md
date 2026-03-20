@@ -182,7 +182,7 @@ There are also prepared authentication overlays:
   - Seeds NiFi application groups and file-managed policies for OIDC group claims.
   - Group names in the token must match these NiFi application group names exactly.
   - The current chart now renders the richer policy file in a NiFi 2-compatible order instead of crashing at startup.
-  - End-to-end browser-flow authorization proof for observer, operator, and admin groups is still conservative on the current local Keycloak `26.x` path.
+  - This is part of the bounded core OIDC GA contract when used on the focused `oidc + externalClaimGroups` path, including the current green non-admin `authz.policies[]` observer/operator/admin proof through `make kind-auth-oidc-ingress-fast-e2e`.
 
 - [mutable-flow-authz-values.yaml](mutable-flow-authz-values.yaml)
   - Enables the bounded mutable-flow capability bundle for chart-managed groups.
@@ -198,12 +198,18 @@ There are also prepared authentication overlays:
   - Keeps the flow internal to the cluster.
   - Uses the documented `Initial Admin Identity` fallback for the first admin path.
   - The focused runtime commands are `make kind-auth-oidc-e2e` and `make kind-auth-oidc-nifi-2-8-fast-e2e` when composed with [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml) and [test-fast-values.yaml](test-fast-values.yaml).
-  - Treat the current kind evaluator as an active hardening path for browser-flow proof, not as a blanket claim that every local Keycloak combination is green.
+  - Those commands are part of the bounded OIDC GA proof path for `oidc + externalClaimGroups`.
+
+- [oidc-kind-initial-admin-group-values.yaml](oidc-kind-initial-admin-group-values.yaml)
+  - Focused kind OIDC overlay for proving `authz.bootstrap.initialAdminGroup` as the primary bootstrap path.
+  - Keeps the flow internal to the cluster while leaving the seeded admin group as the first-admin route.
+  - The focused proof target is `make kind-auth-oidc-initial-admin-group-fast-e2e`.
 
 - [oidc-external-url-values.yaml](oidc-external-url-values.yaml)
   - Adds an ingress-backed public HTTPS host and matching `web.proxyHosts` entry for OIDC redirects.
   - Compose with [oidc-values.yaml](oidc-values.yaml) and [oidc-group-claims-values.yaml](oidc-group-claims-values.yaml).
-  - Current local ingress-backed OIDC runtime proof is still conservative while the focused browser-flow evaluator is being hardened.
+  - This is part of the bounded OIDC GA contract when the external browser flow stays on the same `oidc + externalClaimGroups` model, the ingress keeps sticky routing for callback affinity, and NiFi trusts the IdP CA for token exchange when the provider is private or self-signed.
+  - The focused proof target is `make kind-auth-oidc-ingress-fast-e2e`.
 
 - [ldap-values.yaml](ldap-values.yaml)
   - Enables `auth.mode=ldap` with `authz.mode=ldapSync`.
@@ -259,6 +265,15 @@ There are also prepared Flow Registry Client overlays:
   - Compose with [managed/values.yaml](managed/values.yaml), [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml), and [test-fast-values.yaml](test-fast-values.yaml).
   - The focused runtime commands are `make kind-flow-registry-bitbucket-fast-e2e` and `make kind-flow-registry-bitbucket-fast-e2e-reuse`.
 
+- [nifi-registry-flow-registry-values.yaml](nifi-registry-flow-registry-values.yaml)
+  - Prepared bounded NiFi Registry compatibility Flow Registry Client catalog entry.
+  - Compose with standalone or managed values when you want the typed NiFi Registry client definition rendered into the pod-mounted catalog.
+
+- [nifi-registry-flow-registry-kind-values.yaml](nifi-registry-flow-registry-kind-values.yaml)
+  - Focused kind NiFi Registry compatibility runtime overlay.
+  - Compose with [managed/values.yaml](managed/values.yaml), [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml), and [test-fast-values.yaml](test-fast-values.yaml).
+  - The focused runtime proof uses a real in-cluster `apache/nifi-registry` deployment and validates client creation against live NiFi runtime APIs.
+
 - [azure-devops-flow-registry-values.yaml](azure-devops-flow-registry-values.yaml)
   - Prepared Azure DevOps Flow Registry Client catalog entry.
   - Renders a validated definition only; it does not auto-create the client in NiFi.
@@ -294,6 +309,17 @@ There are also bounded versioned-flow import overlays:
   - The proof verifies bounded import, selected-version attachment, explicit ownership marking, and one seeded flow-content element on the imported process group.
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml), [platform-fast-values.yaml](platform-fast-values.yaml), and [platform-managed-versioned-flow-import-values.yaml](platform-managed-versioned-flow-import-values.yaml).
   - The focused runtime commands are `make kind-platform-managed-versioned-flow-import-fast-e2e` and `make kind-platform-managed-versioned-flow-import-fast-e2e-reuse`.
+
+- [platform-managed-versioned-flow-import-nifi-registry-values.yaml](platform-managed-versioned-flow-import-nifi-registry-values.yaml)
+  - Runtime-managed bounded NiFi Registry compatibility import for the standard `charts/nifi-platform` path.
+  - It declares one prepared `provider=nifiRegistry` client, one bounded import source, one selected version, one intended root-child target name, and one direct Parameter Context reference.
+  - In this compatibility path, the bounded import bundle can create and reconcile the exact live NiFi Registry Flow Registry Client it owns.
+
+- [platform-managed-versioned-flow-import-nifi-registry-kind-values.yaml](platform-managed-versioned-flow-import-nifi-registry-kind-values.yaml)
+  - Focused kind overlay for the platform-chart runtime-managed NiFi Registry compatibility proof.
+  - Uses a real in-cluster `apache/nifi-registry` deployment, seeds an explicit historical version plus a later latest version, proves product-owned client recreation, proves explicit version import, and then proves live reconcile back to `latest` without replacing pod `-0`.
+  - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml), [platform-fast-values.yaml](platform-fast-values.yaml), and [platform-managed-versioned-flow-import-nifi-registry-values.yaml](platform-managed-versioned-flow-import-nifi-registry-values.yaml).
+  - The focused runtime commands are `make kind-platform-managed-versioned-flow-import-nifi-registry-fast-e2e` and `make kind-platform-managed-versioned-flow-import-nifi-registry-fast-e2e-reuse`.
 
 - [github-versioned-flow-selection-kind-values.yaml](github-versioned-flow-selection-kind-values.yaml)
   - Focused kind overlay for the bounded GitHub versioned-flow selection proof.
@@ -335,6 +361,8 @@ Fallback bootstrap:
 Focused auth evaluator commands:
 
 - `make kind-auth-oidc-e2e`
+- `make kind-auth-oidc-ingress-fast-e2e`
+- `make kind-auth-oidc-initial-admin-group-fast-e2e`
 - `make kind-auth-oidc-nifi-2-8-fast-e2e`
 - `make kind-auth-ldap-e2e`
 - `make kind-nifi-2-8-e2e`
@@ -348,8 +376,9 @@ Focused auth evaluator commands:
 
 Flow Registry Client notes:
 
-- classic NiFi Registry is not the preferred direction here
+- classic NiFi Registry is a bounded compatibility path here, not the preferred long-term direction
 - Git-based Flow Registry Clients are preferred
+- the bounded `provider=nifiRegistry` path owns only the live Registry Client objects and imported flow instances it explicitly creates in the NiFi Registry compatibility workflow
 - the chart renders a prepared catalog under `flowRegistryClients.mountPath`
 - the catalog is available as both `clients.yaml` and `clients.json`
 - there is no controller-managed flow import or synchronization

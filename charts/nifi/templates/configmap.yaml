@@ -42,6 +42,9 @@ data:
     {{- if .Values.auth.oidc.preferredJwsAlgorithm }}
     nifi.security.user.oidc.preferred.jwsalgorithm={{ .Values.auth.oidc.preferredJwsAlgorithm }}
     {{- end }}
+    {{- if and .Values.tls.additionalTrustBundle.enabled (not (hasKey .Values.auth.oidc.extraProperties "nifi.security.user.oidc.truststore.strategy")) }}
+    nifi.security.user.oidc.truststore.strategy=NIFI
+    {{- end }}
     {{- range $key, $value := .Values.auth.oidc.extraProperties }}
     {{ $key }}={{ $value }}
     {{- end }}

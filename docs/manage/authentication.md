@@ -34,12 +34,35 @@ Use OIDC when you want:
 - browser-based access with external identity
 - group-based authorization with NiFi-managed group seeding
 
-Current proof boundary:
+GA boundary for bounded OIDC:
 
-- managed OIDC wiring, discovery configuration, and seeded group definitions are render-validated
+- `auth.mode=oidc`
+- `authz.mode=externalClaimGroups`
+- explicit identifying-user and groups claim mapping
+- seeded NiFi application groups whose names must match the incoming token groups
+- bounded file-managed `authz.policies[]` bindings for those seeded NiFi groups, including focused non-admin observer/operator policy proof on the green ingress-backed runtime path
+- `Initial Admin Identity` fallback bootstrap for the first admin path
+- `Initial Admin Group` as the primary bootstrap path on the same bounded contract
+- focused real browser-login runtime proof through `make kind-auth-oidc-e2e` and `make kind-auth-oidc-nifi-2-8-fast-e2e`
+- ingress-backed external-host HTTPS browser flow through `make kind-auth-oidc-ingress-fast-e2e`
+- focused `Initial Admin Group` runtime bootstrap proof through `make kind-auth-oidc-initial-admin-group-fast-e2e`
+- sticky ingress routing for the browser callback path
+- extra outbound IdP CA trust supplied through `tls.additionalTrustBundle.*` when the provider certificate is private or self-signed
+
+What is outside the GA claim:
+
+- blanket claims that any local Keycloak combination is green
+- Route-backed external-host OIDC as a separately runtime-proven profile
+- broader IdP lifecycle ownership beyond bounded chart wiring and seeded NiFi groups
+
+Current proof notes:
+
+- managed OIDC wiring, discovery configuration, and seeded group definitions are runtime-proven on the focused core path
 - the multi-group `authorizations.xml` seed path now renders in a NiFi 2-compatible order and no longer crashes the cluster on startup
-- the richer browser-flow policy proof for observer, operator, and admin groups is still being hardened against the current local Keycloak `26.x` path on kind
-- use OIDC for the product auth model today, but keep local kind browser-flow claims conservative until that focused proof is green again
+- the focused ingress-backed OIDC probe already exercises file-managed `authz.policies[]` outcomes for observer, operator, admin, and denied users on that bounded chart-managed path
+- ingress-backed external-host HTTPS browser flow is now focused-runtime-proven on the same bounded `oidc + externalClaimGroups` contract
+- the focused `Initial Admin Group` kind gate now proves the primary admin bootstrap path on that same bounded contract
+- Route-backed external-host OIDC is still outside the runtime-proven claim until a real Route/router proof path is recorded
 
 Key values:
 
@@ -49,6 +72,7 @@ Key values:
 - `auth.oidc.claims.*`
 - `authz.mode=externalClaimGroups`
 - `authz.bootstrap.*`
+- `tls.additionalTrustBundle.*`
 
 ## LDAP
 
@@ -150,7 +174,7 @@ The bundles compile down to the same underlying file-managed policies the chart 
 ## Support Level
 
 - single-user: supported
-- OIDC: supported, with conservative kind proof for the current browser-flow group-claims path
+- OIDC: GA on the bounded `oidc + externalClaimGroups` path, including the focused ingress-backed external-host HTTPS browser-flow profile and the focused `Initial Admin Group` primary bootstrap proof
 - LDAP: supported, with focused runtime proof on kind
 
 What remains intentionally out of scope:

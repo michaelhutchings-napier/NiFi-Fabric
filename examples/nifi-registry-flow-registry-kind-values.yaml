@@ -1,0 +1,12 @@
+# Focused kind runtime overlay for NiFi Registry Flow Registry Client proof on NiFi 2.8.0.
+# Compose with examples/managed/values.yaml and examples/nifi-2.8.0-values.yaml.
+# This uses the in-cluster Apache NiFi Registry deployment from hack/deploy-nifi-registry.sh.
+
+flowRegistryClients:
+  enabled: true
+  clients:
+  - name: nifi-registry-flows-kind
+    provider: nifiRegistry
+    description: Kind-focused NiFi Registry Flow Registry Client runtime proof
+    nifiRegistry:
+      url: http://nifi-registry.nifi.svc.cluster.local:18080

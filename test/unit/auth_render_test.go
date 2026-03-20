@@ -44,6 +44,54 @@ func TestOIDCGroupClaimsExampleRendersPolicyGroupsBeforeUsers(t *testing.T) {
 	}
 }
 
+func TestOIDCGroupClaimsExampleRendersCustomPolicyBindings(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"-f", "examples/managed/values.yaml",
+		"-f", "examples/oidc-values.yaml",
+		"-f", "examples/oidc-group-claims-values.yaml",
+		"-f", "examples/oidc-kind-values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+
+	for _, want := range []string{
+		`resource="/flow" action="R"`,
+		`resource="/controller" action="R"`,
+		`resource="/controller" action="W"`,
+		`<group identifier="0881bb71-9b50-c83c-08ac-ada65cb2cef2"/>`,
+		`<group identifier="1163e273-26f6-87ef-bd86-1506e7c3e6c7"/>`,
+		`<group identifier="9816433e-d325-e655-6542-191408365a81"/>`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestOIDCInitialAdminGroupKindExampleKeepsGroupBootstrapPrimary(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"-f", "examples/managed/values.yaml",
+		"-f", "examples/oidc-values.yaml",
+		"-f", "examples/oidc-group-claims-values.yaml",
+		"-f", "examples/oidc-kind-initial-admin-group-values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+
+	if !strings.Contains(output, `<property name="Initial Admin Group">nifi-platform-admins</property>`) {
+		t.Fatalf("expected rendered output to keep Initial Admin Group as the primary bootstrap path\n%s", output)
+	}
+	if strings.Contains(output, `<property name="Initial Admin Identity">alice@example.com</property>`) {
+		t.Fatalf("expected rendered output not to fall back to Initial Admin Identity in the Initial Admin Group proof profile\n%s", output)
+	}
+}
+
 func TestBitbucketFlowRegistryKindExampleRendersPreparedClient(t *testing.T) {
 	output, err := helmTemplate(
 		t,
@@ -249,6 +297,52 @@ func TestNamedPolicyBundlesSupportOIDCExternalClaimGroups(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
 		}
+	}
+}
+
+func TestOIDCAdditionalTrustBundleDefaultsTruststoreStrategyToNIFI(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"-f", "examples/managed/values.yaml",
+		"-f", "examples/oidc-values.yaml",
+		"-f", "examples/oidc-group-claims-values.yaml",
+		"-f", "examples/oidc-kind-values.yaml",
+		"--set", "tls.additionalTrustBundle.enabled=true",
+		"--set", "tls.additionalTrustBundle.secretRef.name=oidc-ca",
+		"--set", "tls.additionalTrustBundle.secretRef.key=ca.crt",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+
+	if !strings.Contains(output, "nifi.security.user.oidc.truststore.strategy=NIFI") {
+		t.Fatalf("expected rendered output to default OIDC truststore strategy to NIFI when an extra trust bundle is enabled\n%s", output)
+	}
+}
+
+func TestOIDCAdditionalTrustBundleAllowsExplicitTruststoreStrategyOverride(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"-f", "examples/managed/values.yaml",
+		"-f", "examples/oidc-values.yaml",
+		"-f", "examples/oidc-group-claims-values.yaml",
+		"-f", "examples/oidc-kind-values.yaml",
+		"--set", "tls.additionalTrustBundle.enabled=true",
+		"--set", "tls.additionalTrustBundle.secretRef.name=oidc-ca",
+		"--set", "tls.additionalTrustBundle.secretRef.key=ca.crt",
+		"--set", "auth.oidc.extraProperties.nifi\\.security\\.user\\.oidc\\.truststore\\.strategy=JDK",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+
+	if strings.Contains(output, "nifi.security.user.oidc.truststore.strategy=NIFI") {
+		t.Fatalf("expected rendered output to respect an explicit OIDC truststore strategy override\n%s", output)
+	}
+	if !strings.Contains(output, "nifi.security.user.oidc.truststore.strategy=JDK") {
+		t.Fatalf("expected rendered output to include the explicit OIDC truststore strategy override\n%s", output)
 	}
 }
 

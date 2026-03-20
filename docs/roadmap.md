@@ -12,15 +12,19 @@ NiFi-Fabric keeps the roadmap small and explicit.
 - supported external Secret and cert-manager TLS paths
 - first-class OIDC and LDAP auth options
 - native API metrics as the primary metrics mode
+- exporter metrics as an optional GA secondary metrics mode
+- typed Site-to-Site metrics export as an optional GA bounded sender-side path
+- typed Site-to-Site status export as an optional GA bounded sender-side path
+- typed Site-to-Site provenance export as an optional GA bounded sender-side path
 - Git-based Flow Registry Client direction through chart-managed catalog rendering
+- bounded NiFi Registry compatibility path through a typed `provider=nifiRegistry` client plus platform-chart versioned-flow import on NiFi `2.8.0`
 
 ## Experimental
 
-- exporter metrics as an optional secondary metrics mode
+- Route-backed external-host OIDC until a real Route/router runtime proof path is recorded
 
 ## Prepared-Only
 
-- site-to-site metrics mode
 - broader environment-specific install wrappers beyond Helm
 
 ## Planned Next
@@ -28,6 +32,6 @@ NiFi-Fabric keeps the roadmap small and explicit.
 - broader NiFi `2.x` compatibility proof
 - broader cloud environment proof, especially AKS
 - more environment-specific operational guides
-- broader metrics-family proof where it stays smaller than a full metrics platform
+- broader exporter metrics-family proof where it stays smaller than a full metrics platform
 - broader per-node drainability ranking only if it stays explainable, bounded, and justified by trustworthy evidence beyond the current actual-removal-candidate qualification model
 - broader bulk autoscaling policy depth beyond the current bounded sequential-episode model only if it remains sequential controller-owned one-node steps with fresh settle and requalification after every removal

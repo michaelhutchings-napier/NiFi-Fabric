@@ -8,6 +8,15 @@ ingress:
   className: nginx
   annotations:
     nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+    # NiFi's managed TLS cert covers internal service/pod DNS, not the public ingress host.
+    nginx.ingress.kubernetes.io/proxy-ssl-server-name: "on"
+    nginx.ingress.kubernetes.io/proxy-ssl-name: "nifi.nifi.svc.cluster.local"
+    nginx.ingress.kubernetes.io/upstream-vhost: "nifi.nifi.svc.cluster.local"
+    # Keep OIDC browser-flow state on a single NiFi pod when auth is enabled through ingress.
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+    nginx.ingress.kubernetes.io/affinity-mode: "persistent"
+    nginx.ingress.kubernetes.io/session-cookie-name: "nifi-route"
+    nginx.ingress.kubernetes.io/session-cookie-path: "/"
   hosts:
   - host: nifi.example.com
     paths:

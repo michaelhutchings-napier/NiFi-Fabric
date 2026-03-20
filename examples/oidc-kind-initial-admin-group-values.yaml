@@ -1,0 +1,29 @@
+# Focused kind overlay for the OIDC Initial Admin Group evaluator gate.
+# Compose with:
+# - examples/managed/values.yaml
+# - examples/oidc-values.yaml
+# - examples/oidc-group-claims-values.yaml
+#
+# This keeps the flow internal to the cluster:
+# - one NiFi replica for faster auth validation
+# - Keycloak discovery over cluster DNS
+# - no external ingress requirement
+# - Initial Admin Group remains the primary bootstrap path
+
+replicaCount: 1
+
+auth:
+  oidc:
+    discoveryUrl: http://keycloak.nifi.svc.cluster.local:8080/realms/nifi/.well-known/openid-configuration
+
+web:
+  # Override the prepared external host example so the focused kind gate stays internal.
+  proxyHosts: []
+
+authz:
+  bootstrap:
+    initialAdminIdentity: ""
+
+nifi:
+  jvmHeapInit: 512m
+  jvmHeapMax: 512m

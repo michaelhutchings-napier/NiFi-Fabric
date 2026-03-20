@@ -17,6 +17,7 @@ START_EPOCH="$(date +%s)"
 SKIP_KIND_BOOTSTRAP="${SKIP_KIND_BOOTSTRAP:-false}"
 FAST_PROFILE="${FAST_PROFILE:-false}"
 FAST_VALUES_FILE="${FAST_VALUES_FILE:-examples/test-fast-values.yaml}"
+OIDC_INITIAL_ADMIN_GROUP="${OIDC_INITIAL_ADMIN_GROUP:-false}"
 LOCALBIN="${LOCALBIN:-${ROOT_DIR}/bin}"
 KUBECTL_VERSION="${KUBECTL_VERSION:-v1.31.0}"
 
@@ -33,8 +34,12 @@ INGRESS_NAMESPACE="${INGRESS_NAMESPACE:-ingress-nginx}"
 INGRESS_RELEASE="${INGRESS_RELEASE:-ingress-nginx}"
 INGRESS_CLASS_NAME="${INGRESS_CLASS_NAME:-nginx}"
 INGRESS_HTTP_NODEPORT="${INGRESS_HTTP_NODEPORT:-30080}"
+INGRESS_HTTPS_NODEPORT="${INGRESS_HTTPS_NODEPORT:-30443}"
+INGRESS_TLS_SECRET_NAME="${INGRESS_TLS_SECRET_NAME:-oidc-ingress-tls}"
 
 KEYCLOAK_DISCOVERY_URL=""
+KEYCLOAK_PUBLIC_DISCOVERY_URL=""
+KEYCLOAK_EXPECTED_LOGIN_HOST=""
 NIFI_ACCESS_URL=""
 NIFI_AUTH_CONFIG_URL=""
 NIFI_PUBLIC_HOST=""
@@ -142,8 +147,49 @@ install_ingress_controller() {
     --set controller.ingressClassResource.controllerValue="k8s.io/ingress-nginx" \
     --set controller.ingressClassByName=true \
     --set controller.service.type=NodePort \
-    --set controller.service.nodePorts.http="${INGRESS_HTTP_NODEPORT}" >/dev/null
+    --set controller.service.nodePorts.http="${INGRESS_HTTP_NODEPORT}" \
+    --set controller.service.nodePorts.https="${INGRESS_HTTPS_NODEPORT}" >/dev/null
   kubectl -n "${INGRESS_NAMESPACE}" rollout status deployment/"${INGRESS_RELEASE}"-controller --timeout=10m >/dev/null
+}
+
+create_external_ingress_tls_secret() {
+  local cert_dir cert_file key_file san_config
+
+  cert_dir="$(mktemp -d)"
+  cert_file="${cert_dir}/tls.crt"
+  key_file="${cert_dir}/tls.key"
+  san_config="${cert_dir}/openssl.cnf"
+
+  cat >"${san_config}" <<EOF
+[req]
+default_bits = 2048
+prompt = no
+default_md = sha256
+distinguished_name = dn
+x509_extensions = v3_req
+
+[dn]
+CN = ${NIFI_PUBLIC_HOST}
+
+[v3_req]
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = ${NIFI_PUBLIC_HOST}
+DNS.2 = ${KEYCLOAK_PUBLIC_HOST}
+EOF
+
+  openssl req -x509 -nodes -days 7 -newkey rsa:2048 \
+    -keyout "${key_file}" \
+    -out "${cert_file}" \
+    -config "${san_config}" >/dev/null 2>&1
+
+  kubectl -n "${NAMESPACE}" create secret tls "${INGRESS_TLS_SECRET_NAME}" \
+    --cert="${cert_file}" \
+    --key="${key_file}" \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+
+  rm -rf "${cert_dir}"
 }
 
 configure_external_ingress_hosts() {
@@ -155,9 +201,14 @@ configure_external_ingress_hosts() {
 
   NIFI_PUBLIC_HOST="nifi.${node_ip}.nip.io"
   KEYCLOAK_PUBLIC_HOST="keycloak.${node_ip}.nip.io"
-  NIFI_ACCESS_URL="http://${NIFI_PUBLIC_HOST}:${INGRESS_HTTP_NODEPORT}"
+  NIFI_ACCESS_URL="https://${NIFI_PUBLIC_HOST}:${INGRESS_HTTPS_NODEPORT}"
   NIFI_AUTH_CONFIG_URL="${NIFI_ACCESS_URL}/nifi-api/authentication/configuration"
-  KEYCLOAK_DISCOVERY_URL="http://${KEYCLOAK_PUBLIC_HOST}:${INGRESS_HTTP_NODEPORT}/realms/nifi/.well-known/openid-configuration"
+  # Keep NiFi's OIDC metadata bootstrap on cluster DNS even for the ingress-backed proof.
+  # Keycloak is still configured with a public hostname, so the returned issuer/auth/token
+  # endpoints stay external-host correct for the real browser callback flow.
+  KEYCLOAK_DISCOVERY_URL="http://keycloak.${NAMESPACE}.svc.cluster.local:8080/realms/nifi/.well-known/openid-configuration"
+  KEYCLOAK_PUBLIC_DISCOVERY_URL="https://${KEYCLOAK_PUBLIC_HOST}:${INGRESS_HTTPS_NODEPORT}/realms/nifi/.well-known/openid-configuration"
+  KEYCLOAK_EXPECTED_LOGIN_HOST="${KEYCLOAK_PUBLIC_HOST}:${INGRESS_HTTPS_NODEPORT}"
   EXTERNAL_VALUES_FILE="$(mktemp)"
   cat >"${EXTERNAL_VALUES_FILE}" <<EOF
 auth:
@@ -168,14 +219,31 @@ ingress:
   className: ${INGRESS_CLASS_NAME}
   annotations:
     nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+    nginx.ingress.kubernetes.io/proxy-ssl-server-name: "on"
+    nginx.ingress.kubernetes.io/proxy-ssl-name: "${HELM_RELEASE}.${NAMESPACE}.svc.cluster.local"
+    nginx.ingress.kubernetes.io/upstream-vhost: "${HELM_RELEASE}.${NAMESPACE}.svc.cluster.local"
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+    nginx.ingress.kubernetes.io/affinity-mode: "persistent"
+    nginx.ingress.kubernetes.io/session-cookie-name: "nifi-route"
+    nginx.ingress.kubernetes.io/session-cookie-path: "/"
   hosts:
   - host: ${NIFI_PUBLIC_HOST}
     paths:
     - path: /
       pathType: Prefix
+  tls:
+  - secretName: ${INGRESS_TLS_SECRET_NAME}
+    hosts:
+    - ${NIFI_PUBLIC_HOST}
 web:
   proxyHosts:
-  - ${NIFI_PUBLIC_HOST}:${INGRESS_HTTP_NODEPORT}
+  - ${NIFI_PUBLIC_HOST}:${INGRESS_HTTPS_NODEPORT}
+tls:
+  additionalTrustBundle:
+    enabled: true
+    secretRef:
+      name: ${INGRESS_TLS_SECRET_NAME}
+      key: tls.crt
 EOF
   helm_values_args+=(-f "${EXTERNAL_VALUES_FILE}")
 }
@@ -329,8 +397,13 @@ fi
 helm_values_args+=(
   -f examples/oidc-values.yaml
   -f examples/oidc-group-claims-values.yaml
-  -f examples/oidc-kind-values.yaml
 )
+
+if [[ "${OIDC_INITIAL_ADMIN_GROUP}" == "true" ]]; then
+  helm_values_args+=(-f examples/oidc-kind-initial-admin-group-values.yaml)
+else
+  helm_values_args+=(-f examples/oidc-kind-values.yaml)
+fi
 
 profile_label=""
 if [[ "${FAST_PROFILE}" == "true" ]]; then
@@ -340,6 +413,15 @@ fi
 
 bootstrap_keycloak() {
   kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+
+  local keycloak_extra_args=""
+  if [[ "${OIDC_EXTERNAL_INGRESS}" == "true" ]]; then
+    keycloak_extra_args="$(cat <<EOF
+        - --hostname=https://${KEYCLOAK_PUBLIC_HOST}:${INGRESS_HTTPS_NODEPORT}
+        - --proxy-headers=xforwarded
+EOF
+)"
+  fi
 
   kubectl -n "${NAMESPACE}" apply -f - <<EOF
 apiVersion: v1
@@ -477,6 +559,7 @@ spec:
         - --import-realm
         - --http-enabled=true
         - --hostname-strict=false
+${keycloak_extra_args}
         env:
         - name: KEYCLOAK_ADMIN
           valueFrom:
@@ -528,6 +611,10 @@ metadata:
   name: keycloak
 spec:
   ingressClassName: ${INGRESS_CLASS_NAME}
+  tls:
+  - secretName: ${INGRESS_TLS_SECRET_NAME}
+    hosts:
+    - ${KEYCLOAK_PUBLIC_HOST}
   rules:
   - host: ${KEYCLOAK_PUBLIC_HOST}
     http:
@@ -568,8 +655,9 @@ EOF
     NIFI_BASE_URL="${NIFI_ACCESS_URL}" \
     NIFI_AUTH_CONFIG_URL="${NIFI_AUTH_CONFIG_URL}" \
     EXPECTED_REPLICAS="$(kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" -o jsonpath='{.spec.replicas}')" \
-    EXPECTED_LOGIN_HOST="$(printf '%s' "${KEYCLOAK_DISCOVERY_URL}" | awk -F/ '{print $3}')" \
+    EXPECTED_LOGIN_HOST="${KEYCLOAK_EXPECTED_LOGIN_HOST}" \
     KEYCLOAK_DISCOVERY_URL="${KEYCLOAK_DISCOVERY_URL}" \
+    OIDC_INITIAL_ADMIN_GROUP="${OIDC_INITIAL_ADMIN_GROUP}" \
     python - <<'PY'
 import html
 import http.cookiejar
@@ -596,60 +684,117 @@ def build_opener():
     )
 
 def login(username, password):
-    opener = build_opener()
-    auth_config = json.loads(opener.open(auth_config_url, timeout=60).read().decode("utf-8"))
-    start_url = auth_config["authenticationConfiguration"]["loginUri"]
-    if not start_url:
-        raise SystemExit(f"NiFi did not advertise an OIDC loginUri for {username}")
+    last_error = None
+    for _ in range(6):
+        opener = build_opener()
+        try:
+            auth_config = json.loads(opener.open(auth_config_url, timeout=60).read().decode("utf-8"))
+            start_url = auth_config["authenticationConfiguration"]["loginUri"]
+            if not start_url:
+                raise SystemExit(f"NiFi did not advertise an OIDC loginUri for {username}")
 
-    response = opener.open(start_url, timeout=60)
-    body = response.read().decode("utf-8", "ignore")
-    final_url = response.geturl()
-    if urllib.parse.urlparse(final_url).netloc != expected_login_host:
-        raise SystemExit(
-            f"expected redirected login host {expected_login_host} for {username}, got {urllib.parse.urlparse(final_url).netloc}"
-        )
-    if "kc-form-login" not in body and "login-actions/authenticate" not in final_url:
-        raise SystemExit(f"expected Keycloak login page for {username}, got {final_url}")
+            response = opener.open(start_url, timeout=60)
+            body = response.read().decode("utf-8", "ignore")
+            final_url = response.geturl()
+            if urllib.parse.urlparse(final_url).netloc != expected_login_host:
+                raise SystemExit(
+                    f"expected redirected login host {expected_login_host} for {username}, got {urllib.parse.urlparse(final_url).netloc}"
+                )
+            if "kc-form-login" not in body and "login-actions/authenticate" not in final_url:
+                raise SystemExit(f"expected Keycloak login page for {username}, got {final_url}")
 
-    action_match = re.search(r'<form[^>]+id="kc-form-login"[^>]+action="([^"]+)"', body)
-    if not action_match:
-        raise SystemExit(f"could not find Keycloak login form action for {username}")
+            action_match = re.search(r'<form[^>]+id="kc-form-login"[^>]+action="([^"]+)"', body)
+            if not action_match:
+                raise SystemExit(f"could not find Keycloak login form action for {username}")
 
-    form_values = {}
-    for match in re.finditer(r'<input[^>]*name="([^"]+)"[^>]*value="([^"]*)"', body):
-        form_values[match.group(1)] = html.unescape(match.group(2))
+            form_values = {}
+            for match in re.finditer(r'<input[^>]*name="([^"]+)"[^>]*value="([^"]*)"', body):
+                form_values[match.group(1)] = html.unescape(match.group(2))
 
-    form_values["username"] = username
-    form_values["password"] = password
-    form_action = urllib.parse.urljoin(final_url, html.unescape(action_match.group(1)))
-    login_response = opener.open(form_action, data=urllib.parse.urlencode(form_values).encode("utf-8"), timeout=60)
-    login_response.read()
-    return opener
+            form_values["username"] = username
+            form_values["password"] = password
+            form_action = urllib.parse.urljoin(final_url, html.unescape(action_match.group(1)))
+            login_response = opener.open(form_action, data=urllib.parse.urlencode(form_values).encode("utf-8"), timeout=60)
+            login_response.read()
+            return opener
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code not in (401, 502, 503, 504):
+                raise
+            time.sleep(3)
+        except Exception as exc:
+            last_error = exc
+            time.sleep(3)
+    raise SystemExit(f"OIDC login flow for {username} did not stabilize; last error: {last_error}")
 
 def login_and_check(username, password, allowed_path, expected_code):
-    opener = login(username, password)
-    request = urllib.request.Request(base_url + allowed_path)
-    try:
-      api_response = opener.open(request, timeout=60)
-      code = api_response.getcode()
-    except urllib.error.HTTPError as exc:
-      code = exc.code
+    last_code = None
+    for _ in range(6):
+        opener = login(username, password)
+        code = check_request_with_opener(opener, username, allowed_path, expected_code, allow_retry=True)
 
-    if code != expected_code:
+        if code == expected_code:
+            return code
+        last_code = code
+        if code in (401, 502, 503, 504):
+            time.sleep(3)
+            continue
         raise SystemExit(f"{username} expected {expected_code} from {allowed_path}, got {code}")
-    return code
+    raise SystemExit(f"{username} expected {expected_code} from {allowed_path}, got {last_code}")
+
+def check_request_with_opener(opener, username, allowed_path, expected_code, allow_retry=False):
+    attempts = 6 if allow_retry else 1
+    last_code = None
+    for _ in range(attempts):
+        request = urllib.request.Request(base_url + allowed_path)
+        try:
+            api_response = opener.open(request, timeout=60)
+            code = api_response.getcode()
+        except urllib.error.HTTPError as exc:
+            code = exc.code
+        if code == expected_code:
+            return code
+        last_code = code
+        if code in (401, 502, 503, 504):
+            time.sleep(3)
+            continue
+        break
+    raise SystemExit(f"{username} expected {expected_code} from {allowed_path}, got {last_code}")
 
 def check_cluster_summary(username, password, expected_count):
-    opener = login(username, password)
-    summary = json.loads(opener.open(base_url + "/nifi-api/flow/cluster/summary", timeout=60).read().decode("utf-8"))["clusterSummary"]
-    connected = int(summary.get("connectedNodeCount", -1))
-    total = int(summary.get("totalNodeCount", -1))
-    if connected != expected_count or total != expected_count:
-        raise SystemExit(
-            f"{username} expected connectedNodeCount=totalNodeCount={expected_count}, got connected={connected} total={total}"
-        )
-    return {"connectedNodeCount": connected, "totalNodeCount": total}
+    last_error = None
+    for _ in range(6):
+        try:
+            opener = login(username, password)
+            return check_cluster_summary_with_opener(opener, username, expected_count, allow_retry=True)
+        except urllib.error.HTTPError as exc:
+            last_error = f"{username} cluster summary returned HTTP {exc.code}"
+            if exc.code not in (401, 502, 503, 504):
+                raise
+        except Exception as exc:
+            last_error = str(exc)
+        time.sleep(3)
+    raise SystemExit(last_error)
+
+def check_cluster_summary_with_opener(opener, username, expected_count, allow_retry=False):
+    attempts = 6 if allow_retry else 1
+    last_error = None
+    for _ in range(attempts):
+        try:
+            summary = json.loads(opener.open(base_url + "/nifi-api/flow/cluster/summary", timeout=60).read().decode("utf-8"))["clusterSummary"]
+            connected = int(summary.get("connectedNodeCount", -1))
+            total = int(summary.get("totalNodeCount", -1))
+            if connected == expected_count and total == expected_count:
+                return {"connectedNodeCount": connected, "totalNodeCount": total}
+            last_error = f"{username} expected connectedNodeCount=totalNodeCount={expected_count}, got connected={connected} total={total}"
+        except urllib.error.HTTPError as exc:
+            last_error = f"{username} cluster summary returned HTTP {exc.code}"
+            if exc.code not in (401, 502, 503, 504):
+                raise
+        except Exception as exc:
+            last_error = str(exc)
+        time.sleep(3)
+    raise SystemExit(last_error)
 
 def wait_for_admin_ready(timeout=300):
     deadline = time.time() + timeout
@@ -657,9 +802,11 @@ def wait_for_admin_ready(timeout=300):
     while time.time() < deadline:
         try:
             login_and_check("alice", "ChangeMeChangeMe1!", "/nifi-api/controller/config", 200)
-            check_cluster_summary("alice", "ChangeMeChangeMe1!", expected_replicas)
-            return
+            return check_cluster_summary("alice", "ChangeMeChangeMe1!", expected_replicas)
         except SystemExit as exc:
+            last_error = str(exc)
+            time.sleep(5)
+        except Exception as exc:
             last_error = str(exc)
             time.sleep(5)
     raise SystemExit(
@@ -667,17 +814,27 @@ def wait_for_admin_ready(timeout=300):
         f"alice could not reach controller/config with a fully connected cluster within timeout; last error: {last_error}"
     )
 
-wait_for_admin_ready()
+admin_summary = wait_for_admin_ready()
 
 results = {
-    "alice_controller": login_and_check("alice", "ChangeMeChangeMe1!", "/nifi-api/controller/config", 200),
-    "alice_cluster_summary": check_cluster_summary("alice", "ChangeMeChangeMe1!", expected_replicas),
-    "bob_cluster_summary": check_cluster_summary("bob", "ChangeMeChangeMe1!", expected_replicas),
-    "bob_controller": login_and_check("bob", "ChangeMeChangeMe1!", "/nifi-api/controller/config", 403),
-    "dora_cluster_summary": check_cluster_summary("dora", "ChangeMeChangeMe1!", expected_replicas),
-    "dora_controller": login_and_check("dora", "ChangeMeChangeMe1!", "/nifi-api/controller/config", 200),
-    "charlie_cluster_summary": login_and_check("charlie", "ChangeMeChangeMe1!", "/nifi-api/flow/cluster/summary", 403),
+    "alice_controller": 200,
+    "alice_cluster_summary": admin_summary,
 }
+
+if __import__("os").environ.get("OIDC_INITIAL_ADMIN_GROUP", "false").lower() != "true":
+    alice = login("alice", "ChangeMeChangeMe1!")
+    results["alice_controller"] = check_request_with_opener(alice, "alice", "/nifi-api/controller/config", 200)
+    results["alice_cluster_summary"] = check_cluster_summary_with_opener(alice, "alice", expected_replicas)
+    bob = login("bob", "ChangeMeChangeMe1!")
+    dora = login("dora", "ChangeMeChangeMe1!")
+    charlie = login("charlie", "ChangeMeChangeMe1!")
+    results.update({
+        "bob_cluster_summary": check_cluster_summary_with_opener(bob, "bob", expected_replicas),
+        "bob_controller": check_request_with_opener(bob, "bob", "/nifi-api/controller/config", 403),
+        "dora_cluster_summary": check_cluster_summary_with_opener(dora, "dora", expected_replicas),
+        "dora_controller": check_request_with_opener(dora, "dora", "/nifi-api/controller/config", 200),
+        "charlie_cluster_summary": check_request_with_opener(charlie, "charlie", "/nifi-api/flow/cluster/summary", 403),
+    })
 print(json.dumps(results, indent=2, sort_keys=True))
 PY
 
@@ -727,10 +884,13 @@ if [[ "${OIDC_EXTERNAL_INGRESS}" == "true" ]]; then
   log_step "installing ingress-nginx for external OIDC host routing"
   install_ingress_controller
   configure_external_ingress_hosts
+  create_external_ingress_tls_secret
 else
   NIFI_ACCESS_URL="https://${HELM_RELEASE}.${NAMESPACE}.svc.cluster.local:8443"
   NIFI_AUTH_CONFIG_URL="${NIFI_ACCESS_URL}/nifi-api/authentication/configuration"
   KEYCLOAK_DISCOVERY_URL="http://keycloak.${NAMESPACE}.svc.cluster.local:8080/realms/nifi/.well-known/openid-configuration"
+  KEYCLOAK_PUBLIC_DISCOVERY_URL="${KEYCLOAK_DISCOVERY_URL}"
+  KEYCLOAK_EXPECTED_LOGIN_HOST="$(printf '%s' "${KEYCLOAK_DISCOVERY_URL}" | awk -F/ '{print $3}')"
 fi
 
 log_step "bootstrapping Keycloak"
@@ -791,7 +951,7 @@ wait_for_oidc_discovery_from_nifi_pod
 
 if [[ "${OIDC_EXTERNAL_INGRESS}" == "true" ]]; then
   assert_nifi_property \
-    "nifi.web.proxy.host=${NIFI_PUBLIC_HOST}:${INGRESS_HTTP_NODEPORT}" \
+    "nifi.web.proxy.host=${NIFI_PUBLIC_HOST}:${INGRESS_HTTPS_NODEPORT}" \
     "wrong proxy-host / external URL assumptions: NiFi did not render the external ingress host into nifi.web.proxy.host"
   kubectl -n "${NAMESPACE}" get ingress "${HELM_RELEASE}" >/dev/null 2>&1 || fail "expected the NiFi ingress resource to be rendered in external OIDC mode"
   kubectl -n "${NAMESPACE}" get ingress keycloak >/dev/null 2>&1 || fail "expected the Keycloak ingress resource to exist in external OIDC mode"
@@ -806,9 +966,17 @@ else
 fi
 
 if [[ "${OIDC_EXTERNAL_INGRESS}" == "true" ]]; then
-  log_step "running external-host OIDC login and group-based authorization checks"
+  if [[ "${OIDC_INITIAL_ADMIN_GROUP}" == "true" ]]; then
+    log_step "running external-host OIDC Initial Admin Group bootstrap checks"
+  else
+    log_step "running external-host OIDC login and file-managed authz.policies authorization checks"
+  fi
 else
-  log_step "running in-cluster OIDC login and group-based authorization checks"
+  if [[ "${OIDC_INITIAL_ADMIN_GROUP}" == "true" ]]; then
+    log_step "running in-cluster OIDC Initial Admin Group bootstrap checks"
+  else
+    log_step "running in-cluster OIDC login and file-managed authz.policies authorization checks"
+  fi
 fi
 run_oidc_probe
 
@@ -821,4 +989,8 @@ if [[ "${OIDC_EXTERNAL_INGRESS}" == "true" ]]; then
 else
   echo "  OIDC discovery and group-claim runtime wiring"
 fi
-echo "  Initial Admin Identity bootstrap fallback plus observer/operator/admin policy mapping checks"
+if [[ "${OIDC_INITIAL_ADMIN_GROUP}" == "true" ]]; then
+  echo "  Initial Admin Group primary bootstrap"
+else
+  echo "  Initial Admin Identity bootstrap fallback plus file-managed authz.policies observer/operator/admin checks"
+fi

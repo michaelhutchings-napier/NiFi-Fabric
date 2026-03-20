@@ -605,7 +605,9 @@ parameterContexts:
 # -- Runtime-managed versioned-flow import definitions.
 # The chart creates only the bounded NiFi runtime state required for one
 # selected registry-backed flow import per entry:
-# - the selected live Flow Registry Client must already exist in NiFi
+# - declared prepared `provider=nifiRegistry` entries can create or reconcile the
+#   exact live client needed by this bounded compatibility path
+# - other selected live Flow Registry Clients must already exist in NiFi
 # - the declared flow is imported under one named root child process group
 # - at most one direct Parameter Context reference can be attached
 # - removed imports are not deleted from NiFi in this slice

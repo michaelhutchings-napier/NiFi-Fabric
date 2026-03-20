@@ -1,0 +1,34 @@
+nifi:
+  authz:
+    bundles:
+      flowVersionManager:
+        includeInitialAdmin: true
+  flowRegistryClients:
+    enabled: true
+    clients:
+    - name: nifi-registry-flows
+      provider: nifiRegistry
+      description: Bounded NiFi Registry compatibility client for runtime-managed import intent.
+      nifiRegistry:
+        url: http://nifi-registry.nifi.svc.cluster.local:18080
+  parameterContexts:
+    enabled: true
+    contexts:
+    - name: payments-runtime
+      description: Runtime-managed parameter context referenced by the bounded NiFi Registry import path.
+      parameters:
+      - name: payments.api.baseUrl
+        value: https://payments.internal.example.com
+  versionedFlowImports:
+    enabled: true
+    imports:
+    - name: payments-api
+      description: Runtime-managed bounded NiFi Registry import for the standard platform chart path.
+      registryClientName: nifi-registry-flows
+      bucket: team-a
+      flowName: payments-api
+      version: latest
+      target:
+        rootProcessGroupName: payments-api-root
+      parameterContextRefs:
+      - name: payments-runtime

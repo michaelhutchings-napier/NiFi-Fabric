@@ -23,7 +23,7 @@
     "authMode" $authMode
     "proxiedIdentity" $proxiedIdentity
     "requiresLiveRegistryClient" true
-    "requiresPreparedGithubClientForSnapshotFallback" true
+    "requiresPreparedGithubClientForSnapshotFallback" false
     "reconcilePodOrdinal" 0
     "statusFile" $statusFile
     "pollIntervalSeconds" 10
@@ -31,7 +31,7 @@
     "versionSync" "declared-version-only-no-ongoing-sync"
     "latestVersionPolicy" "resolve-on-create-or-declared-change-then-pin"
     "ownershipMarker" "root-child-process-group-comments"
-    "snapshotSource" "nifi-flow-registry-api-with-prepared-github-fallback"
+    "snapshotSource" "nifi-flow-registry-api"
   )
   "imports" (list)
 -}}
@@ -51,11 +51,13 @@
   "preparedRegistryClients" (list)
   "imports" (list)
 -}}
+{{- $preparedClientProviders := dict -}}
 {{- range $clientIndex, $client := default (list) .Values.flowRegistryClients.clients }}
 {{- $clientEntry := dict
   "name" $client.name
   "provider" $client.provider
 -}}
+{{- $_ := set $preparedClientProviders $client.name $client.provider -}}
 {{- if eq $client.provider "github" }}
 {{- $authType := default "personalAccessToken" $client.github.auth.type -}}
 {{- $github := dict
@@ -70,6 +72,13 @@
 {{- $_ := set $github "tokenEnvVar" (printf "FLOW_REGISTRY_CLIENT_GITHUB_PAT_%d" $clientIndex) -}}
 {{- end -}}
 {{- $_ := set $clientEntry "github" $github -}}
+{{- end -}}
+{{- if eq $client.provider "nifiRegistry" }}
+{{- $_ := set $clientEntry "nifiRegistry" (dict
+  "url" $client.nifiRegistry.url
+  "sslContextServiceName" (default "" $client.sslContextServiceName)
+  "description" (default "" $client.description)
+) -}}
 {{- end -}}
 {{- $_ := set $runtimeConfig "preparedRegistryClients" (append (get $runtimeConfig "preparedRegistryClients") $clientEntry) -}}
 {{- end }}
@@ -100,6 +109,23 @@
 -}}
 {{- if hasKey $import "description" -}}
 {{- $_ := set $entry "description" $import.description -}}
+{{- end -}}
+{{- $provider := get $preparedClientProviders $import.registryClientName | default "" -}}
+{{- if eq $provider "github" -}}
+{{- $_ := set (get $catalog "runtimeContract") "requiresPreparedGithubClientForSnapshotFallback" true -}}
+{{- if get $ownership "createsFlowRegistryClientsInNiFi" -}}
+{{- $_ := set (get $catalog "runtimeContract") "snapshotSource" "nifi-flow-registry-api-with-bounded-runtime-managed-nifi-registry-client-and-prepared-github-fallback" -}}
+{{- else -}}
+{{- $_ := set (get $catalog "runtimeContract") "snapshotSource" "nifi-flow-registry-api-with-prepared-github-fallback" -}}
+{{- end -}}
+{{- else if eq $provider "nifiRegistry" -}}
+{{- $_ := set $ownership "createsFlowRegistryClientsInNiFi" true -}}
+{{- $_ := set (get $catalog "runtimeContract") "requiresLiveRegistryClient" false -}}
+{{- if get (get $catalog "runtimeContract") "requiresPreparedGithubClientForSnapshotFallback" -}}
+{{- $_ := set (get $catalog "runtimeContract") "snapshotSource" "nifi-flow-registry-api-with-bounded-runtime-managed-nifi-registry-client-and-prepared-github-fallback" -}}
+{{- else -}}
+{{- $_ := set (get $catalog "runtimeContract") "snapshotSource" "nifi-flow-registry-api-with-bounded-runtime-managed-nifi-registry-client" -}}
+{{- end -}}
 {{- end -}}
 {{- $_ := set $catalog "imports" (append (get $catalog "imports") $entry) -}}
 {{- $_ := set $runtimeConfig "imports" (append (get $runtimeConfig "imports") $entry) -}}
@@ -309,6 +335,15 @@ data:
         return mapping
 
 
+    def prepared_registry_client(config, client_name):
+        client = prepared_registry_clients_by_name(config).get(client_name)
+        if not client:
+            raise NiFiAPIError(
+                f"selected prepared Flow Registry Client definition {client_name!r} was not found in the chart-rendered config"
+            )
+        return client
+
+
     def github_api_request(url, headers):
         req = urllib.request.Request(url, headers=headers, method="GET")
         try:
@@ -338,11 +373,7 @@ data:
 
 
     def fetch_github_snapshot(config, client_name, bucket_name, flow_id, resolved_version):
-        client = prepared_registry_clients_by_name(config).get(client_name)
-        if not client:
-            raise NiFiAPIError(
-                f"selected prepared Flow Registry Client definition {client_name!r} was not found in the chart-rendered config"
-            )
+        client = prepared_registry_client(config, client_name)
         if client.get("provider") != "github":
             raise NiFiAPIError(
                 f"selected prepared Flow Registry Client definition {client_name!r} is not a supported GitHub client for bounded runtime-managed import"
@@ -399,6 +430,54 @@ data:
         return snapshot
 
 
+    def nifi_registry_api_base_url(url):
+        base = (url or "").rstrip("/")
+        if not base:
+            raise NiFiAPIError("selected NiFi Registry client is missing a usable url")
+        if base.endswith("/nifi-registry-api"):
+            return base
+        if base.endswith("/nifi-registry"):
+            return base[: -len("/nifi-registry")] + "/nifi-registry-api"
+        return base + "/nifi-registry-api"
+
+
+    def fetch_nifi_registry_snapshot(config, client_name, bucket_id, flow_id, resolved_version):
+        client = prepared_registry_client(config, client_name)
+        if client.get("provider") != "nifiRegistry":
+            raise NiFiAPIError(
+                f"selected prepared Flow Registry Client definition {client_name!r} is not a supported NiFi Registry client for bounded runtime-managed import"
+            )
+
+        registry = client.get("nifiRegistry", {})
+        api_base_url = nifi_registry_api_base_url(registry.get("url", ""))
+        bucket = urllib.parse.quote(str(bucket_id), safe="")
+        flow = urllib.parse.quote(str(flow_id), safe="")
+        version = urllib.parse.quote(str(resolved_version), safe="")
+        url = f"{api_base_url}/buckets/{bucket}/flows/{flow}/versions/{version}"
+        req = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=20) as response:
+                body = response.read()
+                if response.status != 200:
+                    raise NiFiAPIError(
+                        f"GET {url} returned unexpected status {response.status}: {body[:4096].decode('utf-8', 'ignore')}"
+                    )
+                if not body:
+                    raise NiFiAPIError(f"GET {url} returned an empty response")
+                try:
+                    snapshot = json.loads(body.decode("utf-8"))
+                except Exception as exc:
+                    raise NiFiAPIError(f"GET {url} did not return valid JSON snapshot content") from exc
+        except urllib.error.HTTPError as exc:
+            body_text = exc.read().decode("utf-8", "ignore")
+            raise NiFiAPIError(f"GET {url} failed with status {exc.code}: {body_text[:4096]}") from exc
+        except urllib.error.URLError as exc:
+            raise NiFiAPIError(f"GET {url} failed: {exc}") from exc
+        if not isinstance(snapshot, dict):
+            raise NiFiAPIError(f"GET {url} did not return a JSON object snapshot")
+        return snapshot
+
+
     def enrich_snapshot_metadata(snapshot, registry_name, registry_id, bucket_name, flow_name, flow_id, version_entry, selected_version):
         enriched = json.loads(json.dumps(snapshot))
         metadata = enriched.get("snapshotMetadata")
@@ -442,16 +521,30 @@ data:
         return enriched
 
 
-    def selected_snapshot(config, registry_name, registry_id, bucket_name, flow_name, flow_id, version_entry, selected_version):
+    def selected_snapshot(config, registry_name, registry_id, bucket_name, bucket_id, flow_name, flow_id, version_entry, selected_version):
         snapshot = version_entry.get("snapshot")
         if snapshot is None:
-            snapshot = fetch_github_snapshot(
-                config,
-                registry_name,
-                bucket_name,
-                flow_id,
-                version_entry["version"],
-            )
+            client = prepared_registry_client(config, registry_name)
+            if client.get("provider") == "github":
+                snapshot = fetch_github_snapshot(
+                    config,
+                    registry_name,
+                    bucket_name,
+                    flow_id,
+                    version_entry["version"],
+                )
+            elif client.get("provider") == "nifiRegistry":
+                snapshot = fetch_nifi_registry_snapshot(
+                    config,
+                    registry_name,
+                    bucket_id,
+                    flow_id,
+                    version_entry["version"],
+                )
+            else:
+                raise NiFiAPIError(
+                    f"selected Flow Registry Client {registry_name!r} did not expose inline snapshot content for version {version_entry['version']!r}; only prepared GitHub and NiFi Registry fallback are supported for non-inline snapshot retrieval in this slice"
+                )
         return enrich_snapshot_metadata(
             snapshot,
             registry_name,
@@ -525,16 +618,215 @@ data:
         return marker if not base else base + "\n\n" + marker
 
 
-    def flow_registry_ids_by_name(opener, base_url, proxied_identity):
+    def flow_registry_entities_by_name(opener, base_url, proxied_identity):
         payload = request(opener, base_url, "GET", "/flow/registries", proxied_identity)
         mapping = {}
         for entry in payload.get("registries", []):
             component = entry.get("component", {})
             name = component.get("name")
+            if name:
+                mapping[name] = entry
+        return mapping
+
+
+    def flow_registry_ids_by_name(opener, base_url, proxied_identity):
+        mapping = {}
+        for name, entry in flow_registry_entities_by_name(opener, base_url, proxied_identity).items():
+            component = entry.get("component", {})
             identifier = entry.get("id") or component.get("id")
-            if name and identifier:
+            if identifier:
                 mapping[name] = identifier
         return mapping
+
+
+    def flow_registry_client_bundle(opener, base_url, proxied_identity, implementation_class):
+        payload = request(opener, base_url, "GET", "/controller/registry-types", proxied_identity)
+        for entry in payload.get("flowRegistryClientTypes", []):
+            if entry.get("type") == implementation_class:
+                bundle = entry.get("bundle")
+                if isinstance(bundle, dict):
+                    return bundle
+        raise NiFiAPIError(f"NiFi runtime does not expose flow registry client type {implementation_class!r}")
+
+
+    def managed_registry_client_metadata(config, description):
+        description = description or ""
+        prefix = config["ownership"]["commentsMarker"] + ": "
+        start = description.rfind("\n\n" + prefix)
+        if start != -1:
+            payload = description[start + len("\n\n" + prefix) :]
+        elif description.startswith(prefix):
+            payload = description[len(prefix) :]
+        else:
+            return {}
+        try:
+            metadata = json.loads(payload)
+        except Exception:
+            return {}
+        if not isinstance(metadata, dict):
+            return {}
+        if metadata.get("managedObject") != "flowRegistryClient":
+            return {}
+        return metadata
+
+
+    def strip_managed_registry_client_marker(config, description):
+        description = description or ""
+        prefix = config["ownership"]["commentsMarker"] + ": "
+        start = description.rfind("\n\n" + prefix)
+        if start != -1:
+            return description[:start]
+        if description.startswith(prefix):
+            return ""
+        return description
+
+
+    def managed_registry_client_description(config, client):
+        base = (client.get("nifiRegistry") or {}).get("description", "") or ""
+        metadata = {
+            "managedObject": "flowRegistryClient",
+            "provider": client.get("provider", ""),
+            "registryClientName": client.get("name", ""),
+            "url": (client.get("nifiRegistry") or {}).get("url", ""),
+            "sslContextServiceName": (client.get("nifiRegistry") or {}).get("sslContextServiceName", ""),
+        }
+        marker = f"{config['ownership']['commentsMarker']}: {json.dumps(metadata, sort_keys=True)}"
+        return marker if not base else base + "\n\n" + marker
+
+
+    def desired_nifi_registry_client_component(config, opener, base_url, proxied_identity, client):
+        component = {
+            "name": client["name"],
+            "type": "org.apache.nifi.registry.flow.NifiRegistryFlowRegistryClient",
+            "bundle": flow_registry_client_bundle(
+                opener,
+                base_url,
+                proxied_identity,
+                "org.apache.nifi.registry.flow.NifiRegistryFlowRegistryClient",
+            ),
+            "properties": {
+                "url": client["nifiRegistry"]["url"],
+            },
+            "description": managed_registry_client_description(config, client),
+        }
+        ssl_context_service_name = client.get("nifiRegistry", {}).get("sslContextServiceName", "")
+        if ssl_context_service_name:
+            component["properties"]["ssl-context-service"] = ssl_context_service_name
+        return component
+
+
+    def registry_client_properties_equal(actual_component, desired_component):
+        actual_properties = actual_component.get("properties") or {}
+        desired_properties = desired_component.get("properties") or {}
+        actual_url = actual_properties.get("url") or actual_properties.get("URL") or ""
+        desired_url = desired_properties.get("url") or desired_properties.get("URL") or ""
+        actual_ssl_context_service = (
+            actual_properties.get("ssl-context-service")
+            or actual_properties.get("SSL Context Service")
+            or ""
+        )
+        desired_ssl_context_service = (
+            desired_properties.get("ssl-context-service")
+            or desired_properties.get("SSL Context Service")
+            or ""
+        )
+        return (
+            (actual_component.get("name") or "") == (desired_component.get("name") or "")
+            and (actual_component.get("type") or "") == (desired_component.get("type") or "")
+            and (actual_component.get("description") or "") == (desired_component.get("description") or "")
+            and actual_url == desired_url
+            and actual_ssl_context_service == desired_ssl_context_service
+        )
+
+
+    def ensure_nifi_registry_client(config, opener, base_url, proxied_identity, client_name):
+        client = prepared_registry_client(config, client_name)
+        if client.get("provider") != "nifiRegistry":
+            raise NiFiAPIError(
+                f"selected prepared Flow Registry Client definition {client_name!r} is not a supported NiFi Registry client"
+            )
+
+        desired_component = desired_nifi_registry_client_component(config, opener, base_url, proxied_identity, client)
+        entities_by_name = flow_registry_entities_by_name(opener, base_url, proxied_identity)
+        existing = entities_by_name.get(client_name)
+        if not existing:
+            created = request(
+                opener,
+                base_url,
+                "POST",
+                "/controller/registry-clients",
+                proxied_identity,
+                payload={
+                    "revision": {"version": 0},
+                    "component": desired_component,
+                },
+                expect=(200, 201),
+            )
+            component = created.get("component", {})
+            identifier = created.get("id") or component.get("id")
+            if not identifier:
+                raise NiFiAPIError(
+                    f"NiFi created Flow Registry Client {client_name!r} but did not return a usable identifier"
+                )
+            return identifier, "created", "product-owned"
+
+        component = existing.get("component", {})
+        identifier = existing.get("id") or component.get("id")
+        if not identifier:
+            raise NiFiAPIError(
+                f"existing Flow Registry Client {client_name!r} was returned without a usable identifier"
+            )
+
+        metadata = managed_registry_client_metadata(config, component.get("description", ""))
+        if not metadata:
+            return identifier, "reused", "operator-owned"
+
+        details = request(opener, base_url, "GET", f"/controller/registry-clients/{identifier}", proxied_identity)
+        detail_component = details.get("component", {}) or details.get("registry", {}) or {}
+        revision = details.get("revision", {}) or {}
+        if registry_client_properties_equal(detail_component, desired_component):
+            return identifier, "unchanged", "product-owned"
+
+        updated = request(
+            opener,
+            base_url,
+            "PUT",
+            f"/controller/registry-clients/{identifier}",
+            proxied_identity,
+            payload={
+                "revision": {
+                    "clientId": config["management"]["clientId"],
+                    "version": int(revision.get("version", 0)),
+                },
+                "component": dict(desired_component, id=identifier),
+            },
+            expect=(200, 201),
+        )
+        updated_component = updated.get("component", {})
+        updated_identifier = updated.get("id") or updated_component.get("id") or identifier
+        return updated_identifier, "reconciled", "product-owned"
+
+
+    def resolve_registry_client(opener, base_url, proxied_identity, config, import_entry):
+        registry_name = import_entry["registryClientRef"]["name"]
+        client = prepared_registry_client(config, registry_name)
+        provider = client.get("provider")
+        if provider == "nifiRegistry":
+            registry_id, action, ownership_state = ensure_nifi_registry_client(
+                config,
+                opener,
+                base_url,
+                proxied_identity,
+                registry_name,
+            )
+            return client, registry_id, action, ownership_state
+
+        registry_id = flow_registry_ids_by_name(opener, base_url, proxied_identity).get(registry_name, "")
+        if not registry_id:
+            raise NiFiAPIError(
+                f"selected Flow Registry Client {registry_name!r} does not exist in NiFi; create it first from the prepared catalog or another operator-managed path"
+            )
+        return client, registry_id, "reused", "operator-owned"
 
 
     def parameter_context_ids_by_name(opener, base_url, proxied_identity):
@@ -580,8 +872,20 @@ data:
         return payload, process_group_flow, process_group_flow.get("flow", {})
 
 
-    def resolve_flow_id(opener, base_url, proxied_identity, registry_id, bucket_name, flow_name):
-        payload = request(opener, base_url, "GET", f"/flow/registries/{registry_id}/buckets/{bucket_name}/flows", proxied_identity)
+    def resolve_bucket(config, opener, base_url, proxied_identity, registry_id, bucket_name):
+        payload = request(opener, base_url, "GET", f"/flow/registries/{registry_id}/buckets", proxied_identity)
+        entries = payload.get("bucketResults") or payload.get("buckets") or []
+        for entry in entries:
+            candidate = entry.get("bucket") or entry
+            name = candidate.get("name") or ""
+            identifier = candidate.get("identifier") or candidate.get("id") or name
+            if name == bucket_name and identifier:
+                return {"id": identifier, "name": name}
+        raise NiFiAPIError(f"selected bucket {bucket_name!r} was not returned from Flow Registry Client {registry_id!r}")
+
+
+    def resolve_flow_id(opener, base_url, proxied_identity, registry_id, bucket_id, flow_name):
+        payload = request(opener, base_url, "GET", f"/flow/registries/{registry_id}/buckets/{bucket_id}/flows", proxied_identity)
         flows = payload.get("bucketFlowResults") or payload.get("versionedFlows") or payload.get("flows") or []
         for entry in flows:
             candidate = entry.get("flow") or entry.get("versionedFlow") or entry
@@ -589,7 +893,7 @@ data:
             identifier = candidate.get("identifier") or candidate.get("flowId") or candidate.get("id") or ""
             if name == flow_name and identifier:
                 return identifier
-        raise NiFiAPIError(f"selected flow {flow_name!r} was not returned from bucket {bucket_name!r}")
+        raise NiFiAPIError(f"selected flow {flow_name!r} was not returned from bucket id {bucket_id!r}")
 
 
     def version_entries(payload):
@@ -658,12 +962,12 @@ data:
         return list(unique.values())
 
 
-    def resolve_version_entry(opener, base_url, proxied_identity, registry_id, bucket_name, flow_id, selected_version):
+    def resolve_version_entry(opener, base_url, proxied_identity, registry_id, bucket_id, flow_id, selected_version):
         payload = request(
             opener,
             base_url,
             "GET",
-            f"/flow/registries/{registry_id}/buckets/{bucket_name}/flows/{flow_id}/versions",
+            f"/flow/registries/{registry_id}/buckets/{bucket_id}/flows/{flow_id}/versions",
             proxied_identity,
         )
         entries = version_entries(payload)
@@ -835,9 +1139,8 @@ data:
         return component_payload, component, revision, process_group_flow, flow_payload, version_control
 
 
-    def resolved_version_for_import(opener, base_url, proxied_identity, import_entry, registry_id, flow_id, ownership_metadata, previous_entry, import_status):
+    def resolved_version_for_import(opener, base_url, proxied_identity, import_entry, registry_id, bucket_id, flow_id, ownership_metadata, previous_entry, import_status):
         selected_version = str(import_entry["source"]["version"])
-        bucket_name = import_entry["source"]["bucket"]
         flow_name = import_entry["source"]["flowName"]
         observed_hash = import_status["observedHash"]
 
@@ -847,7 +1150,7 @@ data:
                 base_url,
                 proxied_identity,
                 registry_id,
-                bucket_name,
+                bucket_id,
                 flow_id,
                 selected_version,
             )
@@ -860,7 +1163,7 @@ data:
             base_url,
             proxied_identity,
             registry_id,
-            bucket_name,
+            bucket_id,
             flow_id,
             "latest",
         )
@@ -884,7 +1187,7 @@ data:
                 base_url,
                 proxied_identity,
                 registry_id,
-                bucket_name,
+                bucket_id,
                 flow_id,
                 pinned_version,
             )
@@ -948,18 +1251,25 @@ data:
             import_status["ownershipState"] = "creating"
 
         registry_name = import_entry["registryClientRef"]["name"]
-        registry_id = flow_registry_ids_by_name(opener, base_url, proxied_identity).get(registry_name)
-        if not registry_id:
-            raise NiFiAPIError(
-                f"selected Flow Registry Client {registry_name!r} does not exist in NiFi; create it first from the prepared catalog or another operator-managed path"
-            )
+        _, registry_id, registry_client_action, registry_client_ownership = resolve_registry_client(
+            opener,
+            base_url,
+            proxied_identity,
+            config,
+            import_entry,
+        )
         import_status["registryClientName"] = registry_name
         import_status["registryClientId"] = registry_id
+        import_status["registryClientAction"] = registry_client_action
+        import_status["registryClientOwnership"] = registry_client_ownership
 
         bucket_name = import_entry["source"]["bucket"]
         flow_name = import_entry["source"]["flowName"]
-        flow_id = resolve_flow_id(opener, base_url, proxied_identity, registry_id, bucket_name, flow_name)
+        bucket = resolve_bucket(config, opener, base_url, proxied_identity, registry_id, bucket_name)
+        bucket_id = bucket["id"]
+        flow_id = resolve_flow_id(opener, base_url, proxied_identity, registry_id, bucket_id, flow_name)
         import_status["bucket"] = bucket_name
+        import_status["bucketId"] = bucket_id
         import_status["flowName"] = flow_name
         import_status["flowId"] = flow_id
 
@@ -969,6 +1279,7 @@ data:
             proxied_identity,
             import_entry,
             registry_id,
+            bucket_id,
             flow_id,
             ownership_metadata,
             previous_entry,
@@ -979,6 +1290,7 @@ data:
             registry_name,
             registry_id,
             bucket_name,
+            bucket_id,
             flow_name,
             flow_id,
             version_entry,
@@ -1261,9 +1573,9 @@ data:
     - reconcile declared version selection live on pod `-0`
     - attach one declared direct Parameter Context reference to each owned import
     - retain, but do not delete, removed imports from NiFi
-    - reuse a live Flow Registry Client already present in NiFi
+    - create and reconcile only the declared `provider=nifiRegistry` Flow Registry Clients needed by this bounded path
+    - reuse already-live operator-owned Flow Registry Clients for the other supported prepared providers
     Product does not:
-    - create or reconcile Flow Registry Clients in NiFi
     - adopt same-name operator-owned root-child process groups automatically
     - perform arbitrary process-group mutation beyond bounded version selection and one direct Parameter Context attachment
     - perform ongoing automatic synchronization to newer registry versions

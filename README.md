@@ -174,7 +174,7 @@ NiFi-Fabric targets Apache NiFi `2.0.x` through `2.8.x`.
 - NiFi `1.x` is not supported
 - AKS is a primary target, but current repo proof is still kind-first
 - OpenShift is supported as a prepared secondary target and remains conservative until real-cluster proof is recorded
-- richer ingress-backed OIDC browser-flow proof is still conservative on the current local Keycloak `26.x` path
+- bounded core OIDC is GA on the focused `oidc + externalClaimGroups` path, including the focused `Initial Admin Group` bootstrap proof through `make kind-auth-oidc-initial-admin-group-fast-e2e` and the ingress-backed external-host HTTPS browser flow through `make kind-auth-oidc-ingress-fast-e2e`
 
 See [Compatibility](docs/compatibility.md) for the detailed matrix.
 
@@ -205,11 +205,15 @@ See [Compatibility](docs/compatibility.md) for the detailed matrix.
 - when scale-down disconnect, offload, or post-removal settle work stalls, the controller now keeps the step blocked and restart-safe with stage-specific diagnostics instead of silently retrying risky destructive work
 - autoscaling diagnostics now make the requested, recommended, and executing states explicit through `status.autoscaling.external.*`, `status.autoscaling.recommendedReplicas`, `status.autoscaling.execution.*`, and context-rich `lastScalingDecision`
 - mutable-flow authorization bootstrap stays chart-first and controller-free
+- bounded core OIDC is GA as a first-class managed auth option on the focused `oidc + externalClaimGroups` path with explicit claims mapping, seeded NiFi groups, bounded file-managed `authz.policies[]` bindings for those groups, focused `Initial Admin Identity` fallback and `Initial Admin Group` primary bootstrap proofs, and focused browser-login proof
+- ingress-backed external-host HTTPS OIDC is also GA on that same bounded auth contract when sticky ingress routing is in place for the browser callback path and NiFi trusts the IdP CA for token exchange
 - GitHub, GitLab, and Bitbucket Flow Registry Client paths are runtime-proven on NiFi `2.8.0`
+- NiFi Registry has a bounded compatibility-oriented typed Flow Registry Client path on NiFi `2.8.0`
 - a user-driven GitHub versioned-flow save-to-registry workflow is focused-runtime-proven on NiFi `2.8.0`
+- a bounded NiFi Registry compatibility import and version-selection workflow is focused-runtime-proven on the platform chart path on NiFi `2.8.0`
 - Azure DevOps Flow Registry Client remains prepared and render-validated
 - Parameter Context support is available as an optional typed runtime-managed feature for bounded Parameter Context creation, live update, deletion, and direct root-child attachment, not as generic flow-runtime management
-- bounded versioned flow import and version selection are available as an optional typed runtime-managed feature for declared root-child import targets, including live version reconcile, explicit ownership markers, and selected-version attachment without provider write-back, not as generic flow-runtime management
+- bounded versioned flow import and version selection are available as an optional typed runtime-managed feature for declared root-child import targets, including live version reconcile, explicit ownership markers, selected-version attachment without provider write-back, and the bounded `provider=nifiRegistry` compatibility path for creating the exact live Registry Client it owns, not as generic flow-runtime management
 - a bounded restore workflow is now focused-runtime-proven on the platform chart path for control-plane reinstall plus registry-client reconnect, runtime-managed Parameter Context recovery, and selected-flow import from registry-backed content
 - native API metrics are the primary, recommended metrics path and are runtime-proven on kind
 - a bounded Linkerd compatibility profile is focused-runtime-proven for meshed NiFi pods with controller-owned health and lifecycle behavior unchanged
@@ -355,9 +359,10 @@ NiFi-Fabric documentation is intentionally conservative in a few areas:
 - parameter contexts are runtime-managed only within the declared bounded scope of owned context create/update/delete and direct root-child attachment; Parameter Provider creation and generic flow-runtime management remain out of scope
 - exporter support is GA only within the bounded documented scope of flow metrics plus selected `/flow/status` gauges
 - the user-driven GitHub save-to-registry workflow is separately proven, while bounded runtime-managed flow import is proven only within the declared `versionedFlowImports.*` scope; generic deployment and ongoing synchronization remain out of scope
+- NiFi Registry support is compatibility-oriented and intentionally bounded to the typed `provider=nifiRegistry` catalog plus platform-chart import path; Git-based Flow Registry Clients remain the preferred long-term direction
 - trust-manager currently distributes shared CA bundles only; it does not replace cert-manager or move trust orchestration into the controller
 - automatic mirroring of the workload TLS `ca.crt` into a trust-manager source Secret is available as an optional chart-owned helper path
 - ConfigMap and Secret bundle targets are supported, but current automatic app consumption still centers on the PEM `ca.crt` bundle key
 - DR guidance is production-oriented but intentionally does not claim storage snapshot orchestration, provider write-back, or full NiFi internal recovery ownership
-- versioned flow import is runtime-managed only within the declared bounded scope; live registry client lifecycle, provider write-back, broader process-group mutation, and ongoing synchronization remain out of scope
+- versioned flow import is runtime-managed only within the declared bounded scope; broad live registry-client lifecycle, provider write-back, broader process-group mutation, and ongoing synchronization remain out of scope
 - the bounded restore workflow proof is config-and-flow recovery only; it does not claim queue, provenance, content, or other PVC-backed NiFi state replay

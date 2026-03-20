@@ -31,15 +31,17 @@ Focused runtime proof in this repository includes:
 - the docs now include KEDA-specific starter operations coverage for ignored, blocked, deferred, and GitOps-conflicted external intent
 - focused repo tests now prove KEDA conflict handling across rollout, TLS observation, restore, hibernation, degraded state, already-running destructive work, and controller restart
 - GitHub, GitLab, and Bitbucket Flow Registry Client focused flows on NiFi `2.8.0`
+- bounded NiFi Registry Flow Registry Client compatibility flow on NiFi `2.8.0` through a real in-cluster `apache/nifi-registry` service
 - a GitHub versioned-flow save-to-registry workflow on NiFi `2.8.0`
 - a bounded GitHub versioned-flow selection workflow on NiFi `2.8.0`
+- a bounded NiFi Registry compatibility versioned-flow import workflow on NiFi `2.8.0` through a real in-cluster `apache/nifi-registry` service
 - a bounded platform restore workflow on NiFi `2.8.0`
 
 Current auth and exposure hardening notes:
 
-- the richer OIDC group-claims overlay is render-validated and now boot-validates cleanly instead of crashing NiFi during `authorizations.xml` load
-- the local Keycloak `26.x` browser-flow evaluator for observer, operator, and admin policy enforcement is still under active hardening on kind
-- ingress-backed OIDC exposure on kind is still conservative until that evaluator path is green
+- bounded OIDC is runtime-proven on the focused `oidc + externalClaimGroups` path, including discovery wiring, explicit claims mapping, seeded groups, `Initial Admin Identity` fallback bootstrap, focused `Initial Admin Group` primary bootstrap proof through `make kind-auth-oidc-initial-admin-group-fast-e2e`, real in-cluster browser login, and ingress-backed external-host HTTPS browser login through `make kind-auth-oidc-ingress-fast-e2e`
+- bounded file-managed `authz.policies[]` outcomes for observer/operator/admin and denied users are currently proven on that same chart-managed contract through the green ingress-backed external-host HTTPS OIDC path
+- Route-backed external-host OIDC remains outside the runtime-proven claim until a real Route/router proof path is recorded
 - AKS and OpenShift auth and exposure guidance remain render-only in this slice
 
 ## Platform Chart Runtime Confidence
@@ -105,7 +107,7 @@ What it does not prove:
 
 - controller-managed flow deployment
 - automatic synchronization
-- classic NiFi Registry integration
+- broader classic NiFi Registry lifecycle management
 - provider parity beyond the current GitHub workflow proof
 
 ## Versioned Flow Selection Proof
@@ -137,11 +139,14 @@ The current focused bounded versioned-flow import runtime commands are:
 
 - `make kind-platform-managed-versioned-flow-import-fast-e2e`
 - `make kind-platform-managed-versioned-flow-import-fast-e2e-reuse`
+- `make kind-platform-managed-versioned-flow-import-nifi-registry-fast-e2e`
+- `make kind-platform-managed-versioned-flow-import-nifi-registry-fast-e2e-reuse`
 
 What they prove:
 
 - `charts/nifi-platform` installs the bounded `versionedFlowImports.*` config through the standard product path
-- the selected live Flow Registry Client is created through the existing GitHub workflow helper path as an operator-owned prerequisite and reused by the live import reconciler
+- the GitHub path reuses an operator-owned live Flow Registry Client created through the existing workflow helper path
+- the NiFi Registry compatibility path can create and reconcile the declared live `provider=nifiRegistry` Flow Registry Client it needs through the bounded in-pod runtime bundle
 - the focused proof uses a single-node managed platform install, upgrades the release with `versionedFlowImports.*` enabled, and relies on the chart-mounted live reconcile loop in pod `-0`
 - pod `-0` imports the selected registry-backed flow into the declared root child process group and then attaches or updates the selected version through the NiFi versions API without provider write-back
 - the resulting process group exists in NiFi with version-control state for the selected registry, bucket, flow, and resolved version
@@ -150,11 +155,12 @@ What they prove:
 - the imported process group carries the explicit `versionedFlowImports` ownership marker
 - a later declared version change is reconciled live without replacing pod `-0`
 - the feature remains bounded to one declared root-child import target per entry and does not widen into ongoing synchronization
+- the focused NiFi Registry compatibility proof also validates explicit historical version import and later reconcile back to `latest` on the platform chart path
 
 What they do not prove:
 
-- automatic creation of Flow Registry Clients by the product
-- automatic preservation of an operator-owned live Flow Registry Client across the one rollout needed to enable the feature in the first place
+- arbitrary provider creation beyond the bounded `provider=nifiRegistry` compatibility path
+- automatic preservation or adoption of arbitrary operator-owned same-name live Flow Registry Clients beyond the bounded ownership rules
 - arbitrary mutation inside the imported process group
 - automatic upgrade to newer registry versions on an ongoing basis
 - provider write-back or registry-side commits from the product
