@@ -197,7 +197,7 @@ See also:
 | --- | --- | --- | --- | --- |
 | `flowRegistryClients.enabled` | boolean | Enables prepared Flow Registry Client catalog rendering. | No | `false` |
 | `flowRegistryClients.mountPath` | string | Mount path for the rendered catalog files. | No | `/opt/nifi/fabric/flow-registry-clients` |
-| `flowRegistryClients.clients[]` | object list | Prepared client definitions. Supported providers in this slice: `github`, `gitlab`, `bitbucket`, `azureDevOps`, and compatibility-oriented `nifiRegistry`. | No | `[]` |
+| `flowRegistryClients.clients[]` | object list | Prepared client definitions. Supported providers here: `github`, `gitlab`, `bitbucket`, `azureDevOps`, and compatibility-oriented `nifiRegistry`. | No | `[]` |
 
 ## Parameter Contexts
 

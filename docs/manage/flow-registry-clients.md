@@ -41,7 +41,7 @@ Use platform chart values under:
 - GitLab: verified on the supported NiFi `2.x` line
 - Bitbucket: verified on the supported NiFi `2.x` line
 - NiFi Registry: verified on the supported NiFi `2.x` line through a real in-cluster `apache/nifi-registry` service
-- Azure DevOps: prepared definition, render-validated
+- Azure DevOps: configuration surface available and chart rendering supported
 
 ## Typed NiFi Registry Compatibility Path
 

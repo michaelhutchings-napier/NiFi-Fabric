@@ -70,7 +70,7 @@ helm upgrade --install nifi charts/nifi-platform \
 KEDA support is GA for this documented model:
 
 - optional
-- secondary to the built-in controller autoscaler
+- the built-in controller autoscaler remains the default
 - controller-owned for all real scale execution
 
 ## Read Next

@@ -41,7 +41,7 @@ Across the supported NiFi `2.x` line, NiFi-Fabric supports:
 
 Some more specialized integrations are documented separately and should not be assumed across every version unless that page says so.
 
-Current environment position:
+Environment guidance:
 
 - AKS is the primary supported target environment for the standard managed install path.
 - OpenShift is supported.
@@ -51,7 +51,7 @@ Current environment position:
 
 | Environment | Current position |
 | --- | --- |
-| kind | primary repository verification baseline |
+| kind | primary local validation environment |
 | AKS | primary supported target environment for production-style managed installs |
 | OpenShift | supported |
 

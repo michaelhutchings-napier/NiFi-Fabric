@@ -2,7 +2,7 @@
 
 Use this page when you want to try NiFi-Fabric locally on `kind`.
 
-This is a local evaluation and maintainer workflow. It is useful for learning the product, checking chart changes, and reproducing issues quickly. It is not a production deployment guide.
+This is a local evaluation workflow. It is useful for learning the product, checking chart changes, and reproducing issues quickly. It is not a production deployment guide.
 
 ## Best Local Starting Point
 

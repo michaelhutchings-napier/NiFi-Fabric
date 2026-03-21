@@ -1,6 +1,6 @@
 # Verification and Support Levels
 
-This page explains how NiFi-Fabric support statements are backed by repository verification.
+This page explains how NiFi-Fabric support statements are backed by project verification.
 
 ## Verification Layers
 
@@ -22,7 +22,7 @@ In practice:
 
 ## Standard Verified Areas
 
-Repository verification is centered on:
+Project verification is centered on:
 
 - the standard managed install through `charts/nifi-platform`
 - cert-manager-first TLS
@@ -44,11 +44,11 @@ Use these pages together:
 - [Advanced Install Paths](install/advanced.md) for non-standard installs
 - [Experimental Features](experimental-features.md) for intentionally non-GA areas
 
-When a feature needs more nuance, the detailed support position belongs on that feature page rather than being repeated everywhere.
+When a feature needs more nuance, the detailed guidance belongs on that feature page rather than being repeated everywhere.
 
-## Internal Engineering Checks
+## Engineering Checks
 
-The repository also contains narrower maintainer checks and verification workflows used during development and release work.
+The project also contains narrower engineering checks and verification workflows used during development and release work.
 
 Those engineering details are useful for maintainers, but they are not the main customer entrypoint. Customer-facing docs should prefer:
 

@@ -1,6 +1,6 @@
 # Parameter Contexts
 
-NiFi-Fabric supports Parameter Contexts as a runtime-managed production feature.
+NiFi-Fabric supports Parameter Contexts as a managed production feature.
 
 ## What This Feature Does
 
@@ -19,7 +19,7 @@ Supported content:
 - this feature is optional and disabled by default
 - the public API stays under `parameterContexts.*`
 - the chart does not become a generic flow-runtime or graph-editing manager
-- Parameter Provider support in this slice is reference-only; the product does not create or reconcile providers in NiFi
+- Parameter Provider support in this feature is reference-only; the product does not create or reconcile providers in NiFi
 - runtime reconciliation is intentionally limited to create, update, delete, and direct root-child attachment of declared Parameter Contexts only
 
 ## Configuration Surface
@@ -82,9 +82,9 @@ Manual NiFi UI edits to product-owned contexts are reconciled back to the declar
 - `parameterGroup` can document the expected provider-side group or collection when that is meaningful
 - these references are advisory and status-visible only; they do not create controller services, providers, or generic provider APIs
 
-## Runtime Contract
+## Behavior
 
-- current runtime contract: `Runtime-managed`
+- management model: `Runtime-managed`
 - pod `-0` performs live create, update, delete, and direct root-child attachment reconciliation for declared contexts after NiFi API readiness
 - supported auth modes are `singleUser`, `oidc`, and `ldap`
 - `auth.mode=oidc` and `auth.mode=ldap` require `authz.bootstrap.initialAdminIdentity` so the proxied management identity is explicit and operator-visible
@@ -96,15 +96,15 @@ Manual NiFi UI edits to product-owned contexts are reconciled back to the declar
 - attachment target errors fail clearly in the bootstrap status file and pod logs
 - same-name operator-owned contexts are not adopted automatically; reconcile fails clearly until the name collision is removed or renamed
 
-## Support Level
+## Validation
 
-- current support level: `Runtime-managed / repository-verified`
-- repository verification on kind covers declared context creation, live update without pod replacement, deletion of removed owned contexts, inline and Secret-backed values, and direct root-child attachment
+- validation status: `Runtime-managed / repository-verified`
+- kind validation covers declared context creation, live update without pod replacement, deletion of removed owned contexts, inline and Secret-backed values, and direct root-child attachment
 - Parameter Provider creation remains out of scope, so the feature stays narrow and explainable
 
 ## Example Overlay
 
-The repo includes one platform-chart example:
+The project includes one platform-chart example:
 
 - [platform-managed-parameter-contexts-values.yaml](../../examples/platform-managed-parameter-contexts-values.yaml)
 - [platform-managed-parameter-contexts-kind-values.yaml](../../examples/platform-managed-parameter-contexts-kind-values.yaml)
@@ -118,7 +118,7 @@ helm template test charts/nifi-platform \
   -f examples/platform-managed-parameter-contexts-values.yaml
 ```
 
-Repository verification command:
+If you want to exercise this feature locally, run:
 
 ```bash
 make kind-parameter-contexts-runtime-fast-e2e

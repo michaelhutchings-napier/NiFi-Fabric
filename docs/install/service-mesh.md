@@ -2,7 +2,7 @@
 
 These are optional install variants for teams that already run a supported service mesh profile in the cluster.
 
-They are secondary to the standard Helm install path in [Install with Helm](helm.md).
+They are not the default install path. Start with [Install with Helm](helm.md) unless you already know you need one of these profiles.
 
 ## Before You Use These Profiles
 

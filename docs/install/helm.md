@@ -74,7 +74,7 @@ See [OpenShift](../openshift.md) for the recommended OpenShift install and Route
 
 ## Local Evaluation
 
-For local installs, `kind` is the primary documented path and the main repository baseline.
+For local installs, `kind` is the primary documented path and the main local validation environment.
 
 `minikube` can also be used for small local evaluation when:
 

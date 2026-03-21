@@ -1,6 +1,6 @@
 # Flows
 
-NiFi-Fabric supports versioned-flow import as a runtime-managed config feature.
+NiFi-Fabric supports versioned-flow import as a managed configuration feature.
 
 ## What This Feature Does
 
@@ -22,7 +22,7 @@ Supported content:
 - the chart does not become a generic flow-runtime, graph-editing, or synchronization manager
 - Git-based Flow Registry Clients remain the preferred long-term direction
 - NiFi Registry support in this path is compatibility-oriented for NiFi `2.x`
-- runtime reconciliation is intentionally limited to import creation, version-selection resolution, optional direct Parameter Context attachment, and explicit ownership-marker maintenance for the imported root-child process group
+- live reconciliation is intentionally limited to import creation, version-selection resolution, optional direct Parameter Context attachment, and explicit ownership-marker maintenance for the imported root-child process group
 
 ## Configuration Surface
 
@@ -65,7 +65,7 @@ What remains operator-owned:
 
 - creating and maintaining live Flow Registry Client instances for providers other than `provider=nifiRegistry`
 - undeclared or operator-owned live Flow Registry Clients, including same-name collisions the product did not mark as owned
-- registry repository lifecycle and credential lifecycle
+- registry storage lifecycle and credential lifecycle
 - undeclared or manually created process groups
 - deleting removed declared imports
 - broader graph edits inside or around the imported process group
@@ -73,9 +73,9 @@ What remains operator-owned:
 
 Manual UI edits outside the managed import scope are unsupported. The product does not perform ongoing sync, and it does not attempt arbitrary graph reconciliation. Within the product-owned scope, direct version selection and direct Parameter Context attachment may be reconciled back to the declared state. Unsupported drift or same-name operator-owned collisions are reported as `blocked` in the runtime status file until the operator restores the expected state or deletes and recreates the target.
 
-## Runtime Contract
+## Behavior
 
-- current runtime contract: `Runtime-managed`
+- management model: `Runtime-managed`
 - pod `-0` performs live reconciliation after NiFi API readiness
 - supported auth modes are `singleUser`, `oidc`, and `ldap`
 - `auth.mode=singleUser` requires `authz.capabilities.mutableFlow.enabled=true` with `includeInitialAdmin=true` or `authz.bundles.flowVersionManager.includeInitialAdmin=true` so the import path can create the root-child import target
@@ -84,26 +84,26 @@ Manual UI edits outside the managed import scope are unsupported. The product do
 - prepared `provider=nifiRegistry` entries can be created and reconciled live by this path
 - other supported prepared providers still require a matching live Flow Registry Client to already exist in NiFi
 - version attachment uses the selected registry-backed snapshot through the NiFi versions API and does not commit a new registry version
-- when NiFi exposes only version metadata and not inline snapshot content, the current fallback supports prepared GitHub and prepared NiFi Registry sources in this slice
-- repository verification on the single-node platform path upgrades the release, lets the live in-pod reconcile loop import the declared flow, and then verifies a later declared version change reconciles without replacing pod `-0`
-- at most one direct Parameter Context reference is supported per import in this slice
+- when NiFi exposes only version metadata and not inline snapshot content, the current fallback supports prepared GitHub and prepared NiFi Registry sources in this feature
+- validation on the single-node platform path upgrades the release, lets the live in-pod reconcile loop import the declared flow, and then verifies a later declared version change reconciles without replacing pod `-0`
+- at most one direct Parameter Context reference is supported per import in this feature
 - `latest` is resolved during create or declared-change reconcile and then pinned through the ownership marker; the product does not keep polling for newer versions once the declaration is unchanged
 - missing live client, missing selected flow content, or unsupported manual drift is reported as `blocked` in the runtime status file instead of widening the feature into a generic recovery loop
 - ongoing automatic synchronization to newer registry versions is out of scope
 
-## Support Level
+## Validation
 
-- current support level: `Runtime-managed / repository-verified`
-- repository verification on kind covers real import of a selected registry-backed flow through the platform chart path
+- validation status: `Runtime-managed / repository-verified`
+- kind validation covers real import of a selected registry-backed flow through the platform chart path
 - the resulting root-child process group exists in NiFi with attached version-control state for the selected version, seeded flow content, direct Parameter Context attachment, and explicit ownership marker verified
 - the same verification flow then changes the declared version and verifies the owned import updates live without replacing pod `-0`
 - the separate GitHub selection verification still covers provider-native version resolution on the documented workflow path
 - the NiFi Registry compatibility verification now covers typed live client creation, bucket and flow resolution, explicit historical version import, and later reconcile back to `latest` through a real in-cluster `apache/nifi-registry` service
-- enterprise auth support is rendered and runtime-coded, but repository runtime verification in this slice remains on the standard `singleUser` path today
+- enterprise auth support is rendered and implemented, but repository runtime verification for this feature remains on the standard `singleUser` path today
 
 ## Example Overlays
 
-The repo includes:
+The project includes:
 
 - [platform-managed-versioned-flow-import-values.yaml](../../examples/platform-managed-versioned-flow-import-values.yaml)
 - [platform-managed-versioned-flow-import-kind-values.yaml](../../examples/platform-managed-versioned-flow-import-kind-values.yaml)
@@ -119,19 +119,19 @@ helm template test charts/nifi-platform \
   -f examples/platform-managed-versioned-flow-import-values.yaml
 ```
 
-Repository verification command for the platform path:
+If you want to exercise the platform path locally, run:
 
 ```bash
 make kind-platform-managed-versioned-flow-import-fast-e2e
 ```
 
-Repository verification command for the NiFi Registry compatibility path:
+If you want to exercise the NiFi Registry compatibility path locally, run:
 
 ```bash
 make kind-platform-managed-versioned-flow-import-nifi-registry-fast-e2e
 ```
 
-Repository verification command for GitHub version selection:
+If you want to exercise GitHub version selection locally, run:
 
 ```bash
 make kind-versioned-flow-selection-fast-e2e

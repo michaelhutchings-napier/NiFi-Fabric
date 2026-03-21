@@ -58,10 +58,10 @@ Documented OpenShift shape:
 
 The OpenShift example overlay is [ldap-managed-values.yaml](/home/michael/Work/nifi2-platform/examples/openshift/ldap-managed-values.yaml).
 
-Current caveat:
+Current limitation:
 
-- the documented OpenShift coverage in this slice covers the bootstrap-admin identity path for LDAP
-- LDAP group-bootstrap and named bundle mapping are not yet verified on OpenShift in this slice
+- the documented OpenShift coverage here covers the bootstrap-admin identity path for LDAP
+- LDAP group-bootstrap and named bundle mapping are not yet verified on OpenShift in this path
 
 See:
 
@@ -77,7 +77,7 @@ NiFi-Fabric supports:
 
 The project also includes named authorization bundles for common access patterns such as viewer, editor, flow-version-manager, and admin.
 
-The current support position is:
+Current coverage is:
 
 - OIDC: external groups map into named NiFi bundles
 - LDAP: current coverage includes login plus the explicit bootstrap-admin identity path
