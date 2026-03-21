@@ -26,6 +26,7 @@ METRICS_CA_SECRET="${METRICS_CA_SECRET:-nifi-metrics-ca}"
 PROBE_POD_NAME="${PROBE_POD_NAME:-compatibility-probe}"
 PROBE_IMAGE="${PROBE_IMAGE:-curlimages/curl:8.12.1}"
 AUTOSCALING_TARGET_REPLICAS="${AUTOSCALING_TARGET_REPLICAS:-3}"
+BASELINE_REPLICAS="${BASELINE_REPLICAS:-2}"
 CURRENT_PHASE="${CURRENT_PHASE:-bootstrap}"
 FAILURE_ENDPOINT="${FAILURE_ENDPOINT:-}"
 START_EPOCH="$(date +%s)"
@@ -337,6 +338,10 @@ configure_disabled_autoscaling() {
   patch_main_cluster '{"spec":{"autoscaling":{"mode":"Disabled","scaleUp":{"enabled":false,"cooldown":"5m"},"scaleDown":{"enabled":false},"minReplicas":0,"maxReplicas":0,"signals":[]}}}'
 }
 
+restore_baseline_replicas() {
+  patch_main_cluster "{\"spec\":{\"autoscaling\":{\"mode\":\"Disabled\",\"scaleUp\":{\"enabled\":false,\"cooldown\":\"5m\"},\"scaleDown\":{\"enabled\":false},\"minReplicas\":0,\"maxReplicas\":0,\"signals\":[]},\"replicas\":${BASELINE_REPLICAS}}}"
+}
+
 dump_diagnostics() {
   set +e
   echo
@@ -385,6 +390,11 @@ if [[ "${SKIP_KIND_BOOTSTRAP}" == "true" ]]; then
   CURRENT_PHASE="reuse-kind"
   phase "Reusing existing kind cluster for NiFi ${VERSION_LABEL} compatibility contract"
   configure_kind_kubeconfig
+
+  CURRENT_PHASE="load-nifi-image"
+  FAILURE_ENDPOINT="${NIFI_IMAGE}"
+  phase "Loading NiFi image ${NIFI_IMAGE} into reused kind cluster"
+  run_make kind-load-nifi-image KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NIFI_IMAGE="${NIFI_IMAGE}"
 else
   CURRENT_PHASE="bootstrap-kind"
   phase "Creating fresh kind cluster for NiFi ${VERSION_LABEL} compatibility contract"
@@ -483,6 +493,15 @@ FAILURE_ENDPOINT="Disabled autoscaling baseline"
 phase "Restoring disabled autoscaling baseline"
 configure_disabled_autoscaling
 wait_for_cluster_reason "${autoscalingReasonDisabled:-Disabled}" 120
+
+CURRENT_PHASE="restore-baseline-replicas"
+FAILURE_ENDPOINT="baseline replicas ${BASELINE_REPLICAS}"
+phase "Restoring baseline replicas to ${BASELINE_REPLICAS}"
+restore_baseline_replicas
+wait_for_sts_replicas "${BASELINE_REPLICAS}" 600
+run_make kind-health KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NAMESPACE="${NAMESPACE}" HELM_RELEASE="${HELM_RELEASE}"
+wait_for_condition_true TargetResolved 600
+wait_for_condition_true Available 600
 
 print_success_footer "NiFi ${VERSION_LABEL} compatibility contract completed" \
   "make kind-health KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}" \

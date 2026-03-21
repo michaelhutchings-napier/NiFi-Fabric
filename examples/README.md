@@ -28,9 +28,9 @@ There is also one AKS-prepared set of starting overlays:
   - Not yet validated on a real AKS cluster.
 
 - [aks/managed-values.yaml](aks/managed-values.yaml)
-  - Prepared starting point for future AKS managed-mode evaluation.
+  - AKS starting point for managed-mode evaluation.
   - Compose with [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml) if cert-manager already exists in the AKS cluster.
-  - Not yet validated on a real AKS cluster.
+  - Aligns with the supported AKS managed install direction.
 
 There is also one OpenShift overlay set:
 
@@ -335,10 +335,11 @@ There is also one shared NiFi `2.x` compatibility contract for `charts/nifi-plat
 
 For the focused runtime anchors:
 
-- Compose with [platform-managed-values.yaml](platform-managed-values.yaml), [platform-managed-metrics-native-values.yaml](platform-managed-metrics-native-values.yaml), and [platform-fast-values.yaml](platform-fast-values.yaml).
+- Compose with [platform-managed-values.yaml](platform-managed-values.yaml) and [platform-fast-values.yaml](platform-fast-values.yaml).
 - The shared runtime command is `make kind-nifi-compatibility-fast-e2e`.
-- The harness keeps proof logic shared and only changes the image tag inline per case.
-- The runtime anchors are `apache/nifi:2.0.0` and `apache/nifi:2.8.0`.
+- The harness keeps proof logic shared and only changes the NiFi image tag inline per case.
+- The default runtime sweep covers `apache/nifi:2.0.0` through `apache/nifi:2.8.0`.
+- The sweep uses one shared kind cluster and verifies the managed install plus the secured health gate for each version.
 
 The older app-chart-focused NiFi `2.8.0` overlay still exists:
 
@@ -408,6 +409,7 @@ Flow Registry Client notes:
 - [platform-managed-cert-manager-quickstart-values.yaml](platform-managed-cert-manager-quickstart-values.yaml)
   - Standard one-release product-chart values for the cert-manager-first managed install path.
   - Generates `nifi-auth` and `nifi-tls-params` in the release namespace.
+  - Those generated Secrets are preserved if you later upgrade in place to the explicit cert-manager path with the same Secret names.
   - Leaves cert-manager and the referenced issuer as prerequisites.
 
 - [platform-managed-values.yaml](platform-managed-values.yaml)
@@ -421,6 +423,7 @@ Flow Registry Client notes:
   - Advanced one-release product-chart values for managed mode when cert-manager already exists in the cluster.
   - cert-manager remains a prerequisite and is not bundled by this chart.
   - Uses explicit operator-provided `nifi-auth` and `nifi-tls-params` Secrets in the release namespace.
+  - This is the supported handoff target from the standard cert-manager quickstart path when you want explicit values-based ownership without changing Secret names.
   - The primary focused runtime proof commands are `make kind-platform-managed-cert-manager-fast-e2e` and `make kind-platform-managed-cert-manager-fast-e2e-reuse`.
 
 - [platform-managed-quickstart-values.yaml](platform-managed-quickstart-values.yaml)

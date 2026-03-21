@@ -43,6 +43,14 @@ You still install separately:
 - cert-manager
 - the referenced issuer or `ClusterIssuer`
 
+### Quickstart To Explicit Cert-Manager Handoff
+
+If you started with the standard cert-manager quickstart path and want to move to the explicit cert-manager path without changing Secret names, upgrade in place to [`examples/platform-managed-cert-manager-values.yaml`](/home/michael/Work/nifi2-platform/examples/platform-managed-cert-manager-values.yaml).
+
+The chart preserves the previously generated quickstart `nifi-auth` and `nifi-tls-params` Secrets during that handoff when the explicit path still points at those same names.
+
+This keeps the upgrade stable while making the input ownership explicit in values.
+
 ### OIDC and LDAP
 
 OIDC and LDAP remain first-class supported auth modes, but they fit the advanced path rather than the standard single-user bootstrap path.

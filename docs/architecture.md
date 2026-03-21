@@ -85,7 +85,7 @@ The standard production path is:
 - cert-manager-first
 - secure by default
 
-The standard managed install uses cert-manager for workload TLS and can bootstrap the bounded auth or parameter Secrets it needs for the quickstart path.
+The standard managed install uses cert-manager for workload TLS and can bootstrap the bounded auth or parameter Secrets it needs for the quickstart path. When you later move to the explicit cert-manager path and keep the same Secret names, the chart preserves those previously generated quickstart Secrets so the handoff stays stable.
 
 For metrics, the primary path is direct secured scraping of the NiFi 2 Prometheus endpoint through the native API path. An optional exporter path is also available when a dedicated `/metrics` endpoint is preferred.
 

@@ -335,10 +335,10 @@ kind-nifi-2-8-fast-e2e-reuse:
 	FAST_PROFILE=true SKIP_KIND_BOOTSTRAP=true bash hack/kind-nifi-2-8-e2e.sh
 
 kind-nifi-compatibility-fast-e2e:
-	FAST_PROFILE=true bash hack/kind-nifi-compatibility-matrix-e2e.sh
+	bash hack/kind-nifi-version-sweep.sh
 
 kind-nifi-compatibility-fast-e2e-reuse:
-	FAST_PROFILE=true SKIP_KIND_BOOTSTRAP=true bash hack/kind-nifi-compatibility-matrix-e2e.sh
+	COMPATIBILITY_VERSIONS="2.0.0 2.1.0 2.2.0 2.3.0 2.4.0 2.5.0 2.6.0 2.7.0 2.8.0" bash hack/kind-nifi-version-sweep.sh
 
 kind-autoscaling-scale-up-fast-e2e:
 	NIFI_IMAGE=apache/nifi:2.8.0 VERSION_VALUES_FILE=examples/nifi-2.8.0-values.yaml KIND_CLUSTER_NAME=nifi-fabric-autoscaling-scale-up FAST_PROFILE=true bash hack/kind-autoscaling-scale-up-e2e.sh

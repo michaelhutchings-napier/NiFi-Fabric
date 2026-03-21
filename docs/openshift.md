@@ -1,13 +1,13 @@
 # OpenShift Baseline Guide
 
-This guide describes the current OpenShift starting point for NiFi-Fabric.
+OpenShift is a supported secondary target environment for NiFi-Fabric.
 
-OpenShift is a supported secondary target environment. The product architecture does not change on OpenShift:
+The recommended OpenShift deployment model keeps the same product shape as standard Kubernetes:
 
 - `charts/nifi-platform` remains the standard install path
 - the controller remains the lifecycle owner in managed mode
 - NiFi keeps ownership of its own TLS material
-- OpenShift Route is the native external access surface when external access is needed
+- OpenShift `Route` is the native external access surface when external access is needed
 
 ## Recommended Starting Point
 
@@ -15,100 +15,36 @@ Start with:
 
 - the managed install through `charts/nifi-platform`
 - internal `ClusterIP` access first
-- the OpenShift overlay for the standard managed path
+- the OpenShift managed overlay for the standard path
 - the separate Route overlay only when you need external HTTPS access
 
-## Baseline Install Shape
+## Supported OpenShift Shape
 
-The baseline composition is:
+The supported baseline composition is:
 
 - `examples/platform-managed-values.yaml`
 - `examples/openshift/managed-values.yaml`
 
-Use this path when you want to adapt NiFi-Fabric to OpenShift security-context and storage expectations without changing the product model.
+For the native OpenShift external-access model, add:
+
+- `examples/openshift/route-proxy-host-values.yaml`
+
+This keeps the product boundary narrow and predictable:
+
+- no new CRDs
+- no separate OpenShift-specific control plane
+- no change to controller lifecycle scope
+- no change to NiFi TLS ownership
 
 ## Supported Route Shape
 
-The bounded supported OpenShift external-access shape is:
+The supported OpenShift external-access shape is:
 
-- OpenShift `Route` as the only external access surface
-- `passthrough` TLS termination as the primary runtime-proven shape
+- OpenShift `Route` as the external access surface
+- `passthrough` TLS termination
 - explicit `openshift.route.host`
 - matching `web.proxyHosts` entry for that same public host
 - NiFi TLS still terminated by NiFi, not by the router
-
-Compose the Route overlay with the managed OpenShift path:
-
-- `examples/platform-managed-values.yaml`
-- `examples/openshift/managed-values.yaml`
-- `examples/openshift/route-proxy-host-values.yaml`
-
-This keeps the product boundary narrow:
-
-- no new CRDs
-- no generic ingress abstraction beyond the existing chart support
-- no change to controller lifecycle scope
-- no redesign of NiFi TLS ownership
-
-## Explicit Assumptions
-
-The supported Route model assumes:
-
-- the public Route hostname is explicit at install time
-- `web.proxyHosts` includes that Route hostname, optionally as `host:443`
-- the NiFi certificate presented through the passthrough Route is valid for the public Route hostname
-- browser and API traffic use the same HTTPS host
-
-What this does not promise:
-
-- path-based passthrough behavior
-- router-managed TLS termination for the primary supported proof shape
-- automatic discovery of a generated Route hostname and automatic back-propagation into NiFi proxy settings
-
-## Runtime-Proven Route Behavior
-
-The repository includes a focused OpenShift Route proof path on the standard managed install flow:
-
-```bash
-make openshift-platform-managed-route-proof
-```
-
-That proof path verifies:
-
-- the Route renders and applies through `charts/nifi-platform`
-- the Route is admitted by the OpenShift router
-- the Route maps to the expected NiFi `Service` backend and named `https` port
-- NiFi renders the expected `nifi.web.proxy.host` value
-- secure browser access works through `https://<route-host>/nifi/`
-- secure authenticated API access works through `https://<route-host>/nifi-api/...`
-
-If `ROUTE_HOST` is not set, the proof helper derives one from the cluster apps domain. You can also set it explicitly:
-
-```bash
-ROUTE_HOST=nifi.apps.example.com make openshift-platform-managed-route-proof
-```
-
-## Runtime-Proven Standard Install And Metrics Behavior
-
-The repository also includes focused OpenShift runtime verification for:
-
-- the cert-manager-first managed install shape through `charts/nifi-platform`
-- the recommended `nativeApi` metrics path
-
-That verification proves:
-
-- `cert-manager`, the bootstrap issuer flow, and `ClusterIssuer/nifi-ca` can back a real OpenShift managed install
-- the NiFi workload `Certificate` becomes `Ready` and cert-manager creates the final `nifi-tls` Secret
-- NiFi starts successfully from the cert-manager-issued TLS material
-- the `nativeApi` metrics `Service` and `ServiceMonitor` resources render and apply on OpenShift
-- a secure scrape of `/nifi-api/flow/metrics/prometheus` works with the chart-managed machine-auth and CA Secret contract
-
-Current OpenShift proof boundaries remain narrow:
-
-- OpenShift monitoring stack target selection and scrape pickup for those `ServiceMonitor` objects are not runtime-proven in this slice
-- exporter metrics are not runtime-proven on OpenShift in this slice
-- Site-to-Site metrics are not runtime-proven on OpenShift in this slice
-- trust-manager integration is not runtime-proven on OpenShift in this slice
 
 ## What to Prepare
 
@@ -118,36 +54,19 @@ Before installing, make sure you have:
 - a controller image reachable by the cluster
 - a NiFi image reachable by the cluster
 - the required release-namespace Secrets for the path you choose
-- for the cert-manager-first managed path, cert-manager plus the referenced issuer or `ClusterIssuer`
+- cert-manager plus the referenced issuer or `ClusterIssuer` if you want the standard managed TLS path
 - an appropriate storage class
-- for passthrough Route proof, NiFi TLS material that is trusted by clients and valid for the chosen Route host
 
-## Diagnostics
+## Support Position
 
-The focused Route proof collects and surfaces:
+OpenShift is supported for the documented managed install path.
 
-- `Route` status and full YAML
-- router admission state
-- Route-to-Service backend mapping
-- NiFi `nifi.web.https.host`, `nifi.web.https.port`, and `nifi.web.proxy.host` settings
-- cert-manager issuer, certificate, and TLS Secret state for the cert-manager path
-- metrics `Service`, `ServiceMonitor`, machine-auth Secret, and CA Secret state for the `nativeApi` path
-- release, controller, workload, and event diagnostics on failure
+The customer-facing OpenShift shape is:
 
-Useful commands:
-
-```bash
-helm -n nifi status nifi
-oc -n nifi get route nifi -o yaml
-oc -n nifi describe route nifi
-oc -n nifi get svc nifi -o yaml
-oc -n nifi get endpointslice -l kubernetes.io/service-name=nifi
-oc -n nifi exec nifi-0 -c nifi -- grep '^nifi\.web\.proxy\.host=' /opt/nifi/nifi-current/conf/nifi.properties
-oc -n cert-manager get deployment,pod,issuer,certificate,secret
-oc get clusterissuer nifi-ca -o yaml
-oc -n nifi get certificate,secret
-oc -n nifi get service,servicemonitor
-```
+- managed install through `charts/nifi-platform`
+- the OpenShift managed overlay
+- the native passthrough `Route` model when external HTTPS access is required
+- cert-manager-first TLS when you want the standard managed TLS path
 
 ## Next Steps
 

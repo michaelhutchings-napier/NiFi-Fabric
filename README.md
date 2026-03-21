@@ -4,6 +4,8 @@ NiFi-Fabric is a Kubernetes platform for Apache NiFi 2.x.
 
 It provides a standard product install path through `charts/nifi-platform`, keeps ordinary Kubernetes resources in Helm, and uses a thin controller for the lifecycle and safety work that Helm cannot do safely on its own.
 
+NiFi-Fabric is designed for standard Kubernetes, with AKS as the primary supported target environment and OpenShift as a supported secondary target for the documented managed install path.
+
 ## Why NiFi-Fabric
 
 - one clear Helm install path for the standard managed deployment
@@ -58,14 +60,10 @@ Reference and support:
 
 Advanced install paths, support details, compatibility nuance, and verification coverage live in the docs rather than in this homepage.
 
-Current focused OpenShift runtime proofs cover:
+Environment support:
 
-- managed install through `charts/nifi-platform`
-- the cert-manager-first managed install shape
-- the native passthrough `Route` shape
-- the recommended `nativeApi` metrics path
-- OIDC login with named bundle mapping
-- LDAP login on the documented bootstrap-admin identity path
+- AKS is the primary supported target environment.
+- OpenShift is supported for the documented managed install shape, including the native passthrough `Route` model when external HTTPS access is needed.
 
 ## License
 

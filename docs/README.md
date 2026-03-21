@@ -11,6 +11,7 @@ Use this documentation set as the customer-facing guide for installing, operatin
 ## Install
 
 - [Install with Helm](install/helm.md)
+- [First Access and Day-1 Checks](first-day.md)
 - [Advanced Install Paths](install/advanced.md)
 - [Optional Service Mesh Profiles](install/service-mesh.md)
 
@@ -34,7 +35,7 @@ Use this documentation set as the customer-facing guide for installing, operatin
 
 ## Environment Guides
 
-- [AKS Readiness Guide](aks.md)
+- [AKS](aks.md)
 - [OpenShift Baseline Guide](openshift.md)
 
 ## Reference

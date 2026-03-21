@@ -41,27 +41,23 @@ Across the supported NiFi `2.x` line, NiFi-Fabric supports:
 
 Some more specialized integrations are documented separately and should not be assumed across every version unless that page says so.
 
-Current OpenShift auth/runtime position:
+Current environment position:
 
-- the cert-manager-first managed install shape is runtime-proven on OpenShift
-- the native external shape is the passthrough `Route`
-- the recommended `nativeApi` metrics path is runtime-proven on OpenShift for chart-managed `Service` and `ServiceMonitor` rendering plus a live secured scrape
-- OIDC is runtime-proven on OpenShift through that Route shape with named bundle mapping
-- LDAP is runtime-proven on OpenShift through that Route shape on the documented bootstrap-admin identity path
-- LDAP group-bootstrap and LDAP named bundle mapping are not runtime-proven on OpenShift in this slice
-- OpenShift monitoring stack scrape pickup for the rendered `ServiceMonitor` objects is not runtime-proven in this slice
+- AKS is the primary supported target environment for the standard managed install path.
+- OpenShift is supported.
+- NiFi-Fabric should work on any conformant Kubernetes-based cloud platform with the required storage, networking, and image access.
 
 ## Environment Position
 
 | Environment | Current position |
 | --- | --- |
 | kind | primary repository verification baseline |
-| AKS | primary target environment |
-| OpenShift | supported second target, with focused managed runtime proofs for cert-manager-first install, the native passthrough Route baseline, the recommended `nativeApi` metrics path, and OIDC and LDAP auth slices |
+| AKS | primary supported target environment for production-style managed installs |
+| OpenShift | supported |
 
 See:
 
-- [AKS Readiness Guide](aks.md)
+- [AKS](aks.md)
 - [OpenShift Baseline Guide](openshift.md)
 - [Authentication](manage/authentication.md)
 

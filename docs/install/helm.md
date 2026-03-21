@@ -48,6 +48,10 @@ kubectl -n nifi get secret nifi-auth -o jsonpath='{.data.username}' | base64 -d;
 kubectl -n nifi get secret nifi-auth -o jsonpath='{.data.password}' | base64 -d; echo
 ```
 
+For the recommended first login and day-1 verification flow, see [First Access and Day-1 Checks](../first-day.md).
+
+If you later want the explicit cert-manager path, you can upgrade in place to [`examples/platform-managed-cert-manager-values.yaml`](/home/michael/Work/nifi2-platform/examples/platform-managed-cert-manager-values.yaml). The chart keeps the quickstart-generated `nifi-auth` and `nifi-tls-params` Secrets in place during that handoff as long as you keep the same Secret names.
+
 ## OpenShift
 
 For OpenShift, keep the same standard install chart and layer the OpenShift overlay on top:
@@ -92,6 +96,7 @@ Before installing, make sure:
 
 ## Next Steps
 
+- [First Access and Day-1 Checks](../first-day.md)
 - [TLS and cert-manager](../manage/tls-and-cert-manager.md)
 - [Authentication](../manage/authentication.md)
 - [Advanced Install Paths](advanced.md)

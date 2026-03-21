@@ -131,6 +131,31 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "%s-quickstart-tls-bootstrap" .Release.Name | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "nifi-platform.quickstartOwnedSecret" -}}
+{{- $root := .root -}}
+{{- $name := .name -}}
+{{- if not $name -}}
+false
+{{- else -}}
+{{- $secret := lookup "v1" "Secret" $root.Release.Namespace $name -}}
+{{- if not $secret -}}
+false
+{{- else -}}
+{{- $labels := default (dict) $secret.metadata.labels -}}
+{{- $annotations := default (dict) $secret.metadata.annotations -}}
+{{- if and
+  (eq (get $labels "app.kubernetes.io/component") "quickstart")
+  (eq (get $labels "app.kubernetes.io/instance") $root.Release.Name)
+  (eq (get $annotations "meta.helm.sh/release-name") $root.Release.Name)
+  (eq (get $annotations "meta.helm.sh/release-namespace") $root.Release.Namespace) -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "nifi-platform.validate" -}}
 {{- $mode := include "nifi-platform.mode" . -}}
 {{- $managed := eq (include "nifi-platform.managedMode" .) "true" -}}

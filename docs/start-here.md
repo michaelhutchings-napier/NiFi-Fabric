@@ -38,6 +38,7 @@ This standard path does not require pre-created bootstrap auth or TLS Secrets.
 
 - [Features](features.md)
 - [Install with Helm](install/helm.md)
+- [First Access and Day-1 Checks](first-day.md)
 - [Advanced Install Paths](install/advanced.md)
 - [Compatibility](compatibility.md)
 - [Operations and Troubleshooting](operations.md)
