@@ -1,0 +1,61 @@
+# Focused OpenShift managed OIDC overlay for `charts/nifi-platform`.
+# Compose with:
+# - examples/platform-managed-values.yaml
+# - examples/openshift/managed-values.yaml
+# - examples/openshift/route-proxy-host-values.yaml
+#
+# This keeps the auth model bounded:
+# - managed install through `charts/nifi-platform`
+# - native OpenShift Route for external NiFi HTTPS access
+# - OIDC stays chart-first
+# - external groups bind to local NiFi groups and named policy bundles
+
+nifi:
+  replicaCount: 1
+
+  auth:
+    mode: oidc
+    oidc:
+      discoveryUrl: http://keycloak.nifi.svc.cluster.local:8080/realms/nifi/.well-known/openid-configuration
+      clientId: nifi-fabric
+      clientSecret:
+        existingSecret: nifi-oidc
+        key: clientSecret
+      claims:
+        identifyingUser: email
+        groups: groups
+      additionalScopes:
+      - openid
+      - profile
+      - email
+
+  authz:
+    mode: externalClaimGroups
+    bootstrap:
+      initialAdminGroup: nifi-platform-admins
+      initialAdminIdentity: ""
+    applicationGroups:
+    - nifi-platform-admins
+    - nifi-viewers
+    - nifi-editors
+    - nifi-version-managers
+    bundles:
+      viewer:
+        groups:
+        - nifi-viewers
+      editor:
+        groups:
+        - nifi-editors
+      flowVersionManager:
+        groups:
+        - nifi-version-managers
+      admin:
+        groups:
+        - nifi-platform-admins
+
+  tls:
+    additionalTrustBundle:
+      enabled: true
+      secretRef:
+        name: keycloak-route-ca
+        key: ca.crt

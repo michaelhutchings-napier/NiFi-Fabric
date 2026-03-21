@@ -21,7 +21,13 @@ NiFi-Fabric focuses on a small, practical feature set for running Apache NiFi 2.
 - external TLS Secret ownership for advanced installs
 - single-user authentication for the standard bootstrap path
 - OIDC and LDAP for advanced managed installs
+- native OpenShift passthrough `Route` as the supported external access surface on OpenShift
 - named authorization bundles for common access levels
+
+Current focused OpenShift runtime proofs cover:
+
+- OIDC through `charts/nifi-platform` plus a passthrough `Route`, with external claim groups mapped to the named `admin`, `viewer`, `editor`, and `flowVersionManager` bundles
+- LDAP through `charts/nifi-platform` plus a passthrough `Route`, on the documented bootstrap-admin identity path
 
 ## Autoscaling
 

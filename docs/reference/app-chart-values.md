@@ -49,14 +49,14 @@ See also:
 | `ports.https` | integer | HTTPS port. | No | `8443` |
 | `ports.cluster` | integer | NiFi cluster protocol port. | No | `11443` |
 | `ports.loadBalance` | integer | NiFi load-balance port. | No | `6342` |
-| `web.proxyHosts[]` | string list | Proxy hosts passed to NiFi. | No | `[]` |
+| `web.proxyHosts[]` | string list | Proxy hosts passed to NiFi. Include the explicit Route host or `host:443` when `openshift.route.enabled=true`. | No | `[]` |
 | `ingress.enabled` | boolean | Enables Kubernetes Ingress rendering. | No | `false` |
 | `ingress.className` | string | Ingress class name. | No | `""` |
 | `ingress.annotations` | object | Ingress annotations. | No | `{}` |
 | `ingress.hosts[]` | object list | Ingress host and path rules. | No | see values file |
 | `ingress.tls[]` | object list | Ingress TLS entries. | No | `[]` |
-| `openshift.route.enabled` | boolean | Enables OpenShift Route rendering. | No | `false` |
-| `openshift.route.host` | string | Explicit Route host. | No | `""` |
+| `openshift.route.enabled` | boolean | Enables OpenShift Route rendering. The supported bounded model keeps the Route hostname explicit and mirrors it into `web.proxyHosts`. | No | `false` |
+| `openshift.route.host` | string | Explicit Route host. Required when `openshift.route.enabled=true`. | No | `""` |
 | `openshift.route.annotations` | object | Route annotations. | No | `{}` |
 | `openshift.route.tls.termination` | string | Route TLS termination mode. | No | `passthrough` |
 | `openshift.route.tls.insecureEdgeTerminationPolicy` | string | Route insecure edge policy. | No | `None` |

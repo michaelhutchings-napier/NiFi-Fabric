@@ -106,6 +106,7 @@ ports:
   loadBalance: 6342
 
 # -- Explicit proxy hosts passed to NiFi for ingress, Route, or external proxy access.
+# When `openshift.route.enabled=true`, include the public Route host or `host:443`.
 # @default -- []
 web:
   proxyHosts: []
@@ -123,7 +124,8 @@ ingress:
       pathType: Prefix
   tls: []
 
-# -- OpenShift Route settings for passthrough HTTPS access.
+# -- OpenShift Route settings for bounded external HTTPS access.
+# The runtime-proven shape uses an explicit `host`, matching `web.proxyHosts`, and `passthrough` TLS termination.
 # @default -- {"route":{"enabled":false,"host":"","annotations":{},"tls":{"termination":"passthrough","insecureEdgeTerminationPolicy":"None"}}}
 openshift:
   route:

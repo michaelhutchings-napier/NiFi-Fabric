@@ -5,7 +5,7 @@
 # - one Helm release through `charts/nifi-platform`
 # - controller-managed `NiFiCluster`
 # - internal `ClusterIP` Service first
-# - no Route requirement in this baseline
+# - Route enablement stays on the separate explicit host + proxy-host overlay
 
 controller:
   podSecurityContext:

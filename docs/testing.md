@@ -30,6 +30,13 @@ Repository verification is centered on:
 - primary authentication and metrics paths
 - controller-owned autoscaling
 
+Current focused OpenShift runtime proofs include:
+
+- managed install through `charts/nifi-platform`
+- native passthrough `Route` rendering, admission, service mapping, and external access
+- OIDC login through the Route with named `admin`, `viewer`, `editor`, and `flowVersionManager` bundle checks
+- LDAP login through the Route on the documented bootstrap-admin identity path
+
 ## How to Read Support Claims
 
 Use these pages together:
@@ -44,6 +51,16 @@ When a feature needs more nuance, the detailed support position belongs on that 
 ## Internal Verification Detail
 
 This repository also contains focused runtime workflows, proof commands, and narrower validation paths used by maintainers.
+
+Recent focused OpenShift auth verification uses:
+
+- `go test ./...`
+- `helm lint charts/nifi`
+- `helm lint charts/nifi-platform`
+- `helm template nifi charts/nifi-platform -f examples/platform-managed-values.yaml -f examples/openshift/managed-values.yaml -f examples/openshift/oidc-managed-values.yaml -f examples/openshift/route-proxy-host-values.yaml`
+- `helm template nifi charts/nifi-platform -f examples/platform-managed-values.yaml -f examples/openshift/managed-values.yaml -f examples/openshift/ldap-managed-values.yaml -f examples/openshift/route-proxy-host-values.yaml`
+- `make openshift-platform-managed-oidc-proof`
+- `make openshift-platform-managed-ldap-proof`
 
 Those details are useful for engineering work, but they are not the main customer entrypoint. Customer-facing docs should prefer:
 

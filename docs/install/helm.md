@@ -48,6 +48,26 @@ kubectl -n nifi get secret nifi-auth -o jsonpath='{.data.username}' | base64 -d;
 kubectl -n nifi get secret nifi-auth -o jsonpath='{.data.password}' | base64 -d; echo
 ```
 
+## OpenShift
+
+For OpenShift, keep the same standard install chart and layer the OpenShift overlay on top:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  -f examples/platform-managed-values.yaml \
+  -f examples/openshift/managed-values.yaml
+```
+
+If you also need bounded external HTTPS access through the native OpenShift passthrough `Route`, add:
+
+```bash
+  -f examples/openshift/route-proxy-host-values.yaml
+```
+
+See [OpenShift Baseline Guide](../openshift.md) for the supported Route shape and current OpenShift proof scope.
+
 ## Local Evaluation
 
 For local installs, `kind` is the primary documented path and the main repository baseline.

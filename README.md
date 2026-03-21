@@ -10,6 +10,7 @@ It provides a standard product install path through `charts/nifi-platform`, keep
 - secure-by-default, cert-manager-first installation
 - safe lifecycle handling for rollout, TLS restart policy, hibernation, restore, and controller-owned autoscaling
 - first-class managed authentication options, including OIDC and LDAP
+- native OpenShift passthrough `Route` support for bounded external exposure on OpenShift
 - native NiFi 2 Prometheus metrics support through direct secured API scraping
 - a simpler product surface than a large NiFi-specific operator stack
 
@@ -57,13 +58,20 @@ Reference and support:
 
 Advanced install paths, support details, compatibility nuance, and verification coverage live in the docs rather than in this homepage.
 
+Current focused OpenShift runtime proofs cover:
+
+- managed install through `charts/nifi-platform`
+- the native passthrough `Route` shape
+- OIDC login with named bundle mapping
+- LDAP login on the documented bootstrap-admin identity path
+
 ## License
 
 NiFi-Fabric is licensed under the Apache License 2.0. See [LICENSE](LICENSE).
 
 ## Related Projects
 
-NiFi-Fabric is a NiFi 2-first Kubernetes platform with a smaller product surface than a broad NiFi operator. It keeps the standard path Helm-first and cert-manager-first, uses a thin controller only for lifecycle and safety, and supports direct NiFi 2 Prometheus scraping without a reverse-proxy metrics sidecar. NiFiKop and the archived Cetic chart were useful reference points for install ergonomics and documentation style.
+NiFi-Fabric is a NiFi 2-first Kubernetes platform with a smaller product surface than a broad NiFi operator. It keeps the standard path Helm-first and cert-manager-first, uses a thin controller only for lifecycle and safety, and supports direct NiFi 2 Prometheus scraping. NiFiKop and the archived Cetic chart were useful reference points for install ergonomics and documentation style.
 
 - [NiFiKop](https://konpyutaika.github.io/nifikop/docs/) is a broader NiFi Kubernetes operator with additional CRDs for cluster and dataflow management.
 - [Cetic Helm Chart for Apache NiFi](https://github.com/cetic/helm-nifi) is an archived NiFi 1.x Helm chart.

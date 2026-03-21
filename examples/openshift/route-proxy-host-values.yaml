@@ -1,6 +1,10 @@
-# Optional OpenShift Route and proxy-host overlay for auth-enabled deployments.
-# Compose with the OpenShift managed or standalone overlays when you need external HTTPS access.
-# This is not part of the first runtime-proven OpenShift baseline.
+# Focused OpenShift Route and proxy-host overlay for bounded external HTTPS access.
+# Compose with the OpenShift managed or standalone overlays when you want the native OpenShift Route surface.
+# The supported runtime-proven shape is:
+# - explicit Route host
+# - matching `web.proxyHosts` entry
+# - passthrough TLS termination
+# This overlay does not imply path-based passthrough support.
 
 openshift:
   route:

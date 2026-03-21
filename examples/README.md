@@ -43,7 +43,7 @@ There is also one OpenShift overlay set:
 - [openshift/managed-values.yaml](openshift/managed-values.yaml)
   - Focused runtime-proven OpenShift overlay for the standard `charts/nifi-platform` managed install path.
   - Compose with [platform-managed-values.yaml](platform-managed-values.yaml).
-  - Keeps the Service internal, relaxes fixed UID or GID settings for both the controller and NiFi workload, and leaves Route enablement optional.
+  - Keeps the Service internal, relaxes fixed UID or GID settings for both the controller and NiFi workload, and keeps external Route exposure on the separate explicit host overlay.
   - Compose with [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml) only for a prepared OpenShift cert-manager path; that is not part of the first runtime proof.
   - The focused proof command is `make openshift-platform-managed-proof`.
 
@@ -230,8 +230,9 @@ There are also prepared authentication overlays:
 
 - [openshift/route-proxy-host-values.yaml](openshift/route-proxy-host-values.yaml)
   - OpenShift passthrough Route host plus matching `web.proxyHosts`.
-  - Compose with the OpenShift managed or standalone overlays when you need external HTTPS access.
-  - Route-backed exposure and Route-backed auth remain outside the first runtime-proven OpenShift baseline.
+  - Compose with the OpenShift managed or standalone overlays when you need native OpenShift external HTTPS access.
+  - The runtime-proven supported shape is an explicit Route host plus matching NiFi proxy host on a passthrough Route.
+  - The focused proof command is `make openshift-platform-managed-route-proof`.
 
 There are also prepared Flow Registry Client overlays:
 

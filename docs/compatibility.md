@@ -41,18 +41,26 @@ Across the supported NiFi `2.x` line, NiFi-Fabric supports:
 
 Some more specialized integrations are documented separately and should not be assumed across every version unless that page says so.
 
+Current OpenShift auth/runtime position:
+
+- the native external shape is the passthrough `Route`
+- OIDC is runtime-proven on OpenShift through that Route shape with named bundle mapping
+- LDAP is runtime-proven on OpenShift through that Route shape on the documented bootstrap-admin identity path
+- LDAP group-bootstrap and LDAP named bundle mapping are not runtime-proven on OpenShift in this slice
+
 ## Environment Position
 
 | Environment | Current position |
 | --- | --- |
 | kind | primary repository verification baseline |
 | AKS | primary target environment |
-| OpenShift | supported second target, with a focused managed baseline documented separately |
+| OpenShift | supported second target, with focused managed runtime proofs for the native passthrough Route baseline plus OIDC and LDAP auth slices |
 
 See:
 
 - [AKS Readiness Guide](aks.md)
 - [OpenShift Baseline Guide](openshift.md)
+- [Authentication](manage/authentication.md)
 
 ## Support Reading
 

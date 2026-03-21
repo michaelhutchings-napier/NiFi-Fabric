@@ -480,6 +480,7 @@ app.kubernetes.io/component: metrics
 {{- $linkerd := default (dict) .Values.linkerd -}}
 {{- $istio := default (dict) .Values.istio -}}
 {{- $ambient := default (dict) .Values.ambient -}}
+{{- $route := default (dict) .Values.openshift.route -}}
 {{- $siteToSiteMetrics := default (dict) $metrics.siteToSite -}}
 {{- $siteToSiteStatus := default (dict) $observability.siteToSiteStatus -}}
 {{- $siteToSiteProvenance := default (dict) $observability.siteToSiteProvenance -}}
@@ -487,6 +488,15 @@ app.kubernetes.io/component: metrics
 {{- $versionedFlowImports := default (dict) .Values.versionedFlowImports -}}
 {{- if or (and $linkerd.enabled $istio.enabled) (and $linkerd.enabled $ambient.enabled) (and $istio.enabled $ambient.enabled) -}}
 {{- fail "linkerd.enabled, istio.enabled, and ambient.enabled are mutually exclusive; choose one bounded service-mesh compatibility profile" -}}
+{{- end -}}
+{{- if $route.enabled -}}
+{{- if not $route.host -}}
+{{- fail "openshift.route.enabled=true requires openshift.route.host so the public Route hostname stays explicit and NiFi web.proxyHosts can be configured predictably" -}}
+{{- end -}}
+{{- $routeHostWithPort := printf "%s:443" $route.host -}}
+{{- if and (not (has $route.host .Values.web.proxyHosts)) (not (has $routeHostWithPort .Values.web.proxyHosts)) -}}
+{{- fail "openshift.route.enabled=true requires web.proxyHosts to include the public Route host or host:443" -}}
+{{- end -}}
 {{- end -}}
 {{- if and (ne $mode "disabled") (ne $mode "nativeApi") (ne $mode "nativeApiLegacy") (ne $mode "exporter") (ne $mode "siteToSite") -}}
 {{- fail "observability.metrics.mode must be one of: disabled, nativeApi, exporter, siteToSite" -}}
