@@ -6,7 +6,7 @@ They are secondary to the standard Helm install path in [Install with Helm](helm
 
 ## Before You Use These Profiles
 
-All service mesh profiles in this repo stay bounded:
+All service mesh profiles in this repo stay focused:
 
 - they affect the NiFi workload only
 - the controller stays outside the mesh
@@ -25,7 +25,7 @@ Then add one optional overlay.
 
 ## Linkerd
 
-Use this when you want the bounded Linkerd-compatible NiFi workload profile:
+Use this when you want the Linkerd-compatible NiFi workload profile:
 
 ```bash
 helm upgrade --install nifi charts/nifi-platform \
@@ -41,7 +41,7 @@ Prerequisites:
 
 ## Istio Sidecar Mode
 
-Use this when you want the bounded Istio sidecar-mode NiFi workload profile:
+Use this when you want the Istio sidecar-mode NiFi workload profile:
 
 ```bash
 helm upgrade --install nifi charts/nifi-platform \
@@ -59,7 +59,7 @@ Prerequisites:
 
 ## Istio Ambient
 
-Use this when you want the bounded Istio Ambient NiFi workload profile:
+Use this when you want the Istio Ambient NiFi workload profile:
 
 ```bash
 helm upgrade --install nifi charts/nifi-platform \

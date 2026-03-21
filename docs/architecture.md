@@ -39,7 +39,7 @@ This keeps the product model simple:
 - optional trust-manager resources when that path is enabled
 - chart-managed bootstrap inputs for the standard quickstart path
 - metrics Services and `ServiceMonitor` resources
-- bounded configuration features such as Parameter Context definitions, Flow Registry Client catalogs, and versioned-flow import declarations
+- configuration features such as Parameter Context definitions, Flow Registry Client catalogs, and versioned-flow import declarations
 
 ### NiFi owns
 
@@ -71,7 +71,7 @@ This is why direct autoscaler ownership of the NiFi `StatefulSet` is not the pro
 Autoscaling stays intentionally conservative:
 
 - the controller owns actual scale execution
-- scale-up and scale-down remain bounded and explainable
+- scale-up and scale-down remain conservative and explainable
 - scale-down runs as safe one-node steps
 - optional KEDA integration can express external scale intent, but the controller still decides whether and when a safe action happens
 
@@ -85,7 +85,7 @@ The standard production path is:
 - cert-manager-first
 - secure by default
 
-The standard managed install uses cert-manager for workload TLS and can bootstrap the bounded auth or parameter Secrets it needs for the quickstart path. When you later move to the explicit cert-manager path and keep the same Secret names, the chart preserves those previously generated quickstart Secrets so the handoff stays stable.
+The standard managed install uses cert-manager for workload TLS and can bootstrap the auth or parameter Secrets it needs for the quickstart path. When you later move to the explicit cert-manager path and keep the same Secret names, the chart preserves those previously generated quickstart Secrets so the handoff stays stable.
 
 For metrics, the primary path is direct secured scraping of the NiFi 2 Prometheus endpoint through the native API path. An optional exporter path is also available when a dedicated `/metrics` endpoint is preferred.
 
@@ -97,7 +97,7 @@ For more detail, see:
 
 ## Configuration Features
 
-NiFi-Fabric supports a small set of bounded runtime-managed configuration features:
+NiFi-Fabric supports a small set of runtime-managed configuration features:
 
 - Flow Registry Client catalogs
 - Parameter Context management

@@ -6,7 +6,7 @@ NiFi-Fabric treats Git-based Flow Registry Clients as the preferred modern direc
 
 The chart can render prepared Flow Registry Client catalog content for NiFi.
 
-NiFi Registry is supported here as a bounded NiFi `2.x` compatibility path, not as the strategic long-term center of the product.
+NiFi Registry is supported here as a NiFi `2.x` compatibility path, not as the strategic long-term center of the product.
 
 Supported provider direction:
 
@@ -45,31 +45,31 @@ Use platform chart values under:
 
 ## Typed NiFi Registry Compatibility Path
 
-The bounded typed `provider=nifiRegistry` surface is intentionally small:
+The typed `provider=nifiRegistry` surface is intentionally small:
 
 - client `name`
 - `provider: nifiRegistry`
 - `nifiRegistry.url`
-- optional `nifiRegistry.sslContextServiceName` when the live NiFi Registry Client should reference an existing bounded SSL context service
+- optional `nifiRegistry.sslContextServiceName` when the live NiFi Registry Client should reference an existing SSL context service
 - optional description text
 
 What this support path owns:
 
 - prepared catalog entries rendered by the chart
-- for bounded `versionedFlowImports.*`, the specific live `provider=nifiRegistry` Flow Registry Client objects the product creates or reconciles for the declared import path
+- for `versionedFlowImports.*`, the specific live `provider=nifiRegistry` Flow Registry Client objects the product creates or reconciles for the declared import path
 
 What remains operator-owned:
 
 - undeclared or manually created Flow Registry Clients
 - same-name operator-owned clients that the product did not mark as owned
-- broader live registry-client lifecycle outside the bounded NiFi Registry import path
+- broader live registry-client lifecycle outside the NiFi Registry import path
 - registry credentials, trust, and topology beyond the currently documented compatibility profile
 
-Manual UI edits to product-owned live `provider=nifiRegistry` clients created by the bounded import path may be reconciled back to the declared state. Manual edits to undeclared or operator-owned clients remain outside product ownership.
+Manual UI edits to product-owned live `provider=nifiRegistry` clients created by the import path may be reconciled back to the declared state. Manual edits to undeclared or operator-owned clients remain outside product ownership.
 
 ## Current End-to-End Workflow Proof
 
-The first bounded workflow proof uses GitHub on NiFi `2.8.0`.
+The first workflow proof uses GitHub on NiFi `2.8.0`.
 
 What it proves:
 

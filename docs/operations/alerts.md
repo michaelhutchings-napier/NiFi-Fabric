@@ -35,7 +35,7 @@ Recommended operator follow-up:
 KEDA note:
 
 - the product already records autoscaling recommendation and execution signals
-- controller-mediated KEDA external downscale is now part of the supported path, but it still uses the same bounded safe scale-down semantics
+- controller-mediated KEDA external downscale is now part of the supported path, but it still uses the same safe scale-down semantics
 - the current starter file does not hard-code a KEDA-specific alert because external-intent labels are not exposed as a stable controller metric today
 - use the runbook and `status.autoscaling.external` as the first operator check when KEDA intent appears blocked, deferred, ignored, or conflicted by GitOps
 

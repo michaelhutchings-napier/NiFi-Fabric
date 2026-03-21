@@ -1,12 +1,12 @@
 # Flows
 
-NiFi-Fabric supports bounded versioned-flow import as a runtime-managed config feature.
+NiFi-Fabric supports versioned-flow import as a runtime-managed config feature.
 
 ## What This Feature Does
 
 The app chart can import one declared registry-backed flow per entry into one named root child process group in NiFi and attach that process group to the selected registry-backed version without provider write-back.
 
-Supported bounded content:
+Supported content:
 
 - selected Flow Registry Client name
 - selected bucket name
@@ -22,7 +22,7 @@ Supported bounded content:
 - the chart does not become a generic flow-runtime, graph-editing, or synchronization manager
 - Git-based Flow Registry Clients remain the preferred long-term direction
 - NiFi Registry support in this path is compatibility-oriented for NiFi `2.x`
-- runtime reconciliation is intentionally limited to bounded import creation, bounded version-selection resolution, optional direct Parameter Context attachment, and explicit ownership-marker maintenance for the imported root-child process group
+- runtime reconciliation is intentionally limited to import creation, version-selection resolution, optional direct Parameter Context attachment, and explicit ownership-marker maintenance for the imported root-child process group
 
 ## Configuration Surface
 
@@ -53,17 +53,17 @@ What the product reconciles:
 - live import of missing declared root-child process groups on pod `-0`
 - live attachment or update of the declared registry, bucket, flow, and selected version for owned imported process groups
 - live direct Parameter Context attachment or detachment for the declared imported process group when one reference is configured
-- the ownership marker metadata used to keep the bounded owned scope explicit and auditable
+- the ownership marker metadata used to keep the owned scope explicit and auditable
 
 What the product only references:
 
-- the selected live NiFi Flow Registry Client for prepared providers other than bounded `provider=nifiRegistry`
+- the selected live NiFi Flow Registry Client for prepared providers other than `provider=nifiRegistry`
 - the selected registry bucket, flow, and version exposed through that client
 - the declared Parameter Context by name when a direct attachment is requested
 
 What remains operator-owned:
 
-- creating and maintaining live Flow Registry Client instances for providers other than bounded `provider=nifiRegistry`
+- creating and maintaining live Flow Registry Client instances for providers other than `provider=nifiRegistry`
 - undeclared or operator-owned live Flow Registry Clients, including same-name collisions the product did not mark as owned
 - registry repository lifecycle and credential lifecycle
 - undeclared or manually created process groups
@@ -71,20 +71,20 @@ What remains operator-owned:
 - broader graph edits inside or around the imported process group
 - changing an owned import to point at a different declared source flow or different target name; create a new owned target or delete the old one instead
 
-Manual UI edits outside the bounded import scope are unsupported. The product does not perform ongoing sync, and it does not attempt arbitrary graph reconciliation. Within the bounded owned scope, direct version selection and direct Parameter Context attachment may be reconciled back to the declared state. Unsupported drift or same-name operator-owned collisions are reported as `blocked` in the runtime status file until the operator restores the expected state or deletes and recreates the target.
+Manual UI edits outside the managed import scope are unsupported. The product does not perform ongoing sync, and it does not attempt arbitrary graph reconciliation. Within the product-owned scope, direct version selection and direct Parameter Context attachment may be reconciled back to the declared state. Unsupported drift or same-name operator-owned collisions are reported as `blocked` in the runtime status file until the operator restores the expected state or deletes and recreates the target.
 
 ## Runtime Contract
 
-- current runtime contract: `Runtime-managed / bounded`
+- current runtime contract: `Runtime-managed`
 - pod `-0` performs live reconciliation after NiFi API readiness
 - supported auth modes are `singleUser`, `oidc`, and `ldap`
-- `auth.mode=singleUser` requires `authz.capabilities.mutableFlow.enabled=true` with `includeInitialAdmin=true` or `authz.bundles.flowVersionManager.includeInitialAdmin=true` so the bounded import path can create the root-child import target
+- `auth.mode=singleUser` requires `authz.capabilities.mutableFlow.enabled=true` with `includeInitialAdmin=true` or `authz.bundles.flowVersionManager.includeInitialAdmin=true` so the import path can create the root-child import target
 - `auth.mode=oidc` and `auth.mode=ldap` require `authz.bootstrap.initialAdminIdentity` so the proxied management identity is explicit and operator-visible
 - the runtime loop uses the workload TLS certificate as a trusted-proxy client and acts as the declared management identity
-- prepared `provider=nifiRegistry` entries can be created and reconciled live by this bounded path
+- prepared `provider=nifiRegistry` entries can be created and reconciled live by this path
 - other supported prepared providers still require a matching live Flow Registry Client to already exist in NiFi
-- bounded version attachment uses the selected registry-backed snapshot through the NiFi versions API and does not commit a new registry version
-- when NiFi exposes only version metadata and not inline snapshot content, the current bounded fallback supports prepared GitHub and bounded prepared NiFi Registry sources in this slice
+- version attachment uses the selected registry-backed snapshot through the NiFi versions API and does not commit a new registry version
+- when NiFi exposes only version metadata and not inline snapshot content, the current fallback supports prepared GitHub and prepared NiFi Registry sources in this slice
 - focused runtime proof on the single-node platform path upgrades the release, lets the live in-pod reconcile loop import the declared flow, and then proves a later declared version change reconciles without replacing pod `-0`
 - at most one direct Parameter Context reference is supported per import in this slice
 - `latest` is resolved during create or declared-change reconcile and then pinned through the ownership marker; the product does not keep polling for newer versions once the declaration is unchanged
@@ -95,7 +95,7 @@ Manual UI edits outside the bounded import scope are unsupported. The product do
 
 - current support level: `Runtime-managed / focused-proof`
 - focused kind proof covers real import of a selected registry-backed flow through the platform chart path
-- the resulting root-child process group exists in NiFi with attached version-control state for the selected version, seeded flow content, bounded Parameter Context attachment, and explicit ownership marker verified
+- the resulting root-child process group exists in NiFi with attached version-control state for the selected version, seeded flow content, direct Parameter Context attachment, and explicit ownership marker verified
 - the same focused proof then changes the declared version and proves the owned import updates live without replacing pod `-0`
 - the separate GitHub selection proof still covers provider-native version resolution on the focused workflow path
 - the focused NiFi Registry compatibility proof now covers typed live client creation, bucket and flow resolution, explicit historical version import, and later reconcile back to `latest` on NiFi `2.8.0` through a real in-cluster `apache/nifi-registry` service

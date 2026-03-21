@@ -126,7 +126,7 @@ Respond:
 - confirm the selected metrics mode before debugging the scrape path
 - for `nativeApi`, verify the machine-auth Secret, CA material, and ServiceMonitor TLS/auth references
 - for exporter mode, verify upstream reachability, mounted auth and CA material, and exporter self-metrics
-- remember that exporter is GA but intentionally bounded; if you are missing JVM or broader system-diagnostics families, that is outside the current GA claim rather than a scrape failure
+- remember that exporter is GA but intentionally focused; if you are missing JVM or broader system-diagnostics families, that is outside the current GA claim rather than a scrape failure
 
 ## KEDA Wants X, Controller Did Y
 
@@ -152,8 +152,8 @@ kubectl -n nifi-system logs deployment/nifi-controller-manager --tail=200
 Respond:
 
 - confirm whether the controller actually observed the KEDA request
-- compare the raw runtime-managed request, the controller-bounded request, and the final controller decision before assuming the controller is wrong
-- if the controller bounded the request, inspect autoscaling min and max first
+- compare the raw runtime-managed request, the effective request after controller min and max checks, and the final controller decision before assuming the controller is wrong
+- if the controller adjusted the request, inspect autoscaling min and max first
 - if the controller deferred or blocked the request, inspect higher-precedence lifecycle work before changing autoscaling settings
 - treat `lastScalingDecision` as the support summary for why KEDA wanted one size and the controller applied another
 
@@ -177,7 +177,7 @@ kubectl -n nifi-system logs deployment/nifi-controller-manager --tail=200
 
 Respond:
 
-- if `scaleDownEnabled=false`, treat refusal as expected bounded behavior
+- if `scaleDownEnabled=false`, treat refusal as expected behavior
 - if the requested size is already at or below `minReplicas`, treat refusal as expected floor enforcement
 - if external downscale was enabled but execution still blocked, treat that as supported controller-mediated behavior and inspect the normal controller-owned safe scale-down checks rather than KEDA itself
 - do not expect KEDA or the generated HPA to remove a pod directly

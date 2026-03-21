@@ -34,7 +34,7 @@ Current focused OpenShift runtime proofs cover:
 
 - controller-owned autoscaling
 - advisory mode for recommendations
-- enforced mode for bounded scale-up and safe scale-down
+- enforced mode for scale-up and safe scale-down
 - optional KEDA integration through `NiFiCluster`, not direct `StatefulSet` ownership
 
 ## Observability
@@ -49,8 +49,8 @@ Current focused OpenShift runtime proofs also cover the recommended `nativeApi` 
 ## Registry and Flow Configuration
 
 - Flow Registry Client catalog support
-- bounded versioned-flow import
-- bounded Parameter Context management
+- versioned-flow import
+- Parameter Context management
 
 ## Product Direction
 

@@ -9,8 +9,8 @@ The recommended autoscaling model is still the built-in controller-owned autosca
 - available with managed installs through `charts/nifi-platform`
 - KEDA targets `NiFiCluster`, not the NiFi `StatefulSet`
 - the NiFi-Fabric controller remains the only component that changes real NiFi replicas
-- scale-up is supported through this bounded model
-- scale-down remains optional, bounded, and controller-mediated
+- scale-up is supported
+- scale-down remains optional and controller-mediated
 
 ## Why It Works This Way
 
@@ -34,7 +34,7 @@ KEDA does:
 
 - watch external triggers
 - write replica intent through the `NiFiCluster` `/scale` surface
-- work with the controller's bounded autoscaling model
+- work with the controller's autoscaling model
 
 KEDA does not:
 
@@ -47,7 +47,7 @@ KEDA does not:
 1. Install KEDA in your cluster.
 2. Start from a managed `charts/nifi-platform` install.
 3. Add [platform-managed-keda-values.yaml](/home/michael/Work/nifi2-platform/examples/platform-managed-keda-values.yaml).
-4. Add [platform-managed-keda-scale-down-values.yaml](/home/michael/Work/nifi2-platform/examples/platform-managed-keda-scale-down-values.yaml) only if you want bounded external downscale intent.
+4. Add [platform-managed-keda-scale-down-values.yaml](/home/michael/Work/nifi2-platform/examples/platform-managed-keda-scale-down-values.yaml) only if you want external downscale intent.
 
 Example:
 
@@ -62,12 +62,12 @@ helm upgrade --install nifi charts/nifi-platform \
 ## What Operators Should Expect
 
 - the KEDA request is an input, not a guarantee that NiFi will resize immediately
-- the controller may bound, defer, block, or ignore that request based on lifecycle state and autoscaling rules
+- the controller may adjust, defer, block, or ignore that request based on lifecycle state and autoscaling rules
 - when KEDA is enabled, `spec.autoscaling.external.requestedReplicas` becomes runtime-managed and should not be treated as a hand-authored GitOps field
 
 ## Support Position
 
-KEDA support is GA within this bounded model:
+KEDA support is GA for this documented model:
 
 - optional
 - secondary to the built-in controller autoscaler

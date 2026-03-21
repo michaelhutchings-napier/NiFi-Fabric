@@ -30,7 +30,7 @@ This is an optional secondary path, not the primary recommendation.
 
 ## Site-to-Site Export
 
-NiFi-Fabric also supports bounded Site-to-Site observability paths for:
+NiFi-Fabric also supports Site-to-Site observability paths for:
 
 - metrics
 - status

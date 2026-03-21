@@ -15,7 +15,7 @@ The controller is the only component that makes real scale changes in managed mo
 NiFi-Fabric can:
 
 - recommend scale-up or scale-down actions
-- perform bounded scale-up
+- perform scale-up
 - perform safe, one-node-at-a-time scale-down
 - respect higher-priority lifecycle work such as rollout, TLS handling, hibernation, and restore
 
@@ -38,7 +38,7 @@ Use:
 
 ## Support Position
 
-NiFi-Fabric keeps autoscaling intentionally bounded and explainable:
+NiFi-Fabric keeps autoscaling conservative and explainable:
 
 - advisory recommendations are supported
 - enforced scale-up is supported

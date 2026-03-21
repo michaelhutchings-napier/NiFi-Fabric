@@ -1,12 +1,12 @@
 # Parameter Contexts
 
-NiFi-Fabric supports Parameter Contexts as a bounded runtime-managed production feature.
+NiFi-Fabric supports Parameter Contexts as a runtime-managed production feature.
 
 ## What This Feature Does
 
 The app chart can create, update, delete, and optionally attach declared Parameter Contexts in NiFi without turning the product into a generic flow-runtime manager.
 
-Supported bounded content:
+Supported content:
 
 - named Parameter Context definitions
 - non-sensitive inline parameter values
@@ -20,7 +20,7 @@ Supported bounded content:
 - the public API stays under `parameterContexts.*`
 - the chart does not become a generic flow-runtime or graph-editing manager
 - Parameter Provider support in this slice is reference-only; the product does not create or reconcile providers in NiFi
-- runtime reconciliation is intentionally limited to create, update, delete, and bounded root-child attachment of declared Parameter Contexts only
+- runtime reconciliation is intentionally limited to create, update, delete, and direct root-child attachment of declared Parameter Contexts only
 
 ## Configuration Surface
 
@@ -41,7 +41,7 @@ What the product creates:
 - one chart-rendered `ConfigMap` bundle when `parameterContexts.enabled=true`
 - one pod mount that makes that bundle available inside the NiFi pod
 - the declared Parameter Contexts in NiFi for product-owned names
-- bounded direct root-child process-group assignments declared under those owned contexts
+- direct root-child process-group assignments declared under those owned contexts
 
 What the product reconciles:
 
@@ -63,7 +63,7 @@ What remains operator-owned:
 - any broader process-group assignment beyond the declared direct root-child attachment scope
 - deciding whether operator-owned contexts should ever be deleted
 
-Manual NiFi UI edits to product-owned contexts are reconciled back to the declared bounded state by the live runtime loop. Removed product-owned contexts are deleted. Undeclared contexts remain operator-owned and are not adopted automatically, even if their names collide with declared names.
+Manual NiFi UI edits to product-owned contexts are reconciled back to the declared state by the live runtime loop. Removed product-owned contexts are deleted. Undeclared contexts remain operator-owned and are not adopted automatically, even if their names collide with declared names.
 
 ## Sensitive Values Contract
 
@@ -84,8 +84,8 @@ Manual NiFi UI edits to product-owned contexts are reconciled back to the declar
 
 ## Runtime Contract
 
-- current runtime contract: `Runtime-managed / bounded`
-- pod `-0` performs live create, update, delete, and bounded attachment reconciliation for declared contexts after NiFi API readiness
+- current runtime contract: `Runtime-managed`
+- pod `-0` performs live create, update, delete, and direct root-child attachment reconciliation for declared contexts after NiFi API readiness
 - supported auth modes are `singleUser`, `oidc`, and `ldap`
 - `auth.mode=oidc` and `auth.mode=ldap` require `authz.bootstrap.initialAdminIdentity` so the proxied management identity is explicit and operator-visible
 - the runtime loop uses the workload TLS certificate as a trusted-proxy client and acts as the declared management identity
@@ -99,7 +99,7 @@ Manual NiFi UI edits to product-owned contexts are reconciled back to the declar
 ## Support Level
 
 - current support level: `Runtime-managed / focused-proof`
-- focused kind proof covers declared context creation, live update without pod replacement, deletion of removed owned contexts, inline and Secret-backed values, and bounded direct root-child attachment
+- focused kind proof covers declared context creation, live update without pod replacement, deletion of removed owned contexts, inline and Secret-backed values, and direct root-child attachment
 - Parameter Provider creation remains out of scope, so the feature stays narrow and explainable
 
 ## Example Overlay

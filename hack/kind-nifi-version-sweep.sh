@@ -10,6 +10,7 @@ NAMESPACE="${NAMESPACE:-nifi}"
 HELM_RELEASE="${HELM_RELEASE:-nifi}"
 CONTROLLER_NAMESPACE="${CONTROLLER_NAMESPACE:-nifi-system}"
 CONTROLLER_DEPLOYMENT="${CONTROLLER_DEPLOYMENT:-${HELM_RELEASE}-controller-manager}"
+SKIP_CONTROLLER_BUILD="${SKIP_CONTROLLER_BUILD:-false}"
 PLATFORM_VALUES_FILE="${PLATFORM_VALUES_FILE:-examples/platform-managed-values.yaml}"
 PLATFORM_FAST_VALUES_FILE="${PLATFORM_FAST_VALUES_FILE:-examples/platform-fast-values.yaml}"
 COMPATIBILITY_VERSIONS="${COMPATIBILITY_VERSIONS:-2.0.0 2.1.0 2.2.0 2.3.0 2.4.0 2.5.0 2.6.0 2.7.0 2.8.0}"
@@ -29,6 +30,31 @@ configure_kind_kubeconfig() {
   local kubeconfig_path="${TMPDIR:-/tmp}/${KIND_CLUSTER_NAME}.kubeconfig"
   kind get kubeconfig --name "${KIND_CLUSTER_NAME}" >"${kubeconfig_path}"
   export KUBECONFIG="${kubeconfig_path}"
+}
+
+wait_for_namespace_deleted() {
+  local namespace="$1"
+  local deadline=$(( $(date +%s) + 300 ))
+
+  while kubectl get namespace "${namespace}" >/dev/null 2>&1; do
+    if (( $(date +%s) >= deadline )); then
+      echo "timed out waiting for namespace ${namespace} to delete" >&2
+      return 1
+    fi
+    sleep 5
+  done
+}
+
+reset_install_state() {
+  helm uninstall "${HELM_RELEASE}" -n "${NAMESPACE}" >/dev/null 2>&1 || true
+  kubectl delete namespace "${NAMESPACE}" --ignore-not-found >/dev/null 2>&1 || true
+  if [[ "${CONTROLLER_NAMESPACE}" != "${NAMESPACE}" ]]; then
+    kubectl delete namespace "${CONTROLLER_NAMESPACE}" --ignore-not-found >/dev/null 2>&1 || true
+  fi
+  wait_for_namespace_deleted "${NAMESPACE}"
+  if [[ "${CONTROLLER_NAMESPACE}" != "${NAMESPACE}" ]]; then
+    wait_for_namespace_deleted "${CONTROLLER_NAMESPACE}"
+  fi
 }
 
 sts_image() {
@@ -75,15 +101,25 @@ configure_kind_kubeconfig
 
 CURRENT_PHASE="create-core-secrets"
 phase "Creating shared TLS and auth Secrets"
-run_make kind-secrets KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NAMESPACE="${NAMESPACE}" HELM_RELEASE="${HELM_RELEASE}"
-
 CURRENT_PHASE="build-load-controller"
-phase "Building and loading controller image"
-run_make docker-build-controller
+if [[ "${SKIP_CONTROLLER_BUILD}" == "true" ]]; then
+  phase "Loading prebuilt controller image"
+else
+  phase "Building and loading controller image"
+  run_make docker-build-controller
+fi
 run_make kind-load-controller KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}"
 
 for version in ${COMPATIBILITY_VERSIONS}; do
   CURRENT_VERSION="${version}"
+  CURRENT_PHASE="reset-install-state"
+  phase "Resetting install state for NiFi ${version}"
+  reset_install_state
+
+  CURRENT_PHASE="create-core-secrets"
+  phase "Creating TLS and auth Secrets for NiFi ${version}"
+  run_make kind-secrets KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NAMESPACE="${NAMESPACE}" HELM_RELEASE="${HELM_RELEASE}"
+
   CURRENT_PHASE="load-nifi-image"
   phase "Loading NiFi image apache/nifi:${version} into shared kind cluster"
   run_make kind-load-nifi-image KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NIFI_IMAGE="apache/nifi:${version}"

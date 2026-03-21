@@ -1,76 +1,69 @@
-# OpenShift Baseline Guide
+# OpenShift
 
-OpenShift is a supported secondary target environment for NiFi-Fabric.
+OpenShift is supported for NiFi-Fabric.
 
-The recommended OpenShift deployment model keeps the same product shape as standard Kubernetes:
+The recommended OpenShift path is the same standard customer install used on other Kubernetes platforms:
 
-- `charts/nifi-platform` remains the standard install path
-- the controller remains the lifecycle owner in managed mode
-- NiFi keeps ownership of its own TLS material
-- OpenShift `Route` is the native external access surface when external access is needed
+- `charts/nifi-platform`
+- managed mode
+- cert-manager-first TLS
+- internal `ClusterIP` access by default
+- OpenShift `Route` when you need external HTTPS access
 
-## Recommended Starting Point
+## Recommended OpenShift Install
 
-Start with:
+Install cert-manager first, then use the standard quickstart values with the OpenShift overlay:
 
-- the managed install through `charts/nifi-platform`
-- internal `ClusterIP` access first
-- the OpenShift managed overlay for the standard path
-- the separate Route overlay only when you need external HTTPS access
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  -f examples/platform-managed-cert-manager-quickstart-values.yaml \
+  -f examples/openshift/managed-values.yaml
+```
 
-## Supported OpenShift Shape
+This is the main OpenShift starting point for customer installs.
 
-The supported baseline composition is:
+## External Access With Route
 
-- `examples/platform-managed-values.yaml`
-- `examples/openshift/managed-values.yaml`
+If you want external HTTPS access, add the Route overlay:
 
-For the native OpenShift external-access model, add:
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  -f examples/platform-managed-cert-manager-quickstart-values.yaml \
+  -f examples/openshift/managed-values.yaml \
+  -f examples/openshift/route-proxy-host-values.yaml
+```
 
-- `examples/openshift/route-proxy-host-values.yaml`
+Before using that overlay, change the example hostname in `examples/openshift/route-proxy-host-values.yaml` to the Route host you want to expose.
 
-This keeps the product boundary narrow and predictable:
+If you prefer to bring your own auth or TLS Secrets instead of using the quickstart path, use [Advanced Install Paths](install/advanced.md).
 
-- no new CRDs
-- no separate OpenShift-specific control plane
-- no change to controller lifecycle scope
-- no change to NiFi TLS ownership
+## What You Need On OpenShift
 
-## Supported Route Shape
+Prepare:
 
-The supported OpenShift external-access shape is:
+- an OpenShift cluster
+- a working `StorageClass` for NiFi PVCs
+- a controller image the cluster can pull
+- a NiFi image the cluster can pull
+- cert-manager and the `Issuer` or `ClusterIssuer` you want to use for the standard TLS path
 
-- OpenShift `Route` as the external access surface
-- `passthrough` TLS termination
-- explicit `openshift.route.host`
-- matching `web.proxyHosts` entry for that same public host
-- NiFi TLS still terminated by NiFi, not by the router
+If your cluster does not have a suitable default `StorageClass`, set `nifi.persistence.storageClassName` in your values before installing.
 
-## What to Prepare
+## Notes For OpenShift
 
-Before installing, make sure you have:
+- Keep the standard `charts/nifi-platform` install path.
+- Start with internal service access unless you need a public endpoint.
+- Use an OpenShift `Route` when you want the native external access model.
+- Keep NiFi TLS enabled end to end.
 
-- an OpenShift cluster with PVC support for NiFi
-- a controller image reachable by the cluster
-- a NiFi image reachable by the cluster
-- the required release-namespace Secrets for the path you choose
-- cert-manager plus the referenced issuer or `ClusterIssuer` if you want the standard managed TLS path
-- an appropriate storage class
-
-## Support Position
-
-OpenShift is supported for the documented managed install path.
-
-The customer-facing OpenShift shape is:
-
-- managed install through `charts/nifi-platform`
-- the OpenShift managed overlay
-- the native passthrough `Route` model when external HTTPS access is required
-- cert-manager-first TLS when you want the standard managed TLS path
-
-## Next Steps
+## Read Next
 
 - [Install with Helm](install/helm.md)
-- [Advanced Install Paths](install/advanced.md)
-- [Authentication](manage/authentication.md)
+- [First Access and Day-1 Checks](first-day.md)
 - [TLS and cert-manager](manage/tls-and-cert-manager.md)
+- [Authentication](manage/authentication.md)
+- [Operations and Troubleshooting](operations.md)

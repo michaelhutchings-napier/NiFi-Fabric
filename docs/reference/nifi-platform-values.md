@@ -43,11 +43,11 @@ See also:
 
 ## Quickstart Settings
 
-`quickstart.*` is optional and applies only to the bounded managed quickstart paths.
+`quickstart.*` is optional and applies only to the managed quickstart paths.
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
-| `quickstart.enabled` | boolean | Enables the bounded quickstart bootstrap path in the managed platform modes. | No | `false` |
+| `quickstart.enabled` | boolean | Enables the quickstart bootstrap path in the managed platform modes. | No | `false` |
 | `quickstart.singleUser.username` | string | Username written into the generated single-user auth Secret when no existing value is present. | No | `admin` |
 | `quickstart.singleUser.passwordLength` | integer | Generated single-user password length. Existing generated values are reused on upgrade. | No | `24` |
 | `quickstart.tls.validityDays` | integer | Validity period for the generated self-signed quickstart TLS certificate. | No | `365` |
@@ -86,13 +86,13 @@ These values render the managed `NiFiCluster` resource when `mode=managed` or `m
 | `cluster.autoscaling.mode` | enum | Autoscaling mode. Values: `Disabled`, `Advisory`, `Enforced`. | No | `Disabled` |
 | `cluster.autoscaling.scaleUp.enabled` | boolean | Enables controller-owned scale-up in enforced mode. | No | `false` |
 | `cluster.autoscaling.scaleUp.cooldown` | duration | Minimum time between scale-up actions. | No | `5m` |
-| `cluster.autoscaling.scaleDown.enabled` | boolean | Enables controller-owned safe scale-down for the bounded execution path. | No | `false` |
+| `cluster.autoscaling.scaleDown.enabled` | boolean | Enables controller-owned safe scale-down execution. | No | `false` |
 | `cluster.autoscaling.scaleDown.cooldown` | duration | Minimum time between scale-down actions. | No | `10m` |
 | `cluster.autoscaling.scaleDown.stabilizationWindow` | duration | Required low-pressure stability before scale-down. | No | `5m` |
-| `cluster.autoscaling.scaleDown.maxSequentialSteps` | integer | Maximum number of one-node removals the controller may complete in one bounded sequential scale-down episode. | No | `1` |
+| `cluster.autoscaling.scaleDown.maxSequentialSteps` | integer | Maximum number of one-node removals the controller may complete in one sequential scale-down episode. | No | `1` |
 | `cluster.autoscaling.external.enabled` | boolean | Enables the external intent surface used by optional KEDA integration. | No | `false` |
 | `cluster.autoscaling.external.source` | string | External source name. Current supported value is `KEDA`. | No | `""` |
-| `cluster.autoscaling.external.scaleDownEnabled` | boolean | Allows best-effort external downscale intent to be considered through the existing bounded controller-owned scale-down path. | No | `false` |
+| `cluster.autoscaling.external.scaleDownEnabled` | boolean | Allows best-effort external downscale intent to be considered through the existing controller-owned safe scale-down path. | No | `false` |
 | `cluster.autoscaling.external.requestedReplicas` | integer | External requested replicas observed through `/scale`. | No | `0` |
 | `cluster.autoscaling.minReplicas` | integer | Lower autoscaling bound. | No | `0` |
 | `cluster.autoscaling.maxReplicas` | integer | Upper autoscaling bound. | No | `0` |
@@ -157,12 +157,12 @@ These values render the managed `NiFiCluster` resource when `mode=managed` or `m
 | `nifi.imagePullSecrets[]` | object list | Image pull secrets for chart-managed nested NiFi pods. | No | chart-derived |
 | `nifi.automountServiceAccountToken` | boolean | Automounts the ServiceAccount token into chart-managed nested NiFi pods. | No | chart-derived |
 | `nifi.enableServiceLinks` | boolean | Enables Kubernetes service environment variable injection into chart-managed nested NiFi pods. | No | chart-derived |
-| `nifi.linkerd.*` | object | Optional bounded Linkerd compatibility settings for the nested NiFi workload only. | No | chart-derived |
-| `nifi.istio.*` | object | Optional bounded Istio sidecar-mode compatibility settings for the nested NiFi workload only. | No | chart-derived |
-| `nifi.ambient.*` | object | Optional bounded Istio Ambient compatibility settings for the nested NiFi workload only. | No | chart-derived |
+| `nifi.linkerd.*` | object | Optional Linkerd compatibility settings for the nested NiFi workload only. | No | chart-derived |
+| `nifi.istio.*` | object | Optional Istio sidecar-mode compatibility settings for the nested NiFi workload only. | No | chart-derived |
+| `nifi.ambient.*` | object | Optional Istio Ambient compatibility settings for the nested NiFi workload only. | No | chart-derived |
 | `nifi.tls.*` | object | TLS source, Secret keys, cert-manager integration, and optional extra trust bundle import. | No | chart-derived |
 | `nifi.auth.*` | object | NiFi authentication provider settings. | No | chart-derived |
-| `nifi.authz.*` | object | NiFi authorization bootstrap, bounded mutable-flow capability bundles, and policy settings. | No | chart-derived |
+| `nifi.authz.*` | object | NiFi authorization bootstrap, mutable-flow capability bundles, and policy settings. | No | chart-derived |
 | `nifi.ingress.*` | object | Standard Kubernetes ingress settings. | No | chart-derived |
 | `nifi.openshift.route.*` | object | OpenShift Route settings. | No | chart-derived |
 | `nifi.observability.metrics.*` | object | Metrics subsystem settings, including optional trust-manager bundle consumption. | No | chart-derived |

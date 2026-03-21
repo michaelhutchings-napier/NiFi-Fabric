@@ -32,20 +32,20 @@ See also:
 | `service.type` | string | Main NiFi Service type. | No | `ClusterIP` |
 | `service.annotations` | object | Annotations for the main Service. | No | `{}` |
 | `service.sessionAffinity` | string | Service session affinity mode. | No | `None` |
-| `linkerd.enabled` | boolean | Enables the bounded Linkerd compatibility profile for the NiFi workload. | No | `false` |
+| `linkerd.enabled` | boolean | Enables the Linkerd compatibility profile for the NiFi workload. | No | `false` |
 | `linkerd.inject` | string | Linkerd injection annotation value applied to the NiFi pod template when Linkerd compatibility is enabled. | No | `enabled` |
-| `linkerd.opaquePorts.cluster` | boolean | Marks the NiFi cluster protocol port as opaque for the bounded Linkerd profile. | No | `true` |
-| `linkerd.opaquePorts.loadBalance` | boolean | Marks the NiFi load-balance port as opaque for the bounded Linkerd profile. | No | `true` |
+| `linkerd.opaquePorts.cluster` | boolean | Marks the NiFi cluster protocol port as opaque for the Linkerd profile. | No | `true` |
+| `linkerd.opaquePorts.loadBalance` | boolean | Marks the NiFi load-balance port as opaque for the Linkerd profile. | No | `true` |
 | `linkerd.opaquePorts.https` | boolean | Optionally marks the NiFi HTTPS port as opaque too. Leave this `false` for the documented baseline profile unless you have a specific operator reason. | No | `false` |
-| `linkerd.opaquePorts.additional[]` | integer list | Additional opaque ports appended to the bounded Linkerd profile. | No | `[]` |
-| `istio.enabled` | boolean | Enables the bounded Istio sidecar-mode compatibility profile for the NiFi workload. | No | `false` |
-| `istio.inject` | boolean | Applies the Istio sidecar injection annotation to the NiFi pod template when the bounded profile is enabled. The supported profile still expects the NiFi namespace to be injection-enabled by the operator. | No | `true` |
+| `linkerd.opaquePorts.additional[]` | integer list | Additional opaque ports appended to the Linkerd profile. | No | `[]` |
+| `istio.enabled` | boolean | Enables the Istio sidecar-mode compatibility profile for the NiFi workload. | No | `false` |
+| `istio.inject` | boolean | Applies the Istio sidecar injection annotation to the NiFi pod template when the profile is enabled. The supported profile still expects the NiFi namespace to be injection-enabled by the operator. | No | `true` |
 | `istio.rewriteAppHTTPProbers` | boolean | Explicitly enables Istio sidecar probe rewrite for the supported profile so the existing Kubernetes probes remain compatible under sidecar mode. | No | `true` |
 | `istio.holdApplicationUntilProxyStarts` | boolean | Adds the Istio proxy-startup annotation used by the supported profile so NiFi waits for the sidecar to be ready first. | No | `true` |
-| `istio.annotations` | object | Additional Istio-specific pod annotations appended only when the bounded Istio profile is enabled. | No | `{}` |
-| `ambient.enabled` | boolean | Enables the bounded Istio Ambient compatibility profile for the NiFi workload. | No | `false` |
-| `ambient.dataplaneMode` | string | Pod-template dataplane-mode label applied when the bounded Ambient profile is enabled. Leave this at `ambient` for the documented supported profile. | No | `ambient` |
-| `ambient.labels` | object | Additional Ambient-specific pod labels appended only when the bounded Ambient profile is enabled. | No | `{}` |
+| `istio.annotations` | object | Additional Istio-specific pod annotations appended only when the Istio profile is enabled. | No | `{}` |
+| `ambient.enabled` | boolean | Enables the Istio Ambient compatibility profile for the NiFi workload. | No | `false` |
+| `ambient.dataplaneMode` | string | Pod-template dataplane-mode label applied when the Ambient profile is enabled. Leave this at `ambient` for the documented supported profile. | No | `ambient` |
+| `ambient.labels` | object | Additional Ambient-specific pod labels appended only when the Ambient profile is enabled. | No | `{}` |
 | `ports.https` | integer | HTTPS port. | No | `8443` |
 | `ports.cluster` | integer | NiFi cluster protocol port. | No | `11443` |
 | `ports.loadBalance` | integer | NiFi load-balance port. | No | `6342` |
@@ -55,7 +55,7 @@ See also:
 | `ingress.annotations` | object | Ingress annotations. | No | `{}` |
 | `ingress.hosts[]` | object list | Ingress host and path rules. | No | see values file |
 | `ingress.tls[]` | object list | Ingress TLS entries. | No | `[]` |
-| `openshift.route.enabled` | boolean | Enables OpenShift Route rendering. The supported bounded model keeps the Route hostname explicit and mirrors it into `web.proxyHosts`. | No | `false` |
+| `openshift.route.enabled` | boolean | Enables OpenShift Route rendering. The documented model keeps the Route hostname explicit and mirrors it into `web.proxyHosts`. | No | `false` |
 | `openshift.route.host` | string | Explicit Route host. Required when `openshift.route.enabled=true`. | No | `""` |
 | `openshift.route.annotations` | object | Route annotations. | No | `{}` |
 | `openshift.route.tls.termination` | string | Route TLS termination mode. | No | `passthrough` |
@@ -142,7 +142,7 @@ See also:
 | `authz.bundles.editor.*` | object | Named process-group editing bundle binding. | No | see values file |
 | `authz.bundles.flowVersionManager.*` | object | Named version-control workflow bundle binding. | No | see values file |
 | `authz.bundles.admin.*` | object | Named admin bundle binding. | No | see values file |
-| `authz.capabilities.mutableFlow.enabled` | boolean | Enables the bounded mutable-flow capability bundle for inherited root-canvas process-group write and process-group-level version-control access. | No | `false` |
+| `authz.capabilities.mutableFlow.enabled` | boolean | Enables the mutable-flow capability bundle for inherited root-canvas process-group write and process-group-level version-control access. | No | `false` |
 | `authz.capabilities.mutableFlow.includeInitialAdmin` | boolean | Also grants the mutable-flow bundle to the bootstrap admin path. | No | `true` |
 | `authz.capabilities.mutableFlow.groups[]` | string list | Seeded NiFi groups that should receive the mutable-flow bundle. Each group must also be seeded through `authz.applicationGroups[]` or `authz.bootstrap.initialAdminGroup`. | No | `[]` |
 | `authz.policies[]` | object list | File-managed policy definitions. | No | `[]` |
@@ -178,7 +178,7 @@ See also:
 | `observability.metrics.siteToSite.auth.*` | object | Typed Site-to-Site auth contract. Values: `none`, `workloadTLS`, `secretRef`, plus the explicit secure receiver-authorized identity and any referenced Secret material keys. | No | see values file |
 | `observability.metrics.siteToSite.source.*` | object | Reporting-task source identity hints. | No | see values file |
 | `observability.metrics.siteToSite.transport.*` | object | Site-to-Site transport settings for the typed metrics-export path. | No | see values file |
-| `observability.metrics.siteToSite.format.*` | object | Site-to-Site output format settings. Current runtime support is bounded to `AmbariFormat`. | No | see values file |
+| `observability.metrics.siteToSite.format.*` | object | Site-to-Site output format settings. Current runtime support is `AmbariFormat`. | No | see values file |
 | `observability.siteToSiteStatus.enabled` | boolean | Enables the typed Site-to-Site status export path. This feature is independent of `observability.metrics.mode`. | No | `false` |
 | `observability.siteToSiteStatus.destination.*` | object | Typed destination URL and input-port contract for Site-to-Site status export. | No | see values file |
 | `observability.siteToSiteStatus.auth.*` | object | Typed Site-to-Site auth contract for status export. Values: `none`, `workloadTLS`, `secretRef`, plus the explicit secure receiver-authorized identity and any referenced Secret material keys. | No | see values file |
@@ -197,7 +197,7 @@ See also:
 | --- | --- | --- | --- | --- |
 | `flowRegistryClients.enabled` | boolean | Enables prepared Flow Registry Client catalog rendering. | No | `false` |
 | `flowRegistryClients.mountPath` | string | Mount path for the rendered catalog files. | No | `/opt/nifi/fabric/flow-registry-clients` |
-| `flowRegistryClients.clients[]` | object list | Prepared client definitions. Supported providers in this slice: `github`, `gitlab`, `bitbucket`, `azureDevOps`, and bounded compatibility-oriented `nifiRegistry`. | No | `[]` |
+| `flowRegistryClients.clients[]` | object list | Prepared client definitions. Supported providers in this slice: `github`, `gitlab`, `bitbucket`, `azureDevOps`, and compatibility-oriented `nifiRegistry`. | No | `[]` |
 
 ## Parameter Contexts
 
@@ -205,9 +205,9 @@ For behavior and examples, see [Parameter Contexts](../manage/parameters.md).
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
-| `parameterContexts.enabled` | boolean | Enables bounded runtime-managed Parameter Context reconciliation. | No | `false` |
+| `parameterContexts.enabled` | boolean | Enables runtime-managed Parameter Context reconciliation. | No | `false` |
 | `parameterContexts.mountPath` | string | Mount path for the rendered runtime bundle and status bootstrap files. | No | `/opt/nifi/fabric/parameter-contexts` |
-| `parameterContexts.contexts[]` | object list | Declared Parameter Context definitions with bounded inline values, sensitive Secret references, and reference-only provider refs. | No | `[]` |
+| `parameterContexts.contexts[]` | object list | Declared Parameter Context definitions with inline values, sensitive Secret references, and reference-only provider refs. | No | `[]` |
 
 ## Versioned Flow Imports
 
@@ -215,7 +215,7 @@ For behavior and examples, see [Flows](../manage/flows.md).
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
-| `versionedFlowImports.enabled` | boolean | Enables bounded runtime-managed versioned-flow import reconciliation. | No | `false` |
+| `versionedFlowImports.enabled` | boolean | Enables runtime-managed versioned-flow import reconciliation. | No | `false` |
 | `versionedFlowImports.mountPath` | string | Mount path for the rendered runtime bundle and status files consumed by the live in-pod reconciler. | No | `/opt/nifi/fabric/versioned-flow-imports` |
 | `versionedFlowImports.imports[]` | object list | Declared versioned-flow imports with a selected registry client name, bucket, flow name, selected version identifier or `latest`, one intended root-child target name, and optional direct Parameter Context reference. | No | `[]` |
 

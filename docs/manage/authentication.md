@@ -72,12 +72,12 @@ See:
 NiFi-Fabric supports:
 
 - file-managed authorization for the standard single-user path
-- external-claim-group authorization for the bounded OIDC path
+- external-claim-group authorization for the OIDC path
 - LDAP-sync authorization for the LDAP path
 
 The project also includes named authorization bundles for common access patterns such as viewer, editor, flow-version-manager, and admin.
 
-The current bounded support position is:
+The current support position is:
 
 - OIDC: external groups map into named NiFi bundles
 - LDAP: runtime-proof covers login plus the explicit bootstrap-admin identity path
