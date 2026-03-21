@@ -67,7 +67,7 @@ What this does not promise:
 
 ## Runtime-Proven Route Behavior
 
-The repository now includes a focused OpenShift Route proof path on the standard managed install flow:
+The repository includes a focused OpenShift Route proof path on the standard managed install flow:
 
 ```bash
 make openshift-platform-managed-route-proof
@@ -88,6 +88,28 @@ If `ROUTE_HOST` is not set, the proof helper derives one from the cluster apps d
 ROUTE_HOST=nifi.apps.example.com make openshift-platform-managed-route-proof
 ```
 
+## Runtime-Proven Standard Install And Metrics Behavior
+
+The repository also includes focused OpenShift runtime verification for:
+
+- the cert-manager-first managed install shape through `charts/nifi-platform`
+- the recommended `nativeApi` metrics path
+
+That verification proves:
+
+- `cert-manager`, the bootstrap issuer flow, and `ClusterIssuer/nifi-ca` can back a real OpenShift managed install
+- the NiFi workload `Certificate` becomes `Ready` and cert-manager creates the final `nifi-tls` Secret
+- NiFi starts successfully from the cert-manager-issued TLS material
+- the `nativeApi` metrics `Service` and `ServiceMonitor` resources render and apply on OpenShift
+- a secure scrape of `/nifi-api/flow/metrics/prometheus` works with the chart-managed machine-auth and CA Secret contract
+
+Current OpenShift proof boundaries remain narrow:
+
+- OpenShift monitoring stack target selection and scrape pickup for those `ServiceMonitor` objects are not runtime-proven in this slice
+- exporter metrics are not runtime-proven on OpenShift in this slice
+- Site-to-Site metrics are not runtime-proven on OpenShift in this slice
+- trust-manager integration is not runtime-proven on OpenShift in this slice
+
 ## What to Prepare
 
 Before installing, make sure you have:
@@ -96,6 +118,7 @@ Before installing, make sure you have:
 - a controller image reachable by the cluster
 - a NiFi image reachable by the cluster
 - the required release-namespace Secrets for the path you choose
+- for the cert-manager-first managed path, cert-manager plus the referenced issuer or `ClusterIssuer`
 - an appropriate storage class
 - for passthrough Route proof, NiFi TLS material that is trusted by clients and valid for the chosen Route host
 
@@ -107,6 +130,8 @@ The focused Route proof collects and surfaces:
 - router admission state
 - Route-to-Service backend mapping
 - NiFi `nifi.web.https.host`, `nifi.web.https.port`, and `nifi.web.proxy.host` settings
+- cert-manager issuer, certificate, and TLS Secret state for the cert-manager path
+- metrics `Service`, `ServiceMonitor`, machine-auth Secret, and CA Secret state for the `nativeApi` path
 - release, controller, workload, and event diagnostics on failure
 
 Useful commands:
@@ -118,6 +143,10 @@ oc -n nifi describe route nifi
 oc -n nifi get svc nifi -o yaml
 oc -n nifi get endpointslice -l kubernetes.io/service-name=nifi
 oc -n nifi exec nifi-0 -c nifi -- grep '^nifi\.web\.proxy\.host=' /opt/nifi/nifi-current/conf/nifi.properties
+oc -n cert-manager get deployment,pod,issuer,certificate,secret
+oc get clusterissuer nifi-ca -o yaml
+oc -n nifi get certificate,secret
+oc -n nifi get service,servicemonitor
 ```
 
 ## Next Steps

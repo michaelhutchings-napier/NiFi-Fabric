@@ -33,7 +33,10 @@ Repository verification is centered on:
 Current focused OpenShift runtime proofs include:
 
 - managed install through `charts/nifi-platform`
+- cert-manager-first TLS issuance for the standard managed install shape
 - native passthrough `Route` rendering, admission, service mapping, and external access
+- recommended `nativeApi` metrics rendering through the chart-managed `Service` and `ServiceMonitor` objects
+- live secured `nativeApi` metrics scrape coverage for `/nifi-api/flow/metrics/prometheus`
 - OIDC login through the Route with named `admin`, `viewer`, `editor`, and `flowVersionManager` bundle checks
 - LDAP login through the Route on the documented bootstrap-admin identity path
 
@@ -52,13 +55,20 @@ When a feature needs more nuance, the detailed support position belongs on that 
 
 This repository also contains focused runtime workflows, proof commands, and narrower validation paths used by maintainers.
 
-Recent focused OpenShift auth verification uses:
+Recent focused OpenShift verification uses:
 
 - `go test ./...`
 - `helm lint charts/nifi`
 - `helm lint charts/nifi-platform`
+- `helm template nifi-cert charts/nifi-platform -f examples/platform-managed-cert-manager-values.yaml -f examples/openshift/managed-values.yaml`
+- `helm template nifi-cert-metrics charts/nifi-platform -f examples/platform-managed-cert-manager-values.yaml -f examples/platform-managed-metrics-native-values.yaml -f examples/openshift/managed-values.yaml`
 - `helm template nifi charts/nifi-platform -f examples/platform-managed-values.yaml -f examples/openshift/managed-values.yaml -f examples/openshift/oidc-managed-values.yaml -f examples/openshift/route-proxy-host-values.yaml`
 - `helm template nifi charts/nifi-platform -f examples/platform-managed-values.yaml -f examples/openshift/managed-values.yaml -f examples/openshift/ldap-managed-values.yaml -f examples/openshift/route-proxy-host-values.yaml`
+- `helm upgrade --install cert-manager jetstack/cert-manager --namespace cert-manager --create-namespace --version v1.19.2 --set crds.enabled=true --wait --timeout 10m`
+- bootstrap `Issuer/nifi-selfsigned-bootstrap`, `Certificate/nifi-root-ca`, and `ClusterIssuer/nifi-ca`
+- `helm upgrade --install nifi-cert-native charts/nifi-platform -n nifi-cert-native -f examples/platform-managed-cert-manager-values.yaml -f examples/openshift/managed-values.yaml --set controller.namespace.name=nifi-system --set controller.namespace.create=false --set nifi.replicaCount=1`
+- `bash hack/bootstrap-metrics-machine-auth.sh --namespace nifi-cert-native --auth-mode authorizationHeader --source-auth-secret nifi-auth --statefulset nifi-cert-native --mint-token`
+- `helm upgrade --install nifi-cert-native charts/nifi-platform -n nifi-cert-native -f examples/platform-managed-cert-manager-values.yaml -f examples/platform-managed-metrics-native-values.yaml -f examples/openshift/managed-values.yaml --set controller.namespace.name=nifi-system --set controller.namespace.create=false --set nifi.replicaCount=1`
 - `make openshift-platform-managed-oidc-proof`
 - `make openshift-platform-managed-ldap-proof`
 

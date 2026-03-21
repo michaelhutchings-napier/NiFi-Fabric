@@ -22,10 +22,6 @@ NiFi-Fabric keeps the roadmap small and explicit.
 - bounded versioned-flow import
 - bounded NiFi Registry compatibility path through a typed `provider=nifiRegistry` client plus platform-chart versioned-flow import on NiFi `2.8.0`
 
-## Experimental
-
-- Route-backed external-host OIDC until a real Route/router runtime proof path is recorded
-
 ## Prepared-Only
 
 - broader environment-specific install wrappers beyond Helm
@@ -33,7 +29,7 @@ NiFi-Fabric keeps the roadmap small and explicit.
 ## Planned Next
 
 - broader NiFi `2.x` compatibility proof
-- broader cloud environment proof, especially AKS and OpenShift
+- broader cloud environment proof, especially AKS
 - finish the standard cert-manager-first install path as a true polished one-command customer flow, including clearer post-install access and day-1 checks
 - more environment-specific operational guides
 - a small GKE setup guide for the standard install path

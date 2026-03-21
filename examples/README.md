@@ -44,7 +44,7 @@ There is also one OpenShift overlay set:
   - Focused runtime-proven OpenShift overlay for the standard `charts/nifi-platform` managed install path.
   - Compose with [platform-managed-values.yaml](platform-managed-values.yaml).
   - Keeps the Service internal, relaxes fixed UID or GID settings for both the controller and NiFi workload, and keeps external Route exposure on the separate explicit host overlay.
-  - Compose with [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml) only for a prepared OpenShift cert-manager path; that is not part of the first runtime proof.
+  - Compose with [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml) for the focused cert-manager-first OpenShift managed proof shape.
   - The focused proof command is `make openshift-platform-managed-proof`.
 
 There is also one optional TLS-source overlay:

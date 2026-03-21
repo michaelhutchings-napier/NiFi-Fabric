@@ -43,10 +43,13 @@ Some more specialized integrations are documented separately and should not be a
 
 Current OpenShift auth/runtime position:
 
+- the cert-manager-first managed install shape is runtime-proven on OpenShift
 - the native external shape is the passthrough `Route`
+- the recommended `nativeApi` metrics path is runtime-proven on OpenShift for chart-managed `Service` and `ServiceMonitor` rendering plus a live secured scrape
 - OIDC is runtime-proven on OpenShift through that Route shape with named bundle mapping
 - LDAP is runtime-proven on OpenShift through that Route shape on the documented bootstrap-admin identity path
 - LDAP group-bootstrap and LDAP named bundle mapping are not runtime-proven on OpenShift in this slice
+- OpenShift monitoring stack scrape pickup for the rendered `ServiceMonitor` objects is not runtime-proven in this slice
 
 ## Environment Position
 
@@ -54,7 +57,7 @@ Current OpenShift auth/runtime position:
 | --- | --- |
 | kind | primary repository verification baseline |
 | AKS | primary target environment |
-| OpenShift | supported second target, with focused managed runtime proofs for the native passthrough Route baseline plus OIDC and LDAP auth slices |
+| OpenShift | supported second target, with focused managed runtime proofs for cert-manager-first install, the native passthrough Route baseline, the recommended `nativeApi` metrics path, and OIDC and LDAP auth slices |
 
 See:
 

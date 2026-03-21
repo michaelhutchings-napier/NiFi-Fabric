@@ -61,7 +61,9 @@ Advanced install paths, support details, compatibility nuance, and verification 
 Current focused OpenShift runtime proofs cover:
 
 - managed install through `charts/nifi-platform`
+- the cert-manager-first managed install shape
 - the native passthrough `Route` shape
+- the recommended `nativeApi` metrics path
 - OIDC login with named bundle mapping
 - LDAP login on the documented bootstrap-admin identity path
 
