@@ -20,11 +20,11 @@ NiFi-Fabric keeps the roadmap small and explicit.
 - Git-based Flow Registry Client direction through chart-managed catalog rendering
 - Parameter Context management
 - versioned-flow import
-- NiFi Registry compatibility path through a typed `provider=nifiRegistry` client plus platform-chart versioned-flow import on NiFi `2.8.0`
+- NiFi Registry compatibility path through a typed `provider=nifiRegistry` client plus platform-chart versioned-flow import
 
 ## Planned Next
 
 - more Layer 7 support for the Istio Ambient service mesh profile
-- broader exporter metrics-family proof where it stays smaller than a full metrics platform
+- broader exporter metrics-family verification where it stays smaller than a full metrics platform
 - broader per-node drainability ranking only if it stays explainable, conservative, and justified by trustworthy evidence beyond the current actual-removal-candidate qualification model
 - broader bulk autoscaling policy depth beyond the current sequential scale-down episode model only if it remains sequential controller-owned one-node steps with fresh settle and requalification after every removal

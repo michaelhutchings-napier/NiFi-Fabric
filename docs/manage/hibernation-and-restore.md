@@ -33,4 +33,4 @@ Before removing a node, the controller reuses the same safe sequencing principle
 
 - hibernation: supported
 - restore: supported
-- focused runtime proof: available on kind
+- repository runtime verification: available on kind

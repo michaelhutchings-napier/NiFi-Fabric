@@ -36,11 +36,11 @@ Use platform chart values under:
 
 ## Support Level
 
-- GitHub: focused runtime proof on NiFi `2.8.0`
-- GitHub: focused end-to-end save-to-registry workflow proof on NiFi `2.8.0`
-- GitLab: focused runtime proof on NiFi `2.8.0`
-- Bitbucket: focused runtime proof on NiFi `2.8.0`
-- NiFi Registry: focused runtime proof on NiFi `2.8.0` through a real in-cluster `apache/nifi-registry` service
+- GitHub: verified on the supported NiFi `2.x` line
+- GitHub: end-to-end save-to-registry workflow verified on the supported NiFi `2.x` line
+- GitLab: verified on the supported NiFi `2.x` line
+- Bitbucket: verified on the supported NiFi `2.x` line
+- NiFi Registry: verified on the supported NiFi `2.x` line through a real in-cluster `apache/nifi-registry` service
 - Azure DevOps: prepared definition, render-validated
 
 ## Typed NiFi Registry Compatibility Path
@@ -67,9 +67,9 @@ What remains operator-owned:
 
 Manual UI edits to product-owned live `provider=nifiRegistry` clients created by the import path may be reconciled back to the declared state. Manual edits to undeclared or operator-owned clients remain outside product ownership.
 
-## Current End-to-End Workflow Proof
+## Current End-to-End Workflow Verification
 
-The first workflow proof uses GitHub on NiFi `2.8.0`.
+The first end-to-end workflow verification uses GitHub on the supported NiFi `2.x` line.
 
 What it proves:
 

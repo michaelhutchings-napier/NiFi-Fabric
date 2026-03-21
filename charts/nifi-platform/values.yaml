@@ -122,12 +122,12 @@ cluster:
 # Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/tls-and-cert-manager.md
 # ------------------------------------------------------------------------------
 
-# -- Optional bounded quickstart bootstrap for the managed platform path.
-# This is intended for the bounded single-user managed bootstrap stories only.
+# -- Optional quickstart bootstrap for the managed platform path.
+# This is intended for single-user managed bootstrap only.
 # It can generate:
 # - a stable single-user auth Secret
 # - stable cert-manager parameter Secrets for the standard managed cert-manager-first path
-# - a stable self-signed TLS Secret for the secondary externalSecret quickstart path
+# - a stable self-signed TLS Secret for the optional `externalSecret` quickstart path
 # Richer auth modes such as OIDC and LDAP stay on the explicit operator-provided Secret path.
 quickstart:
   enabled: false
@@ -249,7 +249,7 @@ keda:
 # - `nifi.auth.*`
 # - `nifi.authz.*`
 # - `nifi.parameterContexts.*` for prepared Parameter Context catalogs
-# - `nifi.versionedFlowImports.*` for bounded runtime-managed versioned-flow import and version selection
+# - `nifi.versionedFlowImports.*` for runtime-managed versioned-flow import and version selection
 # - `nifi.ingress.*` or `nifi.openshift.route.*`
 # - `nifi.observability.metrics.*` with `mode=nativeApi` for the recommended metrics path
 # - `nifi.observability.metrics.*.tlsConfig.ca.useTrustManagerBundle=true` when using the optional trust-manager bundle

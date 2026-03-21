@@ -1,6 +1,6 @@
 # Verification and Support Levels
 
-This page explains how NiFi-Fabric support claims are backed by repository verification.
+This page explains how NiFi-Fabric support statements are backed by repository verification.
 
 ## Verification Layers
 
@@ -8,11 +8,11 @@ NiFi-Fabric uses three main layers:
 
 - unit and envtest coverage for controller behavior
 - Helm lint and render coverage for chart behavior
-- focused runtime verification for the standard product paths
+- runtime verification for the standard product paths
 
 ## What This Means for Customers
 
-The project does not treat “renders successfully” and “runtime-proven” as the same thing.
+The project does not treat “renders successfully” and “verified in a running environment” as the same thing.
 
 In practice:
 
@@ -30,10 +30,10 @@ Repository verification is centered on:
 - primary authentication and metrics paths
 - controller-owned autoscaling
 
-Environment coverage is focused on:
+Environment coverage is centered on:
 
 - AKS as the primary supported target environment for the standard managed install path
-- OpenShift as a supported secondary target for the documented managed install and passthrough `Route` shape
+- OpenShift as a supported environment for the documented managed install and passthrough `Route` shape
 
 ## How to Read Support Claims
 
@@ -48,11 +48,11 @@ When a feature needs more nuance, the detailed support position belongs on that 
 
 ## Internal Engineering Checks
 
-The repository also contains narrower maintainer checks and proof workflows used during development and release work.
+The repository also contains narrower maintainer checks and verification workflows used during development and release work.
 
 Those engineering details are useful for maintainers, but they are not the main customer entrypoint. Customer-facing docs should prefer:
 
 - what is supported
 - what the standard path is
 - where the advanced path begins
-Those statements should stay primary over raw proof-command inventories.
+Those statements should stay primary over raw verification-command inventories.

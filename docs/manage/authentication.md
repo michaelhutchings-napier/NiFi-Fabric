@@ -24,7 +24,7 @@ Use OIDC when you want:
 
 OIDC belongs to the advanced install path. It does not depend on the standard single-user bootstrap Secret.
 
-Current OpenShift runtime-proof shape:
+Documented OpenShift shape:
 
 - install through `charts/nifi-platform`
 - external access through the native OpenShift passthrough `Route`
@@ -32,7 +32,7 @@ Current OpenShift runtime-proof shape:
 - `authz.mode=externalClaimGroups`
 - external claim groups bound to the named NiFi bundles `admin`, `viewer`, `editor`, and `flowVersionManager`
 
-The focused OpenShift overlay is [oidc-managed-values.yaml](/home/michael/Work/nifi2-platform/examples/openshift/oidc-managed-values.yaml).
+The OpenShift example overlay is [oidc-managed-values.yaml](/home/michael/Work/nifi2-platform/examples/openshift/oidc-managed-values.yaml).
 
 See:
 
@@ -49,19 +49,19 @@ Use LDAP when you want:
 
 LDAP also belongs to the advanced install path. It does not depend on the standard single-user bootstrap Secret.
 
-Current OpenShift runtime-proof shape:
+Documented OpenShift shape:
 
 - install through `charts/nifi-platform`
 - external access through the native OpenShift passthrough `Route`
 - `authz.mode=ldapSync`
 - explicit bootstrap admin identity
 
-The focused OpenShift overlay is [ldap-managed-values.yaml](/home/michael/Work/nifi2-platform/examples/openshift/ldap-managed-values.yaml).
+The OpenShift example overlay is [ldap-managed-values.yaml](/home/michael/Work/nifi2-platform/examples/openshift/ldap-managed-values.yaml).
 
 Current caveat:
 
-- the OpenShift runtime proof in this slice covers the documented bootstrap-admin identity path for LDAP
-- LDAP group-bootstrap and named bundle mapping are not runtime-proven on OpenShift in this slice
+- the documented OpenShift coverage in this slice covers the bootstrap-admin identity path for LDAP
+- LDAP group-bootstrap and named bundle mapping are not yet verified on OpenShift in this slice
 
 See:
 
@@ -80,7 +80,7 @@ The project also includes named authorization bundles for common access patterns
 The current support position is:
 
 - OIDC: external groups map into named NiFi bundles
-- LDAP: runtime-proof covers login plus the explicit bootstrap-admin identity path
+- LDAP: current coverage includes login plus the explicit bootstrap-admin identity path
 
 ## Next Steps
 

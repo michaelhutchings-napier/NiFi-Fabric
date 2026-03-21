@@ -168,7 +168,7 @@ See also:
 | `observability.metrics.exporter.serviceMonitor.*` | object | Exporter ServiceMonitor settings. | No | see values file |
 | `observability.metrics.exporter.machineAuth.*` | object | Machine-auth Secret contract for exporter upstream scraping. | No | see values file |
 | `observability.metrics.exporter.source.*` | object | Upstream NiFi metrics source settings for the exporter, including Secret or ConfigMap CA references. | No | see values file |
-| `observability.metrics.exporter.source.tlsConfig.ca.useTrustManagerBundle` | boolean | Uses the configured `trustManagerBundleRef.*` Bundle source for exporter upstream TLS trust. This is the path exercised by the focused trust-manager exporter runtime proof. | No | `false` |
+| `observability.metrics.exporter.source.tlsConfig.ca.useTrustManagerBundle` | boolean | Uses the configured `trustManagerBundleRef.*` Bundle source for exporter upstream TLS trust. This is the path exercised by the repository trust-manager exporter verification flow. | No | `false` |
 | `observability.metrics.exporter.source.tlsConfig.ca.configMapRef.*` | object | ConfigMap CA reference for exporter upstream TLS. | No | empty |
 | `observability.metrics.exporter.source.tlsConfig.ca.secretRef.*` | object | Secret CA reference for exporter upstream TLS. | No | empty |
 | `observability.metrics.exporter.supplemental.flowStatus.*` | object | Optional controller-status gauges derived from `/nifi-api/flow/status`. | No | see values file |

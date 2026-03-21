@@ -85,7 +85,7 @@ Manual UI edits outside the managed import scope are unsupported. The product do
 - other supported prepared providers still require a matching live Flow Registry Client to already exist in NiFi
 - version attachment uses the selected registry-backed snapshot through the NiFi versions API and does not commit a new registry version
 - when NiFi exposes only version metadata and not inline snapshot content, the current fallback supports prepared GitHub and prepared NiFi Registry sources in this slice
-- focused runtime proof on the single-node platform path upgrades the release, lets the live in-pod reconcile loop import the declared flow, and then proves a later declared version change reconciles without replacing pod `-0`
+- repository verification on the single-node platform path upgrades the release, lets the live in-pod reconcile loop import the declared flow, and then verifies a later declared version change reconciles without replacing pod `-0`
 - at most one direct Parameter Context reference is supported per import in this slice
 - `latest` is resolved during create or declared-change reconcile and then pinned through the ownership marker; the product does not keep polling for newer versions once the declaration is unchanged
 - missing live client, missing selected flow content, or unsupported manual drift is reported as `blocked` in the runtime status file instead of widening the feature into a generic recovery loop
@@ -93,13 +93,13 @@ Manual UI edits outside the managed import scope are unsupported. The product do
 
 ## Support Level
 
-- current support level: `Runtime-managed / focused-proof`
-- focused kind proof covers real import of a selected registry-backed flow through the platform chart path
+- current support level: `Runtime-managed / repository-verified`
+- repository verification on kind covers real import of a selected registry-backed flow through the platform chart path
 - the resulting root-child process group exists in NiFi with attached version-control state for the selected version, seeded flow content, direct Parameter Context attachment, and explicit ownership marker verified
-- the same focused proof then changes the declared version and proves the owned import updates live without replacing pod `-0`
-- the separate GitHub selection proof still covers provider-native version resolution on the focused workflow path
-- the focused NiFi Registry compatibility proof now covers typed live client creation, bucket and flow resolution, explicit historical version import, and later reconcile back to `latest` on NiFi `2.8.0` through a real in-cluster `apache/nifi-registry` service
-- enterprise auth support is rendered and runtime-coded, but the focused runtime proof in this repository remains on the standard `singleUser` path today
+- the same verification flow then changes the declared version and verifies the owned import updates live without replacing pod `-0`
+- the separate GitHub selection verification still covers provider-native version resolution on the documented workflow path
+- the NiFi Registry compatibility verification now covers typed live client creation, bucket and flow resolution, explicit historical version import, and later reconcile back to `latest` through a real in-cluster `apache/nifi-registry` service
+- enterprise auth support is rendered and runtime-coded, but repository runtime verification in this slice remains on the standard `singleUser` path today
 
 ## Example Overlays
 
@@ -119,19 +119,19 @@ helm template test charts/nifi-platform \
   -f examples/platform-managed-versioned-flow-import-values.yaml
 ```
 
-Focused platform runtime proof:
+Repository verification command for the platform path:
 
 ```bash
 make kind-platform-managed-versioned-flow-import-fast-e2e
 ```
 
-Focused NiFi Registry compatibility proof:
+Repository verification command for the NiFi Registry compatibility path:
 
 ```bash
 make kind-platform-managed-versioned-flow-import-nifi-registry-fast-e2e
 ```
 
-Focused GitHub selection proof:
+Repository verification command for GitHub version selection:
 
 ```bash
 make kind-versioned-flow-selection-fast-e2e

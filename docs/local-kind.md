@@ -108,7 +108,7 @@ For local testing beyond the standard path:
 
 - use [Advanced Install Paths](install/advanced.md) for explicit Secret ownership, OIDC, and LDAP
 - use [KEDA integration](keda.md) if you want to exercise KEDA locally
-- use the focused `make kind-...` targets when you are validating a specific feature or reproducing an issue
+- use the relevant `make kind-...` targets when you are validating a specific feature or reproducing an issue
 
 Examples:
 

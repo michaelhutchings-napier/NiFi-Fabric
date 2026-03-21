@@ -6,7 +6,7 @@ They are secondary to the standard Helm install path in [Install with Helm](helm
 
 ## Before You Use These Profiles
 
-All service mesh profiles in this repo stay focused:
+All service mesh profiles in this repo stay scoped to the NiFi workload:
 
 - they affect the NiFi workload only
 - the controller stays outside the mesh

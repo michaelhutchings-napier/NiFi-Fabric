@@ -58,7 +58,7 @@ Current environment position:
 See:
 
 - [AKS](aks.md)
-- [OpenShift Baseline Guide](openshift.md)
+- [OpenShift](openshift.md)
 - [Authentication](manage/authentication.md)
 
 ## Support Reading
@@ -69,4 +69,4 @@ Use these pages together:
 - [Verification and Support Levels](testing.md) for how support claims are grounded
 - [Experimental Features](experimental-features.md) for what is intentionally outside the main support path
 
-For detailed feature-specific support boundaries, use the relevant install and manage pages rather than relying on this page alone.
+For detailed feature-specific support details, use the relevant install and manage pages rather than relying on this page alone.

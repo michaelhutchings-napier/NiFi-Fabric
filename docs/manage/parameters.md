@@ -98,8 +98,8 @@ Manual NiFi UI edits to product-owned contexts are reconciled back to the declar
 
 ## Support Level
 
-- current support level: `Runtime-managed / focused-proof`
-- focused kind proof covers declared context creation, live update without pod replacement, deletion of removed owned contexts, inline and Secret-backed values, and direct root-child attachment
+- current support level: `Runtime-managed / repository-verified`
+- repository verification on kind covers declared context creation, live update without pod replacement, deletion of removed owned contexts, inline and Secret-backed values, and direct root-child attachment
 - Parameter Provider creation remains out of scope, so the feature stays narrow and explainable
 
 ## Example Overlay
@@ -118,7 +118,7 @@ helm template test charts/nifi-platform \
   -f examples/platform-managed-parameter-contexts-values.yaml
 ```
 
-Focused runtime proof:
+Repository verification command:
 
 ```bash
 make kind-parameter-contexts-runtime-fast-e2e

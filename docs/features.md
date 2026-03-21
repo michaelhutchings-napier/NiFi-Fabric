@@ -24,7 +24,7 @@ NiFi-Fabric focuses on a small, practical feature set for running Apache NiFi 2.
 - native OpenShift passthrough `Route` as the supported external access surface on OpenShift
 - named authorization bundles for common access levels
 
-Current focused OpenShift runtime proofs cover:
+Current OpenShift documentation and verification cover:
 
 - the cert-manager-first managed install shape through `charts/nifi-platform`
 - OIDC through `charts/nifi-platform` plus a passthrough `Route`, with external claim groups mapped to the named `admin`, `viewer`, `editor`, and `flowVersionManager` bundles
@@ -44,7 +44,7 @@ Current focused OpenShift runtime proofs cover:
 - starter dashboards, alerts, and runbooks
 - optional trust-manager integration for shared CA bundle distribution
 
-Current focused OpenShift runtime proofs also cover the recommended `nativeApi` metrics path, including chart-managed `ServiceMonitor` rendering and a live secured scrape of `/nifi-api/flow/metrics/prometheus`.
+Current OpenShift documentation and verification also cover the recommended `nativeApi` metrics path, including chart-managed `ServiceMonitor` rendering and a live secured scrape of `/nifi-api/flow/metrics/prometheus`.
 
 ## Registry and Flow Configuration
 

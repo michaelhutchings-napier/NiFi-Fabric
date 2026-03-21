@@ -36,7 +36,7 @@ Use this documentation set as the customer-facing guide for installing, operatin
 ## Environment Guides
 
 - [AKS](aks.md)
-- [OpenShift Baseline Guide](openshift.md)
+- [OpenShift](openshift.md)
 
 ## Reference
 

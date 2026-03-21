@@ -64,7 +64,7 @@ service:
   annotations: {}
   sessionAffinity: None
 
-# -- Optional bounded Linkerd compatibility settings for the NiFi workload.
+# -- Optional Linkerd compatibility settings for the NiFi workload.
 # This injects only the NiFi StatefulSet pods and adds the minimum opaque-port annotations
 # needed for the supported meshed NiFi profile. The controller remains mesh-agnostic.
 # @default -- {"enabled":false,"inject":"enabled","opaquePorts":{"cluster":true,"loadBalance":true,"https":false,"additional":[]}}
@@ -77,7 +77,7 @@ linkerd:
     https: false
     additional: []
 
-# -- Optional bounded Istio sidecar-mode compatibility settings for the NiFi workload.
+# -- Optional Istio sidecar-mode compatibility settings for the NiFi workload.
 # This injects only the NiFi StatefulSet pods and adds the minimum pod annotations used by
 # the documented supported sidecar-mode profile. The controller remains mesh-agnostic.
 # @default -- {"enabled":false,"inject":true,"rewriteAppHTTPProbers":true,"holdApplicationUntilProxyStarts":true,"annotations":{}}
@@ -88,7 +88,7 @@ istio:
   holdApplicationUntilProxyStarts: true
   annotations: {}
 
-# -- Optional bounded Istio Ambient compatibility settings for the NiFi workload.
+# -- Optional Istio Ambient compatibility settings for the NiFi workload.
 # This enrolls only the NiFi StatefulSet pods into Ambient through pod-template labels.
 # The supported profile is L4-only, keeps the controller outside Ambient, and does not add
 # sidecars, waypoint configuration, or mesh-specific controller behavior.
@@ -124,8 +124,8 @@ ingress:
       pathType: Prefix
   tls: []
 
-# -- OpenShift Route settings for bounded external HTTPS access.
-# The runtime-proven shape uses an explicit `host`, matching `web.proxyHosts`, and `passthrough` TLS termination.
+# -- OpenShift Route settings for external HTTPS access.
+# The recommended Route shape uses an explicit `host`, matching `web.proxyHosts`, and `passthrough` TLS termination.
 # @default -- {"route":{"enabled":false,"host":"","annotations":{},"tls":{"termination":"passthrough","insecureEdgeTerminationPolicy":"None"}}}
 openshift:
   route:
@@ -301,7 +301,7 @@ authz:
       groups: []
       includeInitialAdmin: false
   capabilities:
-    # -- Bounded built-in capability bundles for common NiFi access patterns.
+    # -- Built-in capability bundles for common NiFi access patterns.
     # `mutableFlow` seeds the inherited root-canvas policies needed for child
     # process-group create/edit work and process-group-level version-control
     # actions without introducing a general policy control plane.
@@ -329,7 +329,7 @@ serviceMonitor:
 # -- First-class metrics subsystem.
 # `nativeApi` is the primary supported mode.
 # `exporter` is a supported secondary mode for a clean `/metrics` endpoint.
-# `siteToSite` is an optional bounded typed metrics-export path.
+# `siteToSite` is an optional typed metrics-export path.
 observability:
   metrics:
     mode: disabled
@@ -449,7 +449,7 @@ observability:
       resources: {}
     siteToSite:
       # -- Optional typed SiteToSite metrics export path.
-      # This creates only the bounded NiFi runtime objects required for SiteToSite metrics export:
+      # This creates only the NiFi runtime objects required for SiteToSite metrics export:
       # one SiteToSiteMetricsReportingTask and one SSL Context Service when secure transport is used.
       enabled: false
       destination:
@@ -492,7 +492,7 @@ observability:
         includeNullValues: false
   siteToSiteStatus:
     # -- Optional typed SiteToSite status export path.
-    # This creates only the bounded NiFi runtime objects required for SiteToSite status export:
+    # This creates only the NiFi runtime objects required for SiteToSite status export:
     # one SiteToSiteStatusReportingTask and one SSL Context Service when secure transport is used.
     enabled: false
     destination:
@@ -528,7 +528,7 @@ observability:
       compressEvents: true
   siteToSiteProvenance:
     # -- Optional typed SiteToSite provenance export path.
-    # This creates only the bounded NiFi runtime objects required for SiteToSite provenance export:
+    # This creates only the NiFi runtime objects required for SiteToSite provenance export:
     # one SiteToSiteProvenanceReportingTask and one SSL Context Service when secure transport is used.
     enabled: false
     destination:
@@ -592,7 +592,7 @@ flowRegistryClients:
 #   NiFi Parameter Providers
 # - live reconciliation does not require a rollout or pod restart for values or
 #   referenced Secret changes
-# Enterprise auth modes use the explicit bootstrap admin identity as the bounded
+# Enterprise auth modes use the explicit bootstrap admin identity as the
 # trusted-proxy management identity for this feature.
 parameterContexts:
   enabled: false
@@ -605,10 +605,10 @@ parameterContexts:
 # ------------------------------------------------------------------------------
 
 # -- Runtime-managed versioned-flow import definitions.
-# The chart creates only the bounded NiFi runtime state required for one
+# The chart creates only the NiFi runtime state required for one
 # selected registry-backed flow import per entry:
 # - declared prepared `provider=nifiRegistry` entries can create or reconcile the
-#   exact live client needed by this bounded compatibility path
+#   exact live client needed by this compatibility path
 # - other selected live Flow Registry Clients must already exist in NiFi
 # - the declared flow is imported under one named root child process group
 # - at most one direct Parameter Context reference can be attached
@@ -617,7 +617,7 @@ parameterContexts:
 #   out of scope
 # - live reconcile on pod `-0` applies declared version changes without relying
 #   on restart-trigger wiring once the feature is enabled
-# Enterprise auth modes use the explicit bootstrap admin identity as the bounded
+# Enterprise auth modes use the explicit bootstrap admin identity as the
 # trusted-proxy management identity for this feature.
 versionedFlowImports:
   enabled: false
