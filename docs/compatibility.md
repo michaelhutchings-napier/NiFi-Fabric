@@ -43,7 +43,7 @@ Some more specialized integrations are documented separately and should not be a
 
 Environment guidance:
 
-- AKS is the primary supported target environment for the standard managed install path.
+- AKS is the primary supported target environment for the standard managed install.
 - OpenShift is supported.
 - NiFi-Fabric should work on any conformant Kubernetes-based cloud platform with the required storage, networking, and image access.
 
@@ -67,6 +67,6 @@ Use these pages together:
 
 - [Features](features.md) for the product surface
 - [Verification and Support Levels](testing.md) for how support claims are grounded
-- [Experimental Features](experimental-features.md) for what is intentionally outside the main support path
+- [Experimental Features](experimental-features.md) if any customer-facing experimental areas are introduced later
 
 For detailed feature-specific support details, use the relevant install and manage pages rather than relying on this page alone.

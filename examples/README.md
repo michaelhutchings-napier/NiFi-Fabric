@@ -123,7 +123,7 @@ Metrics note:
 - it enables `nifi.observability.metrics.siteToSite.enabled=true`
 - it models the destination, auth, receiver-authorized identity, source, transport, and format settings for one `SiteToSiteMetricsReportingTask`
 - it keeps destination receiver topology and destination-side user or policy lifecycle operator-owned
-- [platform-managed-metrics-site-to-site-kind-values.yaml](platform-managed-metrics-site-to-site-kind-values.yaml) points that typed feature at a cluster-local kind URL for kind validation
+- [platform-managed-metrics-site-to-site-kind-values.yaml](platform-managed-metrics-site-to-site-kind-values.yaml) points that typed feature at a cluster-local kind URL for local kind use
 - [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is the kind receiver harness used by that command
 - the harness bootstraps one public input port, one minimal downstream processor, and the minimum receiver-side auth needed to trust and authorize the declared sender identity for delivery
 - site-to-site status is its own optional GA sender-side typed path and is not part of the `observability.metrics.mode=siteToSite` metrics claim
@@ -132,7 +132,7 @@ Metrics note:
 - it models the destination, auth, receiver-authorized identity, optional source instance URL override, and transport settings for one `SiteToSiteStatusReportingTask`
 - it keeps JSON status payload shape, platform, batching, and filters fixed behind the typed API
 - it keeps destination receiver topology and destination-side user or policy lifecycle operator-owned
-- [platform-managed-site-to-site-status-kind-values.yaml](platform-managed-site-to-site-status-kind-values.yaml) points that typed feature at a cluster-local kind URL for kind validation
+- [platform-managed-site-to-site-status-kind-values.yaml](platform-managed-site-to-site-status-kind-values.yaml) points that typed feature at a cluster-local kind URL for local kind use
 - [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is reused as the kind receiver harness for that command
 - site-to-site provenance is its own optional GA sender-side typed path and is not part of the `observability.metrics.mode=siteToSite` metrics claim
 - [platform-managed-site-to-site-provenance-values.yaml](platform-managed-site-to-site-provenance-values.yaml) is an optional overlay for the GA sender-side typed site-to-site provenance export path
@@ -140,7 +140,7 @@ Metrics note:
 - it models the destination, auth, receiver-authorized identity, optional source instance URL override, transport settings, and a small provenance cursor for one `SiteToSiteProvenanceReportingTask`
 - it keeps fixed platform, batching, and schedule defaults behind the typed API
 - it keeps destination receiver topology, destination-side user or policy lifecycle, long-lived credential lifecycle, downstream provenance processing, and downstream storage or retention expectations operator-owned
-- [platform-managed-site-to-site-provenance-kind-values.yaml](platform-managed-site-to-site-provenance-kind-values.yaml) points that typed feature at a cluster-local kind URL for kind validation
+- [platform-managed-site-to-site-provenance-kind-values.yaml](platform-managed-site-to-site-provenance-kind-values.yaml) points that typed feature at a cluster-local kind URL for local kind use
 - [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is reused as the kind receiver harness for that command
 
 KEDA note:
@@ -283,9 +283,9 @@ There are also versioned-flow import overlays:
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml), [platform-fast-values.yaml](platform-fast-values.yaml), and [platform-managed-versioned-flow-import-values.yaml](platform-managed-versioned-flow-import-values.yaml).
 
 - [platform-managed-versioned-flow-import-nifi-registry-values.yaml](platform-managed-versioned-flow-import-nifi-registry-values.yaml)
-  - Runtime-managed NiFi Registry compatibility import for the standard `charts/nifi-platform` path.
+  - Runtime-managed NiFi Registry import for the standard `charts/nifi-platform` path.
   - It declares one `provider=nifiRegistry` client, one import source, one selected version, one intended root-child target name, and one direct Parameter Context reference.
-  - In this compatibility path, the import bundle can create and reconcile the exact live NiFi Registry Flow Registry Client it owns.
+  - In this path, the import bundle can create and reconcile the exact live NiFi Registry Flow Registry Client it owns.
 
 - [platform-managed-versioned-flow-import-nifi-registry-kind-values.yaml](platform-managed-versioned-flow-import-nifi-registry-kind-values.yaml)
   - Kind overlay for platform-chart runtime-managed NiFi Registry compatibility.
@@ -329,7 +329,7 @@ Fallback bootstrap:
 
 Flow Registry Client notes:
 
-- classic NiFi Registry is a compatibility path here, not the preferred long-term direction
+- classic NiFi Registry is supported here for NiFi `2.x` environments, while Git-based Flow Registry Clients remain the preferred long-term direction
 - Git-based Flow Registry Clients are preferred
 - the `provider=nifiRegistry` path owns only the live Registry Client objects and imported flow instances it explicitly creates in the NiFi Registry compatibility workflow
 - the chart renders a catalog under `flowRegistryClients.mountPath`

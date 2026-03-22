@@ -6,7 +6,7 @@ It provides a standard product install path through `charts/nifi-platform`, keep
 
 It is built for teams that want a production-ready NiFi platform on Kubernetes without taking on a broad, CRD-heavy operator model.
 
-NiFi-Fabric is designed for standard Kubernetes, with AKS as the primary supported target environment and OpenShift as a supported secondary target for the documented managed install path.
+NiFi-Fabric is designed for standard Kubernetes, with AKS as the primary supported target environment. OpenShift is also supported for the documented managed install shape.
 
 ## Why NiFi-Fabric
 

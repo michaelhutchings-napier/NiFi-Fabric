@@ -33,4 +33,4 @@ Before removing a node, the controller reuses the same safe sequencing principle
 
 - hibernation: supported
 - restore: supported
-- kind validation is available for this feature
+- local kind coverage is available for this feature

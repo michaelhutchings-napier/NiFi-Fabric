@@ -26,9 +26,9 @@ It provides:
 
 Use `exporter` when your Prometheus environment prefers a dedicated `/metrics` endpoint.
 
-This is an optional secondary path, not the primary recommendation.
+This is an optional secondary path for environments that prefer a dedicated exporter endpoint.
 
-The supported exporter contract preserves the upstream NiFi Prometheus metric families on the exporter endpoint and adds controller-status gauges from `/nifi-api/flow/status`.
+The exporter preserves upstream NiFi Prometheus metric families on the exporter endpoint and adds controller-status gauges from `/nifi-api/flow/status`.
 
 ## Site-to-Site Export
 

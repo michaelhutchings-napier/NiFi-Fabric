@@ -42,7 +42,7 @@ Use these pages together:
 - [Compatibility](compatibility.md) for supported versions and environments
 - [Install with Helm](install/helm.md) for the standard install path
 - [Advanced Install Paths](install/advanced.md) for non-standard installs
-- [Experimental Features](experimental-features.md) for intentionally non-GA areas
+- [Experimental Features](experimental-features.md) if any customer-facing experimental areas are introduced later
 
 When a feature needs more nuance, the detailed guidance belongs on that feature page rather than being repeated everywhere.
 

@@ -157,36 +157,36 @@ See also:
 | `observability.metrics.mode` | enum | Metrics mode. Values: `disabled`, `nativeApi`, `exporter`, `siteToSite`. | No | `disabled` |
 | `observability.metrics.nativeApi.service.*` | object | Native metrics Service settings. | No | see values file |
 | `observability.metrics.nativeApi.serviceMonitor.defaults.*` | object | Default ServiceMonitor settings for native metrics endpoints. | No | see values file |
-| `observability.metrics.nativeApi.machineAuth.*` | object | Provider-agnostic machine-auth Secret contract. | No | see values file |
+| `observability.metrics.nativeApi.machineAuth.*` | object | Provider-agnostic machine-auth Secret settings. | No | see values file |
 | `observability.metrics.nativeApi.tlsConfig.*` | object | TLS settings for secured native metrics scraping, including Secret or ConfigMap CA references. | No | see values file |
 | `observability.metrics.nativeApi.tlsConfig.ca.useTrustManagerBundle` | boolean | Uses the configured `trustManagerBundleRef.*` Bundle source for native metrics TLS trust. | No | `false` |
 | `observability.metrics.nativeApi.tlsConfig.ca.configMapRef.*` | object | ConfigMap CA reference for native metrics TLS. | No | empty |
 | `observability.metrics.nativeApi.tlsConfig.ca.secretRef.*` | object | Secret CA reference for native metrics TLS. | No | empty |
 | `observability.metrics.nativeApi.endpoints[]` | object list | Named native metrics scrape profiles. | No | see values file |
-| `observability.metrics.exporter.image.*` | object | Exporter image settings for the optional GA secondary metrics path. | No | see values file |
+| `observability.metrics.exporter.image.*` | object | Exporter image settings for the optional secondary metrics path. | No | see values file |
 | `observability.metrics.exporter.service.*` | object | Exporter Service settings. | No | see values file |
 | `observability.metrics.exporter.serviceMonitor.*` | object | Exporter ServiceMonitor settings. | No | see values file |
-| `observability.metrics.exporter.machineAuth.*` | object | Machine-auth Secret contract for exporter upstream scraping. | No | see values file |
+| `observability.metrics.exporter.machineAuth.*` | object | Machine-auth Secret settings for exporter upstream scraping. | No | see values file |
 | `observability.metrics.exporter.source.*` | object | Upstream NiFi metrics source settings for the exporter, including Secret or ConfigMap CA references. | No | see values file |
-| `observability.metrics.exporter.source.tlsConfig.ca.useTrustManagerBundle` | boolean | Uses the configured `trustManagerBundleRef.*` Bundle source for exporter upstream TLS trust. This is the path exercised by the repository trust-manager exporter verification flow. | No | `false` |
+| `observability.metrics.exporter.source.tlsConfig.ca.useTrustManagerBundle` | boolean | Uses the configured `trustManagerBundleRef.*` Bundle source for exporter upstream TLS trust. | No | `false` |
 | `observability.metrics.exporter.source.tlsConfig.ca.configMapRef.*` | object | ConfigMap CA reference for exporter upstream TLS. | No | empty |
 | `observability.metrics.exporter.source.tlsConfig.ca.secretRef.*` | object | Secret CA reference for exporter upstream TLS. | No | empty |
 | `observability.metrics.exporter.supplemental.flowStatus.*` | object | Optional controller-status gauges derived from `/nifi-api/flow/status`. | No | see values file |
 | `observability.metrics.exporter.resources.*` | object | Exporter pod resources. | No | `{}` |
 | `observability.metrics.siteToSite.enabled` | boolean | Enables the typed Site-to-Site metrics export path when `observability.metrics.mode=siteToSite`. | No | `false` |
-| `observability.metrics.siteToSite.destination.*` | object | Typed destination URL and input-port contract for Site-to-Site metrics export. | No | see values file |
-| `observability.metrics.siteToSite.auth.*` | object | Typed Site-to-Site auth contract. Values: `none`, `workloadTLS`, `secretRef`, plus the explicit secure receiver-authorized identity and any referenced Secret material keys. | No | see values file |
+| `observability.metrics.siteToSite.destination.*` | object | Typed destination URL and input-port settings for Site-to-Site metrics export. | No | see values file |
+| `observability.metrics.siteToSite.auth.*` | object | Typed Site-to-Site auth settings. Values: `none`, `workloadTLS`, `secretRef`, plus the explicit secure receiver-authorized identity and any referenced Secret material keys. | No | see values file |
 | `observability.metrics.siteToSite.source.*` | object | Reporting-task source identity hints. | No | see values file |
 | `observability.metrics.siteToSite.transport.*` | object | Site-to-Site transport settings for the typed metrics-export path. | No | see values file |
 | `observability.metrics.siteToSite.format.*` | object | Site-to-Site output format settings. Current runtime support is `AmbariFormat`. | No | see values file |
 | `observability.siteToSiteStatus.enabled` | boolean | Enables the typed Site-to-Site status export path. This feature is independent of `observability.metrics.mode`. | No | `false` |
-| `observability.siteToSiteStatus.destination.*` | object | Typed destination URL and input-port contract for Site-to-Site status export. | No | see values file |
-| `observability.siteToSiteStatus.auth.*` | object | Typed Site-to-Site auth contract for status export. Values: `none`, `workloadTLS`, `secretRef`, plus the explicit secure receiver-authorized identity and any referenced Secret material keys. | No | see values file |
+| `observability.siteToSiteStatus.destination.*` | object | Typed destination URL and input-port settings for Site-to-Site status export. | No | see values file |
+| `observability.siteToSiteStatus.auth.*` | object | Typed Site-to-Site auth settings for status export. Values: `none`, `workloadTLS`, `secretRef`, plus the explicit secure receiver-authorized identity and any referenced Secret material keys. | No | see values file |
 | `observability.siteToSiteStatus.source.*` | object | Optional status-export source URL override. | No | see values file |
 | `observability.siteToSiteStatus.transport.*` | object | Site-to-Site transport settings for the typed status-export path. | No | see values file |
 | `observability.siteToSiteProvenance.enabled` | boolean | Enables the typed Site-to-Site provenance export path. This feature is independent of `observability.metrics.mode` and `observability.siteToSiteStatus`. | No | `false` |
-| `observability.siteToSiteProvenance.destination.*` | object | Typed destination URL and input-port contract for Site-to-Site provenance export. | No | see values file |
-| `observability.siteToSiteProvenance.auth.*` | object | Typed Site-to-Site auth contract for provenance export. Values: `none`, `workloadTLS`, `secretRef`, plus the explicit secure receiver-authorized identity and any referenced Secret material keys. | No | see values file |
+| `observability.siteToSiteProvenance.destination.*` | object | Typed destination URL and input-port settings for Site-to-Site provenance export. | No | see values file |
+| `observability.siteToSiteProvenance.auth.*` | object | Typed Site-to-Site auth settings for provenance export. Values: `none`, `workloadTLS`, `secretRef`, plus the explicit secure receiver-authorized identity and any referenced Secret material keys. | No | see values file |
 | `observability.siteToSiteProvenance.source.*` | object | Optional provenance-export source URL override. | No | see values file |
 | `observability.siteToSiteProvenance.transport.*` | object | Site-to-Site transport settings for the typed provenance-export path. | No | see values file |
 | `observability.siteToSiteProvenance.provenance.startPosition` | enum | Initial provenance cursor. Values: `beginningOfStream`, `endOfStream`. | No | `endOfStream` |
@@ -195,9 +195,9 @@ See also:
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
-| `flowRegistryClients.enabled` | boolean | Enables prepared Flow Registry Client catalog rendering. | No | `false` |
+| `flowRegistryClients.enabled` | boolean | Enables Flow Registry Client catalog rendering. | No | `false` |
 | `flowRegistryClients.mountPath` | string | Mount path for the rendered catalog files. | No | `/opt/nifi/fabric/flow-registry-clients` |
-| `flowRegistryClients.clients[]` | object list | Prepared client definitions. Supported providers here: `github`, `gitlab`, `bitbucket`, `azureDevOps`, and compatibility-oriented `nifiRegistry`. | No | `[]` |
+| `flowRegistryClients.clients[]` | object list | Client definitions. Supported providers here: `github`, `gitlab`, `bitbucket`, `azureDevOps`, and `nifiRegistry`. | No | `[]` |
 
 ## Parameter Contexts
 

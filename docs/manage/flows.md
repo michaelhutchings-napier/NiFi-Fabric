@@ -21,7 +21,7 @@ Supported content:
 - the public API stays under `versionedFlowImports.*`
 - the chart does not become a generic flow-runtime, graph-editing, or synchronization manager
 - Git-based Flow Registry Clients remain the preferred long-term direction
-- NiFi Registry support in this path is compatibility-oriented for NiFi `2.x`
+- NiFi Registry support in this path is available for NiFi `2.x` environments
 - live reconciliation is intentionally limited to import creation, version-selection resolution, optional direct Parameter Context attachment, and explicit ownership-marker maintenance for the imported root-child process group
 
 ## Configuration Surface
@@ -55,9 +55,9 @@ What the product reconciles:
 - live direct Parameter Context attachment or detachment for the declared imported process group when one reference is configured
 - the ownership marker metadata used to keep the owned scope explicit and auditable
 
-What the product only references:
+What the product references:
 
-- the selected live NiFi Flow Registry Client for prepared providers other than `provider=nifiRegistry`
+- the selected live NiFi Flow Registry Client for providers other than `provider=nifiRegistry`
 - the selected registry bucket, flow, and version exposed through that client
 - the declared Parameter Context by name when a direct attachment is requested
 
@@ -81,24 +81,24 @@ Manual UI edits outside the managed import scope are unsupported. The product do
 - `auth.mode=singleUser` requires `authz.capabilities.mutableFlow.enabled=true` with `includeInitialAdmin=true` or `authz.bundles.flowVersionManager.includeInitialAdmin=true` so the import path can create the root-child import target
 - `auth.mode=oidc` and `auth.mode=ldap` require `authz.bootstrap.initialAdminIdentity` so the proxied management identity is explicit and operator-visible
 - the runtime loop uses the workload TLS certificate as a trusted-proxy client and acts as the declared management identity
-- prepared `provider=nifiRegistry` entries can be created and reconciled live by this path
-- other supported prepared providers still require a matching live Flow Registry Client to already exist in NiFi
+- `provider=nifiRegistry` entries can be created and reconciled live by this path
+- other supported providers still require a matching live Flow Registry Client to already exist in NiFi
 - version attachment uses the selected registry-backed snapshot through the NiFi versions API and does not commit a new registry version
-- when NiFi exposes only version metadata and not inline snapshot content, the current fallback supports prepared GitHub and prepared NiFi Registry sources in this feature
+- when NiFi exposes only version metadata and not inline snapshot content, the current fallback supports GitHub and NiFi Registry sources in this feature
 - validation on the single-node platform path upgrades the release, lets the live in-pod reconcile loop import the declared flow, and then verifies a later declared version change reconciles without replacing pod `-0`
 - at most one direct Parameter Context reference is supported per import in this feature
 - `latest` is resolved during create or declared-change reconcile and then pinned through the ownership marker; the product does not keep polling for newer versions once the declaration is unchanged
 - missing live client, missing selected flow content, or unsupported manual drift is reported as `blocked` in the runtime status file instead of widening the feature into a generic recovery loop
 - ongoing automatic synchronization to newer registry versions is out of scope
 
-## Validation
+## Runtime Coverage
 
-- validation status: `Runtime-managed / repository-verified`
-- kind validation covers real import of a selected registry-backed flow through the platform chart path
+- status: `Runtime-managed`
+- local kind coverage includes real import of a selected registry-backed flow through the platform chart path
 - the resulting root-child process group exists in NiFi with attached version-control state for the selected version, seeded flow content, direct Parameter Context attachment, and explicit ownership marker verified
 - the same verification flow then changes the declared version and verifies the owned import updates live without replacing pod `-0`
-- the separate GitHub selection verification still covers provider-native version resolution on the documented workflow path
-- the NiFi Registry compatibility verification now covers typed live client creation, bucket and flow resolution, explicit historical version import, and later reconcile back to `latest` through a real in-cluster `apache/nifi-registry` service
+- the separate GitHub selection flow covers provider-native version resolution on the documented workflow path
+- the NiFi Registry compatibility flow covers typed live client creation, bucket and flow resolution, explicit historical version import, and later reconcile back to `latest` through a real in-cluster `apache/nifi-registry` service
 - enterprise auth support is rendered and implemented, but repository runtime verification for this feature remains on the standard `singleUser` path today
 
 ## Example Overlays

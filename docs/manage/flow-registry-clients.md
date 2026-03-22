@@ -1,12 +1,12 @@
 # Flow Registry Clients
 
-NiFi-Fabric treats Git-based Flow Registry Clients as the preferred modern direction.
+NiFi-Fabric supports Git-based Flow Registry Clients as the preferred modern direction.
 
 ## What This Feature Does
 
-The chart can render prepared Flow Registry Client catalog content for NiFi.
+The chart can render Flow Registry Client catalog content for NiFi.
 
-NiFi Registry is supported here as a NiFi `2.x` compatibility path, not as the strategic long-term center of the product.
+NiFi Registry is supported here for NiFi `2.x` environments, while Git-based clients remain the preferred long-term direction.
 
 Supported provider direction:
 
@@ -19,8 +19,8 @@ Supported provider direction:
 ## Product Position
 
 - Git-based Flow Registry Clients are the supported modern direction
-- classic NiFi Registry is a compatibility-oriented path in this project
-- the chart prepares catalog definitions; it does not become a broad flow-management platform
+- classic NiFi Registry remains available for NiFi `2.x` environments
+- the chart renders catalog definitions; it does not become a broad flow-management platform
 
 ## Configuration Surface
 
@@ -43,7 +43,7 @@ Use platform chart values under:
 - NiFi Registry: verified on the supported NiFi `2.x` line through a real in-cluster `apache/nifi-registry` service
 - Azure DevOps: configuration surface available and chart rendering supported
 
-## Typed NiFi Registry Compatibility Path
+## Typed NiFi Registry Integration
 
 The typed `provider=nifiRegistry` surface is intentionally small:
 
@@ -53,12 +53,12 @@ The typed `provider=nifiRegistry` surface is intentionally small:
 - optional `nifiRegistry.sslContextServiceName` when the live NiFi Registry Client should reference an existing SSL context service
 - optional description text
 
-What this support path owns:
+What the product manages here:
 
-- prepared catalog entries rendered by the chart
+- catalog entries rendered by the chart
 - for `versionedFlowImports.*`, the specific live `provider=nifiRegistry` Flow Registry Client objects the product creates or reconciles for the declared import path
 
-What remains operator-owned:
+What remains operator-managed:
 
 - undeclared or manually created Flow Registry Clients
 - same-name operator-owned clients that the product did not mark as owned
@@ -67,13 +67,13 @@ What remains operator-owned:
 
 Manual UI edits to product-owned live `provider=nifiRegistry` clients created by the import path may be reconciled back to the declared state. Manual edits to undeclared or operator-owned clients remain outside product ownership.
 
-## Current End-to-End Workflow Verification
+## Example GitHub Workflow
 
-The first end-to-end workflow verification uses GitHub on the supported NiFi `2.x` line.
+The first documented end-to-end workflow uses GitHub on the supported NiFi `2.x` line.
 
-What it proves:
+What this workflow shows:
 
-- the chart-prepared external client is usable through the NiFi runtime API
+- the chart-rendered external client is usable through the NiFi runtime API
 - bucket discovery works
 - a user can create a child process group with the seeded mutable-flow bundle
 - a user can save that process group to the external Git-backed registry through NiFi version control APIs

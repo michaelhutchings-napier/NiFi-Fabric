@@ -65,7 +65,7 @@ What remains operator-owned:
 
 Manual NiFi UI edits to product-owned contexts are reconciled back to the declared state by the live runtime loop. Removed product-owned contexts are deleted. Undeclared contexts remain operator-owned and are not adopted automatically, even if their names collide with declared names.
 
-## Sensitive Values Contract
+## Sensitive Values
 
 - non-sensitive parameters use inline `value`
 - sensitive parameters must use `secretRef.name` plus `secretRef.key`
@@ -96,10 +96,10 @@ Manual NiFi UI edits to product-owned contexts are reconciled back to the declar
 - attachment target errors fail clearly in the bootstrap status file and pod logs
 - same-name operator-owned contexts are not adopted automatically; reconcile fails clearly until the name collision is removed or renamed
 
-## Validation
+## Runtime Coverage
 
-- validation status: `Runtime-managed / repository-verified`
-- kind validation covers declared context creation, live update without pod replacement, deletion of removed owned contexts, inline and Secret-backed values, and direct root-child attachment
+- status: `Runtime-managed`
+- local kind coverage includes declared context creation, live update without pod replacement, deletion of removed owned contexts, inline and Secret-backed values, and direct root-child attachment
 - Parameter Provider creation remains out of scope, so the feature stays narrow and explainable
 
 ## Example Overlay
