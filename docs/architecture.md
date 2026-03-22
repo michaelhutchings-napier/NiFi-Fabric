@@ -106,6 +106,8 @@ NiFi-Fabric supports a small set of runtime-managed configuration features:
 
 These features are intentionally narrower than a broad NiFi object-management operator. They are designed to solve common product use cases without introducing a large CRD or control-plane surface.
 
+Flow upgrade and migration assistance belongs to offline tooling, not the runtime control plane. If the project adds a Flow Upgrade Advisor, it should stay external-first and feed the existing registry and import paths rather than becoming a controller-managed feature.
+
 For feature detail, see:
 
 - [Features](features.md)
@@ -161,5 +163,6 @@ NiFi-Fabric is intentionally:
 - thin-controller
 - GitOps-friendly
 - smaller than a broad NiFi operator
+- explicit about offline tooling versus runtime platform responsibilities
 
 The goal is a production-ready platform that stays understandable, supportable, and easy to explain.
