@@ -37,12 +37,23 @@ PROBE_POD_NAME="${PROBE_POD_NAME:-metrics-exporter-probe}"
 PROBE_IMAGE="${PROBE_IMAGE:-curlimages/curl:8.12.1}"
 EXPORTER_DEPLOYMENT_NAME="${EXPORTER_DEPLOYMENT_NAME:-${HELM_RELEASE}-metrics-exporter}"
 SOURCE_AUTH_SECRET="${SOURCE_AUTH_SECRET:-nifi-auth}"
+MIN_UPSTREAM_METRIC_FAMILY_COUNT="${MIN_UPSTREAM_METRIC_FAMILY_COUNT:-8}"
 CURRENT_PHASE="${CURRENT_PHASE:-bootstrap}"
 FAILURE_CATEGORY="${FAILURE_CATEGORY:-unknown}"
 FAILURE_ENDPOINT="${FAILURE_ENDPOINT:-}"
 START_EPOCH="$(date +%s)"
 
 TMPDIR_METRICS=""
+REQUIRED_FLOW_STATUS_METRICS=(
+  nifi_fabric_flow_status_controller_active_thread_count
+  nifi_fabric_flow_status_controller_terminated_thread_count
+  nifi_fabric_flow_status_controller_flow_files_queued
+  nifi_fabric_flow_status_controller_bytes_queued
+  nifi_fabric_flow_status_controller_running_component_count
+  nifi_fabric_flow_status_controller_stopped_component_count
+  nifi_fabric_flow_status_controller_invalid_component_count
+  nifi_fabric_flow_status_controller_disabled_component_count
+)
 
 run_make() {
   make -C "${ROOT_DIR}" "$@"
@@ -458,9 +469,18 @@ verify_exporter_source_reachability() {
   fi
 
   scrape_upstream_from_exporter "/nifi-api/flow/status" "application/json" "${flow_status_file}" "flow_status"
-  if ! jq -e '.controllerStatus | type == "object"' "${flow_status_file}" >/dev/null ||
-    ! jq -e '.controllerStatus.activeThreadCount != null' "${flow_status_file}" >/dev/null ||
-    ! jq -e '.controllerStatus.bytesQueued != null' "${flow_status_file}" >/dev/null; then
+  if ! jq -e '
+    .controllerStatus
+    | type == "object"
+      and .activeThreadCount != null
+      and .terminatedThreadCount != null
+      and .flowFilesQueued != null
+      and .bytesQueued != null
+      and .runningCount != null
+      and .stoppedCount != null
+      and .invalidCount != null
+      and .disabledCount != null
+  ' "${flow_status_file}" >/dev/null; then
     echo "secured upstream flow status payload did not contain the expected controllerStatus fields" >&2
     return 1
   fi
@@ -474,6 +494,14 @@ assert_exporter_contains_upstream_metrics() {
 
   while IFS= read -r metric_family; do
     [[ -n "${metric_family}" ]] || continue
+    if ! grep -Fq "# HELP ${metric_family} " "${exporter_metrics_file}"; then
+      echo "exporter payload did not retain upstream HELP metadata for ${metric_family}" >&2
+      return 1
+    fi
+    if ! grep -Fq "# TYPE ${metric_family} " "${exporter_metrics_file}"; then
+      echo "exporter payload did not retain upstream TYPE metadata for ${metric_family}" >&2
+      return 1
+    fi
     if ! grep -Eq "^${metric_family}(\\{| )" "${exporter_metrics_file}"; then
       echo "exporter payload did not contain upstream metric family ${metric_family}" >&2
       return 1
@@ -487,19 +515,35 @@ assert_exporter_contains_upstream_metrics() {
         if (!(metric in seen)) {
           print metric
           seen[metric] = 1
-          count++
-          if (count == 3) {
-            exit
-          }
         }
       }
     ' "${upstream_metrics_file}"
   )
 
-  if (( found_count < 1 )); then
-    echo "no upstream metric families were discovered for exporter comparison" >&2
+  if (( found_count < MIN_UPSTREAM_METRIC_FAMILY_COUNT )); then
+    echo "expected at least ${MIN_UPSTREAM_METRIC_FAMILY_COUNT} upstream metric families for exporter comparison, found ${found_count}" >&2
     return 1
   fi
+}
+
+assert_exporter_contains_flow_status_metrics() {
+  local exporter_metrics_file="$1"
+  local metric_name
+
+  for metric_name in "${REQUIRED_FLOW_STATUS_METRICS[@]}"; do
+    if ! grep -Fq "# HELP ${metric_name} " "${exporter_metrics_file}"; then
+      echo "exporter payload did not contain HELP metadata for derived flow-status metric ${metric_name}" >&2
+      return 1
+    fi
+    if ! grep -Fq "# TYPE ${metric_name} gauge" "${exporter_metrics_file}"; then
+      echo "exporter payload did not contain TYPE metadata for derived flow-status metric ${metric_name}" >&2
+      return 1
+    fi
+    if ! grep -Eq "^${metric_name} " "${exporter_metrics_file}"; then
+      echo "exporter payload did not contain derived flow-status metric ${metric_name}" >&2
+      return 1
+    fi
+  done
 }
 
 probe_exporter_endpoint() {
@@ -600,8 +644,7 @@ scrape_exporter_metrics() {
         printf '%s\n' "${body}" | grep -q '^nifi_fabric_exporter_source_up{source=\"flow_status\"} 1$' &&
         printf '%s\n' "${body}" | grep -q '^nifi_fabric_exporter_source_scrape_duration_seconds{source=\"flow_prometheus\"} ' &&
         printf '%s\n' "${body}" | grep -q '^nifi_fabric_exporter_source_scrape_duration_seconds{source=\"flow_status\"} ' &&
-        printf '%s\n' "${body}" | grep -q '^nifi_fabric_flow_status_controller_active_thread_count ' &&
-        printf '%s\n' "${body}" | grep -q '^nifi_fabric_flow_status_controller_bytes_queued ' &&
+        assert_exporter_contains_flow_status_metrics "${exporter_metrics_file}" &&
         assert_exporter_contains_upstream_metrics "${exporter_metrics_file}" "${TMPDIR_METRICS}/flow-prometheus.prom"; then
         return 0
       fi

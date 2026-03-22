@@ -1,5 +1,5 @@
-# Prepared AKS standalone overlay.
-# This file is a starting point for future AKS evaluation, not an AKS-validated configuration.
+# AKS standalone overlay.
+# Use this as an AKS starting point for standalone installs.
 
 replicaCount: 3
 

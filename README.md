@@ -4,6 +4,8 @@ NiFi-Fabric is a Kubernetes platform for Apache NiFi 2.x.
 
 It provides a standard product install path through `charts/nifi-platform`, keeps ordinary Kubernetes resources in Helm, and uses a thin controller for the lifecycle and safety work that Helm cannot do safely on its own.
 
+It is built for teams that want a production-ready NiFi platform on Kubernetes without taking on a broad, CRD-heavy operator model.
+
 NiFi-Fabric is designed for standard Kubernetes, with AKS as the primary supported target environment and OpenShift as a supported secondary target for the documented managed install path.
 
 ## Why NiFi-Fabric
@@ -11,9 +13,13 @@ NiFi-Fabric is designed for standard Kubernetes, with AKS as the primary support
 - one clear Helm install path for the standard managed deployment
 - secure-by-default, cert-manager-first installation
 - safe lifecycle handling for rollout, TLS restart policy, hibernation, restore, and controller-owned autoscaling
+- advisory and enforced autoscaling, plus optional KEDA integration
 - first-class managed authentication options, including OIDC and LDAP
+- runtime-managed NiFi configuration features, including Flow Registry Client catalogs, versioned-flow import, and Parameter Context management
 - native OpenShift passthrough `Route` support for external HTTPS access on OpenShift
+- optional service mesh profiles for Linkerd, Istio sidecar mode, and Istio Ambient
 - native NiFi 2 Prometheus metrics support through direct secured API scraping
+- optional exporter metrics and Site-to-Site delivery paths for metrics, status, and provenance
 - a simpler product surface than a large NiFi-specific operator stack
 
 ## Standard Install
@@ -47,6 +53,10 @@ Manage NiFi:
 - [Authentication](docs/manage/authentication.md)
 - [Observability and Metrics](docs/manage/observability-metrics.md)
 - [Autoscaling](docs/manage/autoscaling.md)
+- [Optional Service Mesh Profiles](docs/install/service-mesh.md)
+- [Parameter Contexts](docs/manage/parameters.md)
+- [Flows](docs/manage/flows.md)
+- [Flow Registry Clients](docs/manage/flow-registry-clients.md)
 - [Operations and Troubleshooting](docs/operations.md)
 
 Reference and support:

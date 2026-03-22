@@ -7,7 +7,7 @@ Primary one-command product installs:
 - managed standard: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-cert-manager-quickstart-values.yaml`
 - managed advanced explicit external-secret: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-values.yaml`
 - managed advanced explicit cert-manager: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-cert-manager-values.yaml`
-- managed bounded self-signed quickstart: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-quickstart-values.yaml`
+- managed self-signed quickstart: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-quickstart-values.yaml`
 - standalone: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-standalone-values.yaml`
 
 Generated manifest-bundle installs:
@@ -21,31 +21,30 @@ Advanced evaluator installs still exist:
 - managed: `make install-managed`
 - managed + cert-manager: `make install-managed-cert-manager`
 
-There is also one AKS-prepared set of starting overlays:
+There is also one AKS overlay set:
 
 - [aks/standalone-values.yaml](aks/standalone-values.yaml)
-  - Prepared starting point for future AKS standalone evaluation.
-  - Not yet validated on a real AKS cluster.
+  - AKS starting point for standalone installs.
+  - Use it when you want the lower-level `charts/nifi` shape on AKS.
 
 - [aks/managed-values.yaml](aks/managed-values.yaml)
-  - AKS starting point for managed-mode evaluation.
+  - AKS starting point for managed-mode installs.
   - Compose with [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml) if cert-manager already exists in the AKS cluster.
   - Aligns with the supported AKS managed install direction.
 
 There is also one OpenShift overlay set:
 
 - [openshift/standalone-values.yaml](openshift/standalone-values.yaml)
-  - Prepared secondary overlay for `charts/nifi`.
+  - OpenShift standalone overlay for `charts/nifi`.
   - Compose with [standalone/values.yaml](standalone/values.yaml).
   - Keeps the Service internal first and leaves Route enablement to the separate Route overlay.
-  - Not yet validated on a real OpenShift cluster.
+  - Use it when you want the lower-level `charts/nifi` shape on OpenShift.
 
 - [openshift/managed-values.yaml](openshift/managed-values.yaml)
-  - Focused runtime-proven OpenShift overlay for the standard `charts/nifi-platform` managed install path.
+  - OpenShift overlay for the standard `charts/nifi-platform` managed install path.
   - Compose with [platform-managed-values.yaml](platform-managed-values.yaml).
   - Keeps the Service internal, relaxes fixed UID or GID settings for both the controller and NiFi workload, and keeps external Route exposure on the separate explicit host overlay.
-  - Compose with [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml) for the focused cert-manager-first OpenShift managed proof shape.
-  - The focused proof command is `make openshift-platform-managed-proof`.
+  - Compose with [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml) when cert-manager already exists in the cluster.
 
 There is also one optional TLS-source overlay:
 
@@ -54,48 +53,42 @@ There is also one optional TLS-source overlay:
   - Use it on top of either the standalone or managed Helm values when cert-manager and the `nifi-ca` issuer bootstrap are already installed.
   - Still requires a separate Secret for the PKCS12 password and `nifi.sensitive.props.key`.
   - For kind evaluator setup, run `make kind-bootstrap-cert-manager` first.
-  - The focused fresh-kind evaluation commands are `make kind-cert-manager-e2e`, `make kind-cert-manager-fast-e2e`, `make kind-cert-manager-nifi-2-8-e2e`, and `make kind-cert-manager-nifi-2-8-fast-e2e`.
 
-There is also one optional focused fast overlay:
+There is also one optional fast overlay:
 
 - [test-fast-values.yaml](test-fast-values.yaml)
-  - Reduces focused kind validation to a smaller but still multi-node NiFi shape.
-  - Sets `replicaCount: 2`, lowers heap and pod resources, shrinks PVC sizes, and disables the PDB for focused reruns.
-  - Compose it with focused kind overlays only. Do not use it as a replacement for the proven baseline profiles or `make kind-alpha-e2e`.
+  - Reduces kind installs to a smaller but still multi-node NiFi shape.
+  - Sets `replicaCount: 2`, lowers heap and pod resources, shrinks PVC sizes, and disables the PDB for faster reruns.
+  - Compose it with kind overlays only. Do not use it as a replacement for the baseline profiles or `make kind-alpha-e2e`.
 
 - [platform-fast-values.yaml](platform-fast-values.yaml)
-  - Product-chart equivalent of the focused fast overlay.
+  - Product-chart equivalent of the fast overlay.
   - Nests the same smaller multi-node shape under `nifi.*` for `charts/nifi-platform`.
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml) or [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml).
-  - The primary focused runtime commands are `make kind-platform-managed-fast-e2e` and `make kind-platform-managed-cert-manager-fast-e2e`.
 
 - [platform-managed-restore-kind-values.yaml](platform-managed-restore-kind-values.yaml)
-  - Focused product-chart overlay for the bounded restore workflow proof.
-  - Enables a kind-local GitHub Flow Registry Client catalog entry, one runtime-managed Parameter Context, and one bounded versioned-flow import selection.
+  - Product-chart overlay for the restore workflow.
+  - Enables a kind-local GitHub Flow Registry Client catalog entry, one runtime-managed Parameter Context, and one versioned-flow import selection.
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml) and [platform-fast-values.yaml](platform-fast-values.yaml).
-  - The focused runtime command is `make kind-platform-managed-restore-fast-e2e`.
 
 - [platform-managed-linkerd-values.yaml](platform-managed-linkerd-values.yaml)
-  - Optional bounded Linkerd compatibility overlay for the product chart.
+  - Optional Linkerd compatibility overlay for the product chart.
   - Injects only the NiFi StatefulSet pods and keeps the controller outside the mesh.
   - Marks the NiFi cluster protocol and load-balance ports opaque in the documented baseline profile.
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
-  - The focused runtime proof command is `make kind-linkerd-fast-e2e`.
 
 - [platform-managed-istio-values.yaml](platform-managed-istio-values.yaml)
-  - Optional bounded Istio sidecar-mode compatibility overlay for the product chart.
+  - Optional Istio sidecar-mode compatibility overlay for the product chart.
   - Injects only the NiFi StatefulSet pods and keeps the controller outside the mesh.
   - Enables the documented sidecar-mode annotations for probe rewrite and waiting for the sidecar before NiFi starts.
   - The supported profile still expects the operator to enable Istio sidecar injection on the NiFi namespace only.
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
-  - The focused runtime proof command is `make kind-istio-fast-e2e`.
 
 - [platform-managed-istio-ambient-values.yaml](platform-managed-istio-ambient-values.yaml)
-  - Optional bounded Istio Ambient compatibility overlay for the product chart.
+  - Optional Istio Ambient compatibility overlay for the product chart.
   - Enrolls only the NiFi StatefulSet pods and keeps the controller outside Ambient.
   - Uses pod-template labels only, with no sidecars and no waypoint behavior in the supported profile.
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
-  - The focused runtime proof command is `make kind-istio-ambient-fast-e2e`.
 
 Metrics note:
 
@@ -103,62 +96,52 @@ Metrics note:
 - it enables `nifi.observability.metrics.mode=nativeApi`
 - it is the recommended default metrics overlay for managed installs
 - it renders a dedicated metrics `Service` plus multiple named `ServiceMonitor` resources
-- it uses the provider-agnostic machine-auth Secret and CA Secret contract shared by the metrics subsystem
+- it uses the provider-agnostic machine-auth Secret and CA Secret layout shared by the metrics subsystem
 - `hack/bootstrap-metrics-machine-auth.sh` can create those Kubernetes Secrets from a pre-minted token or from existing NiFi-accepted credentials
-- the focused live runtime proof command is `make kind-metrics-native-api-fast-e2e`
-- the broader focused matrix command is `make kind-metrics-fast-e2e`
-- the current live proof covers the secured flow-metrics endpoint and two named scrape profiles against that same endpoint
+- local kind coverage includes the secured flow-metrics endpoint and two named scrape profiles against that same endpoint
 - [platform-managed-trust-manager-values.yaml](platform-managed-trust-manager-values.yaml) is an optional overlay for trust-manager-based shared CA bundle distribution
 - it enables `trustManager.enabled=true`
 - it enables `trustManager.mirrorTLSSecret.enabled=true` so the workload TLS `ca.crt` is mirrored into trust-manager's trust namespace automatically
 - it wires the resulting bundle into optional NiFi extra trust import
 - nativeApi and exporter can also consume the same bundle through `*.tlsConfig.ca.useTrustManagerBundle=true`
-- the focused runtime proof command is `make kind-platform-managed-trust-manager-fast-e2e`
 - [platform-managed-metrics-native-trust-manager-values.yaml](platform-managed-metrics-native-trust-manager-values.yaml) layers trust-manager-backed native API metrics on top of the managed metrics overlay
 - it switches the Bundle target to a Secret, enables an additional PKCS12 output, and points nativeApi TLS trust at the trust-manager bundle
 - use it together with `examples/platform-managed-values.yaml`, `examples/platform-managed-trust-manager-values.yaml`, and `examples/platform-managed-metrics-native-values.yaml`
-- the focused runtime proof command is `make kind-metrics-native-api-trust-manager-fast-e2e`
 - [platform-managed-metrics-exporter-values.yaml](platform-managed-metrics-exporter-values.yaml) is an optional overlay for the supported exporter metrics mode
 - it enables `nifi.observability.metrics.mode=exporter`
 - it renders a small companion exporter `Deployment`, a clean HTTP metrics `Service`, and one exporter `ServiceMonitor`
-- it uses the same provider-agnostic machine-auth Secret and CA Secret contract
-- the focused live runtime proof command is `make kind-metrics-exporter-fast-e2e`
-- the broader focused matrix command is `make kind-metrics-fast-e2e`
+- it uses the same provider-agnostic machine-auth Secret and CA Secret layout
 - nativeApi remains the primary recommended metrics path; use this overlay only when you specifically want the exporter shape
-- the current live proof covers the secured `/nifi-api/flow/metrics/prometheus` endpoint republished on exporter `/metrics`
-- it also enables selected controller-status gauges derived from `/nifi-api/flow/status`
-- the live proof also covers upstream-aware readiness and mounted auth Secret rotation without restarting the exporter pod
+- local kind coverage includes the secured `/nifi-api/flow/metrics/prometheus` endpoint with the upstream NiFi metric-family set preserved on exporter `/metrics`
+- it also enables controller-status gauges derived from `/nifi-api/flow/status`
+- local kind coverage also includes upstream-aware readiness and mounted auth Secret rotation without restarting the exporter pod
 - [platform-managed-metrics-exporter-trust-manager-values.yaml](platform-managed-metrics-exporter-trust-manager-values.yaml) layers trust-manager-backed exporter upstream trust on top of the managed exporter overlay
 - it switches the Bundle target to a Secret and points exporter source TLS trust at the trust-manager bundle instead of a manually created CA Secret
 - use it together with `examples/platform-managed-values.yaml`, `examples/platform-managed-trust-manager-values.yaml`, and `examples/platform-managed-metrics-exporter-values.yaml`
-- the focused runtime proof command is `make kind-metrics-exporter-trust-manager-fast-e2e`
-- [platform-managed-metrics-site-to-site-values.yaml](platform-managed-metrics-site-to-site-values.yaml) is an optional overlay for the GA bounded sender-side typed site-to-site metrics export path
+- [platform-managed-metrics-site-to-site-values.yaml](platform-managed-metrics-site-to-site-values.yaml) is an optional overlay for the GA sender-side typed site-to-site metrics export path
 - it enables `nifi.observability.metrics.mode=siteToSite`
 - it enables `nifi.observability.metrics.siteToSite.enabled=true`
-- it models the bounded destination, auth, receiver-authorized identity, source, transport, and format contract for one `SiteToSiteMetricsReportingTask`
+- it models the destination, auth, receiver-authorized identity, source, transport, and format settings for one `SiteToSiteMetricsReportingTask`
 - it keeps destination receiver topology and destination-side user or policy lifecycle operator-owned
-- [platform-managed-metrics-site-to-site-kind-values.yaml](platform-managed-metrics-site-to-site-kind-values.yaml) points that typed feature at a cluster-local kind URL for focused runtime proof
-- [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is the proof-only receiver harness used by that focused kind gate
+- [platform-managed-metrics-site-to-site-kind-values.yaml](platform-managed-metrics-site-to-site-kind-values.yaml) points that typed feature at a cluster-local kind URL for kind validation
+- [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is the kind receiver harness used by that command
 - the harness bootstraps one public input port, one minimal downstream processor, and the minimum receiver-side auth needed to trust and authorize the declared sender identity for delivery
-- the focused runtime proof command is `make kind-metrics-site-to-site-fast-e2e`
-- site-to-site status is its own optional GA bounded sender-side typed path and is not part of the `observability.metrics.mode=siteToSite` metrics claim
-- [platform-managed-site-to-site-status-values.yaml](platform-managed-site-to-site-status-values.yaml) is an optional overlay for the GA bounded sender-side typed site-to-site status export path
+- site-to-site status is its own optional GA sender-side typed path and is not part of the `observability.metrics.mode=siteToSite` metrics claim
+- [platform-managed-site-to-site-status-values.yaml](platform-managed-site-to-site-status-values.yaml) is an optional overlay for the GA sender-side typed site-to-site status export path
 - it enables `nifi.observability.siteToSiteStatus.enabled=true`
-- it models the bounded destination, auth, receiver-authorized identity, optional source instance URL override, and transport contract for one `SiteToSiteStatusReportingTask`
+- it models the destination, auth, receiver-authorized identity, optional source instance URL override, and transport settings for one `SiteToSiteStatusReportingTask`
 - it keeps JSON status payload shape, platform, batching, and filters fixed behind the typed API
 - it keeps destination receiver topology and destination-side user or policy lifecycle operator-owned
-- [platform-managed-site-to-site-status-kind-values.yaml](platform-managed-site-to-site-status-kind-values.yaml) points that typed feature at a cluster-local kind URL for focused runtime proof
-- [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is reused as the proof-only receiver harness for that focused kind gate
-- the focused runtime proof command is `make kind-site-to-site-status-fast-e2e`
-- site-to-site provenance is its own optional GA bounded sender-side typed path and is not part of the `observability.metrics.mode=siteToSite` metrics claim
-- [platform-managed-site-to-site-provenance-values.yaml](platform-managed-site-to-site-provenance-values.yaml) is an optional overlay for the GA bounded sender-side typed site-to-site provenance export path
+- [platform-managed-site-to-site-status-kind-values.yaml](platform-managed-site-to-site-status-kind-values.yaml) points that typed feature at a cluster-local kind URL for kind validation
+- [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is reused as the kind receiver harness for that command
+- site-to-site provenance is its own optional GA sender-side typed path and is not part of the `observability.metrics.mode=siteToSite` metrics claim
+- [platform-managed-site-to-site-provenance-values.yaml](platform-managed-site-to-site-provenance-values.yaml) is an optional overlay for the GA sender-side typed site-to-site provenance export path
 - it enables `nifi.observability.siteToSiteProvenance.enabled=true`
-- it models the bounded destination, auth, receiver-authorized identity, optional source instance URL override, transport contract, and small provenance cursor contract for one `SiteToSiteProvenanceReportingTask`
+- it models the destination, auth, receiver-authorized identity, optional source instance URL override, transport settings, and a small provenance cursor for one `SiteToSiteProvenanceReportingTask`
 - it keeps fixed platform, batching, and schedule defaults behind the typed API
 - it keeps destination receiver topology, destination-side user or policy lifecycle, long-lived credential lifecycle, downstream provenance processing, and downstream storage or retention expectations operator-owned
-- [platform-managed-site-to-site-provenance-kind-values.yaml](platform-managed-site-to-site-provenance-kind-values.yaml) points that typed feature at a cluster-local kind URL for focused runtime proof
-- [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is reused as the proof-only receiver harness for that focused kind gate
-- the focused runtime proof command is `make kind-site-to-site-provenance-fast-e2e`
+- [platform-managed-site-to-site-provenance-kind-values.yaml](platform-managed-site-to-site-provenance-kind-values.yaml) points that typed feature at a cluster-local kind URL for kind validation
+- [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is reused as the kind receiver harness for that command
 
 KEDA note:
 
@@ -170,26 +153,24 @@ KEDA note:
 - the overlay intentionally leaves `cluster.autoscaling.external.requestedReplicas` at its runtime-managed default of `0`; KEDA updates that field later through `/scale`
 - it does not add any KEDA resources or values to `charts/nifi`
 - the controller still performs all actual scale-up and scale-down execution
-- the controller now reports the raw KEDA request, controller-bounded intent, and blocked, ignored, or deferred handling through `status.autoscaling.external.*`
-- the focused live runtime proof commands are `make kind-keda-scale-up-fast-e2e` and `make kind-keda-scale-down-fast-e2e`
+- the controller now reports the raw KEDA request, controller-evaluated intent, and blocked, ignored, or deferred handling through `status.autoscaling.external.*`
 - see [../docs/keda.md](../docs/keda.md) for the current recommendation and ownership model
 
-There are also prepared authentication overlays:
+There are also authentication overlays:
 
 - [oidc-values.yaml](oidc-values.yaml)
   - Enables `auth.mode=oidc`.
   - Compose with [managed/values.yaml](managed/values.yaml).
   - Pair with [oidc-group-claims-values.yaml](oidc-group-claims-values.yaml) for NiFi application groups, policies, and external proxy hosts.
-  - Use [oidc-kind-values.yaml](oidc-kind-values.yaml) for the focused kind OIDC evaluator.
 
 - [oidc-group-claims-values.yaml](oidc-group-claims-values.yaml)
   - Seeds NiFi application groups and file-managed policies for OIDC group claims.
   - Group names in the token must match these NiFi application group names exactly.
   - The current chart now renders the richer policy file in a NiFi 2-compatible order instead of crashing at startup.
-  - This is part of the bounded core OIDC GA contract when used on the focused `oidc + externalClaimGroups` path, including the current green non-admin `authz.policies[]` observer/operator/admin proof through `make kind-auth-oidc-ingress-fast-e2e`.
+  - Use it on the `oidc + externalClaimGroups` model when you want external group claims mapped to named NiFi access bundles.
 
 - [mutable-flow-authz-values.yaml](mutable-flow-authz-values.yaml)
-  - Enables the bounded mutable-flow capability bundle for chart-managed groups.
+  - Enables the mutable-flow capability bundle for chart-managed groups.
   - Seeds the root canvas policies needed for process-group editing and version-control actions.
   - Compose it with [managed/values.yaml](managed/values.yaml) or with the OIDC group-claims overlays when those external groups should be allowed to edit flows.
 
@@ -198,157 +179,139 @@ There are also prepared authentication overlays:
   - Compose it with [managed/values.yaml](managed/values.yaml).
 
 - [oidc-kind-values.yaml](oidc-kind-values.yaml)
-  - Focused kind OIDC overlay.
+  - Kind OIDC overlay.
   - Keeps the flow internal to the cluster.
   - Uses the documented `Initial Admin Identity` fallback for the first admin path.
-  - The focused runtime commands are `make kind-auth-oidc-e2e` and `make kind-auth-oidc-nifi-2-8-fast-e2e` when composed with [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml) and [test-fast-values.yaml](test-fast-values.yaml).
-  - Those commands are part of the bounded OIDC GA proof path for `oidc + externalClaimGroups`.
 
 - [oidc-kind-initial-admin-group-values.yaml](oidc-kind-initial-admin-group-values.yaml)
-  - Focused kind OIDC overlay for proving `authz.bootstrap.initialAdminGroup` as the primary bootstrap path.
+  - Kind OIDC overlay for using `authz.bootstrap.initialAdminGroup` as the primary bootstrap path.
   - Keeps the flow internal to the cluster while leaving the seeded admin group as the first-admin route.
-  - The focused proof target is `make kind-auth-oidc-initial-admin-group-fast-e2e`.
 
 - [oidc-external-url-values.yaml](oidc-external-url-values.yaml)
   - Adds an ingress-backed public HTTPS host and matching `web.proxyHosts` entry for OIDC redirects.
   - Compose with [oidc-values.yaml](oidc-values.yaml) and [oidc-group-claims-values.yaml](oidc-group-claims-values.yaml).
-  - This is part of the bounded OIDC GA contract when the external browser flow stays on the same `oidc + externalClaimGroups` model, the ingress keeps sticky routing for callback affinity, and NiFi trusts the IdP CA for token exchange when the provider is private or self-signed.
-  - The focused proof target is `make kind-auth-oidc-ingress-fast-e2e`.
+  - Use it when the external browser flow stays on the same `oidc + externalClaimGroups` model and NiFi needs a public HTTPS host for redirects.
 
 - [ldap-values.yaml](ldap-values.yaml)
   - Enables `auth.mode=ldap` with `authz.mode=ldapSync`.
-  - Use [ldap-kind-values.yaml](ldap-kind-values.yaml) for the focused kind LDAP evaluator.
 
 - [ldap-kind-values.yaml](ldap-kind-values.yaml)
-  - Focused kind LDAP overlay.
+  - Kind LDAP overlay.
   - Uses the documented `Initial Admin Identity` bootstrap path.
-  - The focused runtime command is `make kind-auth-ldap-e2e`.
 
 - [ingress-proxy-host-values.yaml](ingress-proxy-host-values.yaml)
   - Generic ingress and `web.proxyHosts` overlay for auth-enabled browser access.
-  - Prepared only. Adjust hostnames, ingress class, and annotations for your environment.
+  - Adjust hostnames, ingress class, and annotations for your environment.
 
 - [openshift/route-proxy-host-values.yaml](openshift/route-proxy-host-values.yaml)
   - OpenShift passthrough Route host plus matching `web.proxyHosts`.
   - Compose with the OpenShift managed or standalone overlays when you need native OpenShift external HTTPS access.
-  - The runtime-proven supported shape is an explicit Route host plus matching NiFi proxy host on a passthrough Route.
-  - The focused proof command is `make openshift-platform-managed-route-proof`.
+  - The supported shape is an explicit Route host plus matching NiFi proxy host on a passthrough Route.
 
-There are also prepared Flow Registry Client overlays:
+There are also Flow Registry Client overlays:
 
 - [github-flow-registry-values.yaml](github-flow-registry-values.yaml)
-  - Prepared GitHub Flow Registry Client catalog entry.
-  - Renders a validated definition only; it does not auto-create the client in NiFi.
+  - GitHub Flow Registry Client catalog entry.
+  - Renders a catalog definition only; it does not auto-create the client in NiFi.
 
 - [github-flow-registry-kind-values.yaml](github-flow-registry-kind-values.yaml)
-  - Focused kind GitHub Flow Registry Client runtime overlay.
-  - Compose with [managed/values.yaml](managed/values.yaml), [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml), and [test-fast-values.yaml](test-fast-values.yaml).
-  - The focused runtime commands are `make kind-flow-registry-github-fast-e2e` and `make kind-flow-registry-github-fast-e2e-reuse`.
+  - Kind GitHub Flow Registry Client runtime overlay.
+  - Compose with [managed/values.yaml](managed/values.yaml) and a suitable local kind overlay.
 
 - [github-flow-registry-workflow-values.yaml](github-flow-registry-workflow-values.yaml)
-  - Focused GitHub versioned-flow workflow overlay.
-  - Adds the bounded `flowVersionManager` authz bundle and single-node shape used for the save-to-registry proof.
-  - Compose with [managed/values.yaml](managed/values.yaml), [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml), [github-flow-registry-kind-values.yaml](github-flow-registry-kind-values.yaml), and [test-fast-values.yaml](test-fast-values.yaml).
-  - The focused runtime commands are `make kind-flow-registry-github-workflow-fast-e2e` and `make kind-flow-registry-github-workflow-fast-e2e-reuse`.
+  - GitHub versioned-flow workflow overlay.
+  - Adds the `flowVersionManager` authz bundle and single-node shape used for the save-to-registry flow.
+  - Compose with [managed/values.yaml](managed/values.yaml), [github-flow-registry-kind-values.yaml](github-flow-registry-kind-values.yaml), and a suitable local kind overlay.
 
 - [gitlab-flow-registry-values.yaml](gitlab-flow-registry-values.yaml)
-  - Prepared GitLab Flow Registry Client catalog entry.
-  - Renders a validated definition only; it does not auto-create the client in NiFi.
+  - GitLab Flow Registry Client catalog entry.
+  - Renders a catalog definition only; it does not auto-create the client in NiFi.
 
 - [gitlab-flow-registry-kind-values.yaml](gitlab-flow-registry-kind-values.yaml)
-  - Focused kind GitLab Flow Registry Client runtime overlay.
-  - Compose with [managed/values.yaml](managed/values.yaml), [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml), and optionally [test-fast-values.yaml](test-fast-values.yaml).
-  - The focused runtime command is `make kind-flow-registry-gitlab-e2e`.
-  - The focused rerun command is `KIND_CLUSTER_NAME=nifi-fabric-flow-registry-gitlab make kind-flow-registry-gitlab-e2e-reuse`.
+  - Kind GitLab Flow Registry Client runtime overlay.
+  - Compose with [managed/values.yaml](managed/values.yaml) and a suitable local kind overlay.
 
 - [bitbucket-flow-registry-values.yaml](bitbucket-flow-registry-values.yaml)
-  - Prepared Bitbucket Flow Registry Client catalog entry.
-  - Renders a validated definition only; it does not auto-create the client in NiFi.
+  - Bitbucket Flow Registry Client catalog entry.
+  - Renders a catalog definition only; it does not auto-create the client in NiFi.
 
 - [bitbucket-flow-registry-kind-values.yaml](bitbucket-flow-registry-kind-values.yaml)
-  - Focused kind Bitbucket Flow Registry Client runtime overlay.
-  - Compose with [managed/values.yaml](managed/values.yaml), [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml), and [test-fast-values.yaml](test-fast-values.yaml).
-  - The focused runtime commands are `make kind-flow-registry-bitbucket-fast-e2e` and `make kind-flow-registry-bitbucket-fast-e2e-reuse`.
+  - Kind Bitbucket Flow Registry Client runtime overlay.
+  - Compose with [managed/values.yaml](managed/values.yaml) and a suitable local kind overlay.
 
 - [nifi-registry-flow-registry-values.yaml](nifi-registry-flow-registry-values.yaml)
-  - Prepared bounded NiFi Registry compatibility Flow Registry Client catalog entry.
+  - NiFi Registry compatibility Flow Registry Client catalog entry.
   - Compose with standalone or managed values when you want the typed NiFi Registry client definition rendered into the pod-mounted catalog.
 
 - [nifi-registry-flow-registry-kind-values.yaml](nifi-registry-flow-registry-kind-values.yaml)
-  - Focused kind NiFi Registry compatibility runtime overlay.
-  - Compose with [managed/values.yaml](managed/values.yaml), [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml), and [test-fast-values.yaml](test-fast-values.yaml).
-  - The focused runtime proof uses a real in-cluster `apache/nifi-registry` deployment and validates client creation against live NiFi runtime APIs.
+  - Kind NiFi Registry compatibility runtime overlay.
+  - Compose with [managed/values.yaml](managed/values.yaml) and a suitable local kind overlay.
+  - Uses a real in-cluster `apache/nifi-registry` deployment and checks client creation against live NiFi runtime APIs.
 
 - [azure-devops-flow-registry-values.yaml](azure-devops-flow-registry-values.yaml)
-  - Prepared Azure DevOps Flow Registry Client catalog entry.
-  - Renders a validated definition only; it does not auto-create the client in NiFi.
+  - Azure DevOps Flow Registry Client catalog entry.
+  - Renders a catalog definition only; it does not auto-create the client in NiFi.
 
-There are also bounded Parameter Context overlays:
+There are also Parameter Context overlays:
 
 - [platform-managed-parameter-contexts-values.yaml](platform-managed-parameter-contexts-values.yaml)
-  - Runtime-managed Parameter Context entry for the standard `charts/nifi-platform` path, including one bounded direct root-child attachment target.
-  - It models one bounded context with inline non-sensitive values, a sensitive Kubernetes Secret reference, and one external Parameter Provider reference.
-  - It creates or updates that declared context in NiFi through the bounded pod bootstrap path.
+  - Runtime-managed Parameter Context entry for the standard `charts/nifi-platform` path, including one direct root-child attachment target.
+  - It models one context with inline non-sensitive values, a sensitive Kubernetes Secret reference, and one external Parameter Provider reference.
+  - It creates or updates that declared context in NiFi through the pod bootstrap path.
   - It does not create Parameter Providers or assign contexts to process groups.
 
 - [platform-managed-parameter-contexts-kind-values.yaml](platform-managed-parameter-contexts-kind-values.yaml)
-  - Focused kind overlay for the live runtime-managed Parameter Context proof.
-  - It also enables the bounded mutable-flow bootstrap permission used only to seed the proof target root-child process group.
+  - Kind overlay for runtime-managed Parameter Context checks.
+  - It also enables the mutable-flow bootstrap permission used only to seed the example root-child process group.
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml), [platform-fast-values.yaml](platform-fast-values.yaml), and [platform-managed-parameter-contexts-values.yaml](platform-managed-parameter-contexts-values.yaml).
-  - The focused runtime commands are `make kind-parameter-contexts-runtime-fast-e2e` and `make kind-parameter-contexts-runtime-fast-e2e-reuse`.
 
 - [platform-managed-parameter-contexts-update-kind-values.yaml](platform-managed-parameter-contexts-update-kind-values.yaml)
-  - Update overlay used by the focused kind proof to demonstrate bounded reconcile behavior after a restart.
+  - Update overlay used to demonstrate reconcile behavior after a restart.
 
-There are also bounded versioned-flow import overlays:
+There are also versioned-flow import overlays:
 
 - [platform-managed-versioned-flow-import-values.yaml](platform-managed-versioned-flow-import-values.yaml)
-  - Runtime-managed bounded versioned-flow import for the standard `charts/nifi-platform` path.
+  - Runtime-managed versioned-flow import for the standard `charts/nifi-platform` path.
   - It models one selected live registry client reference, bucket, flow name, version, intended root-child target name, and one direct Parameter Context reference.
   - It imports only that declared root-child process group, attaches or updates only the selected registry-backed version without provider write-back, records explicit ownership in the imported process-group comments, and does not add ongoing synchronization or generic graph editing.
 
 - [platform-managed-versioned-flow-import-kind-values.yaml](platform-managed-versioned-flow-import-kind-values.yaml)
-  - Focused kind overlay for the platform-chart runtime-managed versioned-flow import proof.
-  - Uses a focused single-node managed topology for the proof harness.
-  - The focused proof upgrades the platform release, waits for the live in-pod reconciler on pod `-0`, and then proves a later declared version change is applied without replacing the pod.
-  - The proof verifies bounded import, selected-version attachment, explicit ownership marking, and one seeded flow-content element on the imported process group.
+  - Kind overlay for platform-chart runtime-managed versioned-flow import.
+  - Uses a single-node managed topology for the kind setup.
+  - The command upgrades the platform release, waits for the live in-pod reconciler on pod `-0`, and then verifies that a later declared version change is applied without replacing the pod.
+  - It verifies import, selected-version attachment, explicit ownership marking, and one seeded flow-content element on the imported process group.
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml), [platform-fast-values.yaml](platform-fast-values.yaml), and [platform-managed-versioned-flow-import-values.yaml](platform-managed-versioned-flow-import-values.yaml).
-  - The focused runtime commands are `make kind-platform-managed-versioned-flow-import-fast-e2e` and `make kind-platform-managed-versioned-flow-import-fast-e2e-reuse`.
 
 - [platform-managed-versioned-flow-import-nifi-registry-values.yaml](platform-managed-versioned-flow-import-nifi-registry-values.yaml)
-  - Runtime-managed bounded NiFi Registry compatibility import for the standard `charts/nifi-platform` path.
-  - It declares one prepared `provider=nifiRegistry` client, one bounded import source, one selected version, one intended root-child target name, and one direct Parameter Context reference.
-  - In this compatibility path, the bounded import bundle can create and reconcile the exact live NiFi Registry Flow Registry Client it owns.
+  - Runtime-managed NiFi Registry compatibility import for the standard `charts/nifi-platform` path.
+  - It declares one `provider=nifiRegistry` client, one import source, one selected version, one intended root-child target name, and one direct Parameter Context reference.
+  - In this compatibility path, the import bundle can create and reconcile the exact live NiFi Registry Flow Registry Client it owns.
 
 - [platform-managed-versioned-flow-import-nifi-registry-kind-values.yaml](platform-managed-versioned-flow-import-nifi-registry-kind-values.yaml)
-  - Focused kind overlay for the platform-chart runtime-managed NiFi Registry compatibility proof.
+  - Kind overlay for platform-chart runtime-managed NiFi Registry compatibility.
   - Uses a real in-cluster `apache/nifi-registry` deployment, seeds an explicit historical version plus a later latest version, proves product-owned client recreation, proves explicit version import, and then proves live reconcile back to `latest` without replacing pod `-0`.
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml), [platform-fast-values.yaml](platform-fast-values.yaml), and [platform-managed-versioned-flow-import-nifi-registry-values.yaml](platform-managed-versioned-flow-import-nifi-registry-values.yaml).
-  - The focused runtime commands are `make kind-platform-managed-versioned-flow-import-nifi-registry-fast-e2e` and `make kind-platform-managed-versioned-flow-import-nifi-registry-fast-e2e-reuse`.
 
 - [github-versioned-flow-selection-kind-values.yaml](github-versioned-flow-selection-kind-values.yaml)
-  - Focused kind overlay for the bounded GitHub versioned-flow selection proof.
+  - Kind overlay for GitHub versioned-flow selection.
   - Compose it with [managed/values.yaml](managed/values.yaml), [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml), [github-flow-registry-kind-values.yaml](github-flow-registry-kind-values.yaml), [github-flow-registry-workflow-values.yaml](github-flow-registry-workflow-values.yaml), and [test-fast-values.yaml](test-fast-values.yaml).
-  - The focused runtime commands are `make kind-versioned-flow-selection-fast-e2e` and `make kind-versioned-flow-selection-fast-e2e-reuse`.
 
-There is also one shared NiFi `2.x` compatibility contract for `charts/nifi-platform`.
+There is also one shared NiFi `2.x` compatibility sweep for `charts/nifi-platform`.
 
-For the focused runtime anchors:
+For local kind runs:
 
 - Compose with [platform-managed-values.yaml](platform-managed-values.yaml) and [platform-fast-values.yaml](platform-fast-values.yaml).
-- The shared runtime command is `make kind-nifi-compatibility-fast-e2e`.
-- The harness keeps proof logic shared and only changes the NiFi image tag inline per case.
+- The harness keeps the runtime checks shared and only changes the NiFi image tag inline per case.
 - The default runtime sweep covers `apache/nifi:2.0.0` through `apache/nifi:2.8.0`.
 - The sweep uses one shared kind cluster and verifies the managed install plus the secured health gate for each version.
 
-The older app-chart-focused NiFi `2.8.0` overlay still exists:
+The older app-chart NiFi `2.8.0` overlay still exists:
 
 - [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml)
   - Overrides the `charts/nifi` image tag to `apache/nifi:2.8.0`.
-  - Uses `replicaCount: 2` for the older focused multi-node app-chart proof.
+  - Uses `replicaCount: 2` for the older multi-node app-chart path.
   - Compose with either [standalone/values.yaml](standalone/values.yaml) or [managed/values.yaml](managed/values.yaml).
-  - It also composes with the existing OIDC overlays for the focused `apache/nifi:2.8.0` OIDC proof path.
-  - The focused managed proof commands are `make kind-nifi-2-8-e2e` and `make kind-nifi-2-8-fast-e2e`.
+  - It also composes with the existing OIDC overlays for the `apache/nifi:2.8.0` OIDC path.
 
 Only one authentication mode is supported at a time. The intended thin-platform combinations are:
 
@@ -364,34 +327,18 @@ Fallback bootstrap:
 
 - `authz.bootstrap.initialAdminIdentity`
 
-Focused auth evaluator commands:
-
-- `make kind-auth-oidc-e2e`
-- `make kind-auth-oidc-ingress-fast-e2e`
-- `make kind-auth-oidc-initial-admin-group-fast-e2e`
-- `make kind-auth-oidc-nifi-2-8-fast-e2e`
-- `make kind-auth-ldap-e2e`
-- `make kind-nifi-2-8-e2e`
-- `make kind-flow-registry-gitlab-e2e`
-- `make kind-flow-registry-github-fast-e2e`
-- `make kind-flow-registry-bitbucket-fast-e2e`
-- `make kind-auth-oidc-fast-e2e`
-- `make kind-auth-ldap-fast-e2e`
-- `make kind-nifi-2-8-fast-e2e`
-- `make kind-flow-registry-gitlab-fast-e2e`
-
 Flow Registry Client notes:
 
-- classic NiFi Registry is a bounded compatibility path here, not the preferred long-term direction
+- classic NiFi Registry is a compatibility path here, not the preferred long-term direction
 - Git-based Flow Registry Clients are preferred
-- the bounded `provider=nifiRegistry` path owns only the live Registry Client objects and imported flow instances it explicitly creates in the NiFi Registry compatibility workflow
-- the chart renders a prepared catalog under `flowRegistryClients.mountPath`
+- the `provider=nifiRegistry` path owns only the live Registry Client objects and imported flow instances it explicitly creates in the NiFi Registry compatibility workflow
+- the chart renders a catalog under `flowRegistryClients.mountPath`
 - the catalog is available as both `clients.yaml` and `clients.json`
 - there is no controller-managed flow import or synchronization
-- the focused kind proof covers the GitLab client path on NiFi `2.8.0` against a GitLab-compatible evaluator service
-- the focused kind proof also covers the GitHub client path on NiFi `2.8.0` against a GitHub-compatible evaluator service with the fast profile
-- the focused kind proof also covers a user-driven GitHub save-to-registry workflow on NiFi `2.8.0`
-- the focused kind proof also covers the Bitbucket client path on NiFi `2.8.0` against a Bitbucket-compatible evaluator service with the fast profile
+- kind coverage includes the GitLab client path on NiFi `2.8.0` against a GitLab-compatible evaluator service
+- kind coverage also includes the GitHub client path on NiFi `2.8.0` against a GitHub-compatible evaluator service with the fast profile
+- kind coverage also includes a user-driven GitHub save-to-registry workflow on NiFi `2.8.0`
+- kind coverage also includes the Bitbucket client path on NiFi `2.8.0` against a Bitbucket-compatible evaluator service with the fast profile
 
 ## Standalone
 
@@ -417,18 +364,16 @@ Flow Registry Client notes:
   - Installs the CRD, controller, RBAC, app chart, and `NiFiCluster` in one Helm release.
   - Uses explicit operator-provided `nifi-auth` and `nifi-tls` Secrets in the release namespace.
   - Requires the controller image to be reachable by the target cluster.
-  - The primary focused runtime proof commands are `make kind-platform-managed-fast-e2e` and `make kind-platform-managed-fast-e2e-reuse`.
 
 - [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml)
   - Advanced one-release product-chart values for managed mode when cert-manager already exists in the cluster.
   - cert-manager remains a prerequisite and is not bundled by this chart.
   - Uses explicit operator-provided `nifi-auth` and `nifi-tls-params` Secrets in the release namespace.
   - This is the supported handoff target from the standard cert-manager quickstart path when you want explicit values-based ownership without changing Secret names.
-  - The primary focused runtime proof commands are `make kind-platform-managed-cert-manager-fast-e2e` and `make kind-platform-managed-cert-manager-fast-e2e-reuse`.
 
 - [platform-managed-quickstart-values.yaml](platform-managed-quickstart-values.yaml)
-  - Secondary bounded quickstart values for managed mode.
-  - Generates the bounded single-user bootstrap `nifi-auth` Secret and a self-signed `nifi-tls` Secret in the release namespace.
+  - Secondary quickstart values for managed mode.
+  - Generates the single-user bootstrap `nifi-auth` Secret and a self-signed `nifi-tls` Secret in the release namespace.
   - Reuses the generated quickstart secrets on upgrade.
 
 - [managed/values.yaml](managed/values.yaml)

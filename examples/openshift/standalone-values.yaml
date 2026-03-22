@@ -1,8 +1,6 @@
 # OpenShift standalone overlay for `charts/nifi`.
 # Compose with `examples/standalone/values.yaml`.
-#
-# This remains a prepared secondary path. The first real OpenShift baseline proof
-# in this repository is the managed platform install path.
+# Use this when you want the lower-level standalone shape on OpenShift.
 
 image:
   repository: docker.io/apache/nifi

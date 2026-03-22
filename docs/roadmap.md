@@ -25,6 +25,5 @@ NiFi-Fabric keeps the roadmap small and explicit.
 ## Planned Next
 
 - more Layer 7 support for the Istio Ambient service mesh profile
-- broader exporter metrics-family verification where it stays smaller than a full metrics platform
 - broader per-node drainability ranking only if it stays explainable, conservative, and justified by trustworthy evidence beyond the current actual-removal-candidate qualification model
 - broader bulk autoscaling policy depth beyond the current sequential scale-down episode model only if it remains sequential controller-owned one-node steps with fresh settle and requalification after every removal

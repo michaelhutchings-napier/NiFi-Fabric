@@ -393,7 +393,7 @@ observability:
         annotations: {}
     exporter:
       # -- Optional companion exporter for environments that want a clean `/metrics` scrape endpoint.
-      # It republishes secured flow metrics and can append a small set of controller-status gauges from `/nifi-api/flow/status`.
+      # It republishes secured flow metrics and can append a bounded set of controller-status gauges from `/nifi-api/flow/status`.
       image:
         repository: python
         tag: "3.12-alpine"

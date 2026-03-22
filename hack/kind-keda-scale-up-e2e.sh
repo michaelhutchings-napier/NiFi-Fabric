@@ -426,7 +426,7 @@ wait_for_output "scale subresource status replicas after controller scale-up" "3
 run_make kind-health KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NAMESPACE="${NAMESPACE}" HELM_RELEASE="${HELM_RELEASE}"
 wait_for_condition_true Available
 
-print_success_footer "experimental KEDA scale-up runtime proof completed" \
+print_success_footer "KEDA scale-up runtime proof completed" \
   "make kind-keda-scale-up-fast-e2e-reuse" \
   "kubectl -n ${NAMESPACE} get scaledobject ${HELM_RELEASE}-keda -o yaml" \
   "kubectl -n ${NAMESPACE} get nificluster ${HELM_RELEASE} -o yaml" \

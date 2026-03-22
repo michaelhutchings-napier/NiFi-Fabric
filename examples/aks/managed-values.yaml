@@ -1,5 +1,5 @@
-# Prepared AKS managed-mode overlay.
-# This file is a starting point for future AKS evaluation, not an AKS-validated configuration.
+# AKS managed-mode overlay.
+# This file aligns with the supported AKS managed install direction.
 
 replicaCount: 3
 

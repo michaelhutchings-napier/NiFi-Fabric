@@ -1,6 +1,6 @@
 # Prepared OIDC authentication overlay.
 # Compose with examples/managed/values.yaml and optionally examples/oidc-group-claims-values.yaml.
-# This is chart-prepared for real IdP evaluation. It is not validated by the current kind alpha gate.
+# Update the discovery URL, client ID, and Secret reference for your identity provider.
 
 auth:
   mode: oidc

@@ -40,7 +40,7 @@ Current OpenShift documentation and verification cover:
 ## Observability
 
 - native NiFi 2 Prometheus metrics as the primary path, with direct secured API scraping and no reverse-proxy sidecar
-- optional exporter metrics path
+- optional exporter metrics path that republishes secured upstream NiFi Prometheus families on a clean `/metrics` endpoint and adds controller-status gauges
 - starter dashboards, alerts, and runbooks
 - optional trust-manager integration for shared CA bundle distribution
 
