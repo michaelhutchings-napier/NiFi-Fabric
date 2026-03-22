@@ -24,6 +24,8 @@ This assumes cert-manager is already installed and you have created or chosen th
 
 The install bootstraps the initial single-user login and TLS inputs, while cert-manager creates the final workload TLS Secret.
 
+This quickstart uses the single-user bootstrap path. OIDC and LDAP stay available through the explicit install paths.
+
 After install, continue with [First Access and Day-1 Checks](docs/first-day.md).
 
 ## Why NiFi-Fabric
@@ -40,21 +42,13 @@ After install, continue with [First Access and Day-1 Checks](docs/first-day.md).
 - optional exporter metrics and Site-to-Site delivery paths for metrics, status, and provenance
 - a simpler product surface than a large NiFi-specific operator stack
 
-## Standard Install
+## Recommended First Install
 
-The standard customer path is `charts/nifi-platform`.
+This quickstart command is the recommended first install for most teams using `charts/nifi-platform`.
 
-Install cert-manager first, create or choose the `Issuer` or `ClusterIssuer`, then install NiFi-Fabric with:
+It gives you a secure, low-friction managed install for evaluation and early bring-up. Teams can later move to explicit values files, OIDC or LDAP, and explicit enterprise auth or TLS ownership as part of production rollout planning.
 
-```bash
-helm upgrade --install nifi charts/nifi-platform \
-  --namespace nifi \
-  --create-namespace \
-  --set global.nifiFabric.installProfile=quickstart-cert-manager \
-  --set nifi.tls.certManager.issuerRef.name=nifi-ca
-```
-
-This standard path does not require pre-created bootstrap auth or TLS Secrets. The install bootstraps what it needs, and cert-manager creates the final workload TLS Secret.
+See [Install with Helm](docs/install/helm.md) and [Advanced Install Paths](docs/install/advanced.md).
 
 For local evaluation, `kind` is the primary documented path. `minikube` can also be used for small local installs when cert-manager, image access, and a working default `StorageClass` are available. See [Local Kind Guide](docs/local-kind.md).
 

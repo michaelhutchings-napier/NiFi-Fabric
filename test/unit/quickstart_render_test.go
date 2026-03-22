@@ -76,7 +76,7 @@ func TestPlatformQuickstartRejectsOIDC(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected quickstart to reject oidc auth mode\n%s", output)
 	}
-	if !strings.Contains(output, "quickstart.enabled=true requires nifi.auth.mode=singleUser") {
+	if !strings.Contains(output, "quickstart requires nifi.auth.mode=singleUser") {
 		t.Fatalf("expected quickstart oidc validation failure in output\n%s", output)
 	}
 }
@@ -100,7 +100,7 @@ func TestPlatformQuickstartRejectsLDAP(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected quickstart to reject ldap auth mode\n%s", output)
 	}
-	if !strings.Contains(output, "quickstart.enabled=true requires nifi.auth.mode=singleUser") {
+	if !strings.Contains(output, "quickstart requires nifi.auth.mode=singleUser") {
 		t.Fatalf("expected quickstart ldap validation failure in output\n%s", output)
 	}
 }
