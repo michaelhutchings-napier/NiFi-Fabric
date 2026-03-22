@@ -10,7 +10,7 @@ on:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 jobs:
   summary-comment:
@@ -96,18 +96,31 @@ jobs:
             comment.user?.type === "Bot" && comment.body?.includes(marker)
           );
 
-          if (existing) {
-            await github.rest.issues.updateComment({
-              owner,
-              repo,
-              comment_id: existing.id,
-              body,
-            });
-          } else {
-            await github.rest.issues.createComment({
-              owner,
-              repo,
-              issue_number: pull_number,
-              body,
-            });
+          try {
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pull_number,
+                body,
+              });
+            }
+          } catch (error) {
+            if (error.status === 403) {
+              const message = "Could not create or update the PR summary comment because the workflow token does not have comment write access. Check repository or organization Actions workflow permissions if you want this automation enabled.";
+              core.warning(message);
+              await core.summary
+                .addHeading("PR summary comment")
+                .addRaw(`- ${message}\n`)
+                .write();
+            } else {
+              throw error;
+            }
           }
