@@ -1,10 +1,10 @@
-# NiFi-Fabric
+# NiFi-Fabric: Apache NiFi 2 Kubernetes Platform
 
-NiFi-Fabric is a Kubernetes platform for Apache NiFi 2.x.
+NiFi-Fabric is an Apache NiFi 2 Kubernetes platform with a Helm-first install path and a thin operator for lifecycle safety.
 
-It provides a standard product install path through `charts/nifi-platform`, keeps ordinary Kubernetes resources in Helm, and uses a thin controller for the lifecycle and safety work that Helm cannot do safely on its own.
+It keeps ordinary Kubernetes resources in Helm, uses cert-manager-first TLS by default, and supports GitOps-friendly rollout on AKS and other conformant Kubernetes environments.
 
-It is built for teams that want a production-ready NiFi platform on Kubernetes without taking on a broad, CRD-heavy operator model.
+It is built for teams that want a production-ready Apache NiFi 2 platform on Kubernetes without taking on a broad, CRD-heavy operator model.
 
 NiFi-Fabric is designed for standard Kubernetes, with AKS as the primary supported target environment. OpenShift is also supported for the documented managed install shape.
 

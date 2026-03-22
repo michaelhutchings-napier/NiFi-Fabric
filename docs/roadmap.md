@@ -27,5 +27,6 @@ NiFi-Fabric keeps the roadmap small and explicit.
 ## Planned Next
 
 - more Layer 7 support for the Istio Ambient service mesh profile
+- external-first Flow Upgrade Advisor tooling that can analyze source flow artifacts, produce reviewable migration reports, apply safe rewrites, and publish upgraded flows into the existing registry and import paths without adding a new CRD or controller reconciliation loop
 - broader per-node drainability ranking only if it stays explainable, conservative, and justified by trustworthy evidence beyond the current actual-removal-candidate qualification model
 - broader bulk autoscaling policy depth beyond the current sequential scale-down episode model only if it remains sequential controller-owned one-node steps with fresh settle and requalification after every removal

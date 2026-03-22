@@ -11,6 +11,8 @@ The project keeps one common product model across that supported NiFi 2.x line. 
 | `2.0.x` through `2.8.x` | Supported |
 | `1.x` | Not supported |
 
+Offline tooling may inspect NiFi `1.x` flow artifacts for migration into supported NiFi `2.x` targets. That does not change the runtime support position of the platform.
+
 ## Supported Kubernetes Versions
 
 NiFi-Fabric supports Kubernetes `1.21+`.

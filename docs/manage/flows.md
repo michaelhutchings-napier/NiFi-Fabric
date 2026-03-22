@@ -23,6 +23,7 @@ Supported content:
 - Git-based Flow Registry Clients remain the preferred long-term direction
 - NiFi Registry support in this path is available for NiFi `2.x` environments
 - live reconciliation is intentionally limited to import creation, version-selection resolution, optional direct Parameter Context attachment, and explicit ownership-marker maintenance for the imported root-child process group
+- offline flow upgrade or migration work belongs to separate tooling and should hand off into this feature only after review and publish
 
 ## Configuration Surface
 
@@ -144,3 +145,4 @@ make kind-versioned-flow-selection-fast-e2e
 - implement generic flow runtime-object management
 - perform controller-managed ongoing sync to registry changes
 - create a flow CRD or a second product control plane
+- perform source-to-target NiFi flow migration; that belongs to offline tooling outside the runtime reconciler
