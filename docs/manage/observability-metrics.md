@@ -20,7 +20,13 @@ It provides:
 
 - chart-managed metrics services
 - chart-managed `ServiceMonitor` resources
+- multiple named scrape profiles through `observability.metrics.nativeApi.endpoints[]`
+- per-profile URL parameter customization through `observability.metrics.nativeApi.endpoints[].params`
 - secured scraping through machine-auth and CA references
+
+This means you can render more than one `ServiceMonitor` against `/nifi-api/flow/metrics/prometheus`, vary interval and timeout per profile, and attach Prometheus URL parameters such as `includedRegistries` or `sampleLabelValue` per profile.
+
+When you want a shared CA distribution path instead of manually managed CA Secrets, `nativeApi` can also consume a trust-manager-provided bundle through `observability.metrics.nativeApi.tlsConfig.ca.useTrustManagerBundle=true`.
 
 ## Exporter Metrics
 
@@ -43,6 +49,8 @@ These are optional and should be enabled only when you want that specific delive
 ## trust-manager
 
 trust-manager can be used with observability when you want a shared CA bundle for secured scraping or other outbound TLS trust.
+
+Both `nativeApi` and `exporter` metrics paths can consume a trust-manager-provided bundle instead of an explicitly managed CA Secret.
 
 ## Related Docs
 

@@ -38,8 +38,9 @@ After install, continue with [First Access and Day-1 Checks](docs/first-day.md).
 - runtime-managed NiFi configuration features, including Flow Registry Client catalogs, versioned-flow import, and Parameter Context management
 - native OpenShift passthrough `Route` support for external HTTPS access on OpenShift
 - optional service mesh profiles for Linkerd, Istio sidecar mode, and Istio Ambient
-- native NiFi 2 Prometheus metrics support through direct secured API scraping
+- native NiFi 2 Prometheus metrics support through direct secured API scraping, including multiple named `ServiceMonitor` profiles and per-profile URL parameters
 - optional exporter metrics and Site-to-Site delivery paths for metrics, status, and provenance
+- optional trust-manager integration for shared CA bundle distribution across workload and observability paths
 - a simpler product surface than a large NiFi-specific operator stack
 
 ## Recommended First Install
