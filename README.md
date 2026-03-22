@@ -97,5 +97,5 @@ NiFi-Fabric is licensed under the Apache License 2.0. See [LICENSE](LICENSE).
 
 NiFi-Fabric is a NiFi 2-first Kubernetes platform with a smaller product surface than a broad NiFi operator. It keeps the standard path Helm-first and cert-manager-first, uses a thin controller only for lifecycle and safety, and supports direct NiFi 2 Prometheus scraping. NiFiKop and the archived Cetic chart were useful reference points for install ergonomics and documentation style.
 
-- [NiFiKop](https://konpyutaika.github.io/nifikop/docs/) is a broader NiFi Kubernetes operator with additional CRDs for cluster and dataflow management.
-- [Cetic Helm Chart for Apache NiFi](https://github.com/cetic/helm-nifi) is an archived NiFi 1.x Helm chart.
+- [NiFiKop](https://konpyutaika.github.io/nifikop/docs/) is a broader NiFi Kubernetes operator with additional CRDs for cluster and dataflow management. That broader controller and API surface is useful for some teams, but it is not the direction of this project, which stays intentionally smaller, Helm-first, and NiFi 2-focused.
+- [Cetic Helm Chart for Apache NiFi](https://github.com/cetic/helm-nifi) is an archived NiFi 1.x Helm chart. It was useful as a historical reference for install ergonomics, but it is not a fit for a current NiFi 2-first platform.
