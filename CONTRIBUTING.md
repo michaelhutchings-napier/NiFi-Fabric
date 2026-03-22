@@ -13,8 +13,6 @@ Please read:
 - [Architecture Summary](docs/architecture.md)
 - [Compatibility](docs/compatibility.md)
 
-For design guardrails, this repository follows the rules in [AGENTS.md](AGENTS.md).
-
 ## Contribution Flow
 
 1. Fork the repository or create a feature branch from `main`
