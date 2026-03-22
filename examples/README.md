@@ -2,12 +2,36 @@
 
 These examples cover both the product-facing platform chart and the lower-level app-chart or evaluator overlays.
 
+## Start Here
+
+For most teams, start with one of these `charts/nifi-platform` entry points:
+
+- [platform-managed-cert-manager-quickstart-values.yaml](platform-managed-cert-manager-quickstart-values.yaml)
+  - Standard cert-manager-first quickstart.
+  - Recommended fastest first install once cert-manager and the target `Issuer` or `ClusterIssuer` already exist.
+  - Bootstraps the initial single-user login and TLS inputs, while cert-manager creates the final workload TLS Secret.
+
+- [platform-managed-quickstart-values.yaml](platform-managed-quickstart-values.yaml)
+  - Secondary self-signed quickstart.
+  - Use it for evaluation when you do not want the cert-manager prerequisite.
+  - This is not the default recommended customer path.
+
+- [platform-managed-values.yaml](platform-managed-values.yaml)
+  - Explicit advanced path using externally provided TLS and auth inputs.
+  - Use it when you want to own those inputs from the start.
+
+- [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml)
+  - Explicit advanced cert-manager path.
+  - Use it when cert-manager already exists and you want explicit ownership of the remaining bootstrap inputs instead of the quickstart flow.
+
+The quickstart paths are valid for evaluation and low-friction first installs, but they are not a substitute for explicit enterprise auth planning.
+
 Primary one-command product installs:
 
-- managed standard: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-cert-manager-quickstart-values.yaml`
+- managed standard: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace --set global.nifiFabric.installProfile=quickstart-cert-manager --set nifi.tls.certManager.issuerRef.name=nifi-ca`
 - managed advanced explicit external-secret: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-values.yaml`
 - managed advanced explicit cert-manager: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-cert-manager-values.yaml`
-- managed self-signed quickstart: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-quickstart-values.yaml`
+- managed self-signed quickstart: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace --set global.nifiFabric.installProfile=quickstart-self-signed`
 - standalone: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-standalone-values.yaml`
 
 Generated manifest-bundle installs:

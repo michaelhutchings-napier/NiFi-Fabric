@@ -11,6 +11,10 @@ The standard install story is:
 
 The standard cert-manager-first path does not require pre-created bootstrap auth or TLS Secrets.
 
+For the fastest supported first install, use the standard quickstart profile in this page.
+If you want a secondary self-signed evaluation path instead, use `--set global.nifiFabric.installProfile=quickstart-self-signed`.
+If you want explicit ownership of auth and TLS inputs from the start, use [Advanced Install Paths](advanced.md).
+
 ## Standard Install
 
 Install cert-manager first:
@@ -36,7 +40,8 @@ Install NiFi-Fabric with:
 helm upgrade --install nifi charts/nifi-platform \
   --namespace nifi \
   --create-namespace \
-  -f examples/platform-managed-cert-manager-quickstart-values.yaml
+  --set global.nifiFabric.installProfile=quickstart-cert-manager \
+  --set nifi.tls.certManager.issuerRef.name=nifi-ca
 ```
 
 The install bootstraps what it needs, and cert-manager creates the final workload TLS Secret.
@@ -60,7 +65,8 @@ For OpenShift, keep the same standard install chart and layer the OpenShift over
 helm upgrade --install nifi charts/nifi-platform \
   --namespace nifi \
   --create-namespace \
-  -f examples/platform-managed-values.yaml \
+  --set global.nifiFabric.installProfile=quickstart-cert-manager \
+  --set nifi.tls.certManager.issuerRef.name=nifi-ca \
   -f examples/openshift/managed-values.yaml
 ```
 

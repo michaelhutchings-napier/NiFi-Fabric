@@ -27,8 +27,24 @@ app.kubernetes.io/name: {{ include "nifi-platform.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
+{{- define "nifi-platform.installProfile" -}}
+{{- $global := default (dict) .Values.global -}}
+{{- $nifiFabric := default (dict) $global.nifiFabric -}}
+{{- $profile := default "explicit" $nifiFabric.installProfile -}}
+{{- if not (has $profile (list "explicit" "quickstart-cert-manager" "quickstart-self-signed")) -}}
+{{- fail "global.nifiFabric.installProfile must be one of: explicit, quickstart-cert-manager, quickstart-self-signed" -}}
+{{- end -}}
+{{- $profile -}}
+{{- end -}}
+
 {{- define "nifi-platform.mode" -}}
+{{- $profile := include "nifi-platform.installProfile" . -}}
 {{- $mode := default "standalone" .Values.mode -}}
+{{- if eq $profile "quickstart-cert-manager" -}}
+{{- $mode = "managed-cert-manager" -}}
+{{- else if eq $profile "quickstart-self-signed" -}}
+{{- $mode = "managed" -}}
+{{- end -}}
 {{- if not (has $mode (list "standalone" "managed" "managed-cert-manager")) -}}
 {{- fail "mode must be one of: standalone, managed, managed-cert-manager" -}}
 {{- end -}}
@@ -78,7 +94,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{- define "nifi-platform.tlsSecretName" -}}
-{{- $mode := dig "tls" "mode" "externalSecret" .Values.nifi -}}
+{{- $mode := include "nifi-platform.nifiTLSMode" . -}}
 {{- if eq $mode "certManager" -}}
 {{- default "nifi-tls" (dig "tls" "certManager" "secretName" "" .Values.nifi) -}}
 {{- else -}}
@@ -115,7 +131,69 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{- define "nifi-platform.quickstartEnabled" -}}
-{{- if .Values.quickstart.enabled -}}true{{- else -}}false{{- end -}}
+{{- $profile := include "nifi-platform.installProfile" . -}}
+{{- if or .Values.quickstart.enabled (eq $profile "quickstart-cert-manager") (eq $profile "quickstart-self-signed") -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{- define "nifi-platform.nifiControllerManagedEnabled" -}}
+{{- $profile := include "nifi-platform.installProfile" . -}}
+{{- if or (eq $profile "quickstart-cert-manager") (eq $profile "quickstart-self-signed") -}}true{{- else if (dig "controllerManaged" "enabled" false .Values.nifi) -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{- define "nifi-platform.nifiAuthMode" -}}
+{{- $profile := include "nifi-platform.installProfile" . -}}
+{{- if or (eq $profile "quickstart-cert-manager") (eq $profile "quickstart-self-signed") -}}singleUser{{- else -}}{{- default "singleUser" (dig "auth" "mode" "singleUser" .Values.nifi) -}}{{- end -}}
+{{- end -}}
+
+{{- define "nifi-platform.nifiAuthSecretName" -}}
+{{- default "nifi-auth" (dig "auth" "singleUser" "existingSecret" "" .Values.nifi) -}}
+{{- end -}}
+
+{{- define "nifi-platform.nifiTLSMode" -}}
+{{- $profile := include "nifi-platform.installProfile" . -}}
+{{- if eq $profile "quickstart-cert-manager" -}}certManager{{- else if eq $profile "quickstart-self-signed" -}}externalSecret{{- else -}}{{- default "externalSecret" (dig "tls" "mode" "externalSecret" .Values.nifi) -}}{{- end -}}
+{{- end -}}
+
+{{- define "nifi-platform.nifiCertManagerEnabled" -}}
+{{- $profile := include "nifi-platform.installProfile" . -}}
+{{- if eq $profile "quickstart-cert-manager" -}}true{{- else if (dig "tls" "certManager" "enabled" false .Values.nifi) -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{- define "nifi-platform.nifiCertManagerPKCS12PasswordSecretName" -}}
+{{- $name := dig "tls" "certManager" "pkcs12" "passwordSecretRef" "name" "" .Values.nifi -}}
+{{- if $name -}}
+{{- $name -}}
+{{- else if eq (include "nifi-platform.installProfile" .) "quickstart-cert-manager" -}}
+nifi-tls-params
+{{- else -}}
+{{- "" -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "nifi-platform.nifiCertManagerPKCS12PasswordSecretKey" -}}
+{{- default "pkcs12Password" (dig "tls" "certManager" "pkcs12" "passwordSecretRef" "key" "" .Values.nifi) -}}
+{{- end -}}
+
+{{- define "nifi-platform.nifiSensitivePropsSecretName" -}}
+{{- $name := dig "tls" "sensitiveProps" "secretRef" "name" "" .Values.nifi -}}
+{{- if $name -}}
+{{- $name -}}
+{{- else if eq (include "nifi-platform.nifiTLSMode" .) "externalSecret" -}}
+{{- include "nifi-platform.tlsSecretName" . -}}
+{{- else if eq (include "nifi-platform.installProfile" .) "quickstart-cert-manager" -}}
+nifi-tls-params
+{{- else -}}
+{{- "" -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "nifi-platform.nifiSensitivePropsSecretKey" -}}
+{{- $key := dig "tls" "sensitiveProps" "secretRef" "key" "" .Values.nifi -}}
+{{- if $key -}}
+{{- $key -}}
+{{- else -}}
+{{- default "sensitivePropsKey" (dig "tls" "sensitivePropsKeyKey" "sensitivePropsKey" .Values.nifi) -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "nifi-platform.quickstartKubectlImage" -}}
@@ -159,47 +237,50 @@ false
 {{- define "nifi-platform.validate" -}}
 {{- $mode := include "nifi-platform.mode" . -}}
 {{- $managed := eq (include "nifi-platform.managedMode" .) "true" -}}
-{{- $controllerManaged := dig "controllerManaged" "enabled" false .Values.nifi -}}
+{{- $quickstartEnabled := eq (include "nifi-platform.quickstartEnabled" .) "true" -}}
+{{- $controllerManaged := eq (include "nifi-platform.nifiControllerManagedEnabled" .) "true" -}}
+{{- $authMode := include "nifi-platform.nifiAuthMode" . -}}
+{{- $tlsMode := include "nifi-platform.nifiTLSMode" . -}}
+{{- $tlsCertManagerEnabled := eq (include "nifi-platform.nifiCertManagerEnabled" .) "true" -}}
 {{- if and $managed (not $controllerManaged) -}}
 {{- fail "managed modes require nifi.controllerManaged.enabled=true so the subchart renders the OnDelete-managed StatefulSet" -}}
 {{- end -}}
 {{- if and (not $managed) $controllerManaged -}}
 {{- fail "standalone mode requires nifi.controllerManaged.enabled=false" -}}
 {{- end -}}
-{{- if and (eq $mode "managed-cert-manager") (ne (dig "tls" "mode" "externalSecret" .Values.nifi) "certManager") -}}
+{{- if and (eq $mode "managed-cert-manager") (ne $tlsMode "certManager") -}}
 {{- fail "mode=managed-cert-manager requires nifi.tls.mode=certManager" -}}
 {{- end -}}
-{{- if and (eq $mode "managed-cert-manager") (not (dig "tls" "certManager" "enabled" false .Values.nifi)) -}}
+{{- if and (eq $mode "managed-cert-manager") (not $tlsCertManagerEnabled) -}}
 {{- fail "mode=managed-cert-manager requires nifi.tls.certManager.enabled=true" -}}
 {{- end -}}
-{{- if .Values.quickstart.enabled -}}
+{{- if $quickstartEnabled -}}
 {{- if not $managed -}}
-{{- fail "quickstart.enabled=true requires a managed platform mode" -}}
+{{- fail "quickstart requires a managed platform mode" -}}
 {{- end -}}
-{{- if ne (dig "auth" "mode" "singleUser" .Values.nifi) "singleUser" -}}
-{{- fail "quickstart.enabled=true requires nifi.auth.mode=singleUser; OIDC and LDAP stay on the explicit operator-provided Secret path" -}}
+{{- if ne $authMode "singleUser" -}}
+{{- fail "quickstart requires nifi.auth.mode=singleUser; OIDC and LDAP stay on the explicit operator-provided Secret path" -}}
 {{- end -}}
-{{- if not (dig "auth" "singleUser" "existingSecret" "" .Values.nifi) -}}
-{{- fail "quickstart.enabled=true requires nifi.auth.singleUser.existingSecret so the generated quickstart auth Secret has a stable name" -}}
+{{- if not (include "nifi-platform.nifiAuthSecretName" .) -}}
+{{- fail "quickstart requires nifi.auth.singleUser.existingSecret so the generated quickstart auth Secret has a stable name" -}}
 {{- end -}}
 {{- if lt (int (default 24 .Values.quickstart.singleUser.passwordLength)) 12 -}}
 {{- fail "quickstart.singleUser.passwordLength must be at least 12" -}}
 {{- end -}}
-{{- $tlsMode := dig "tls" "mode" "externalSecret" .Values.nifi -}}
-{{- if and (eq $tlsMode "externalSecret") (not (dig "tls" "existingSecret" "" .Values.nifi)) -}}
-{{- fail "quickstart.enabled=true with nifi.tls.mode=externalSecret requires nifi.tls.existingSecret so the generated quickstart TLS Secret has a stable name" -}}
+{{- if and (eq $tlsMode "externalSecret") (not (include "nifi-platform.tlsSecretName" .)) -}}
+{{- fail "quickstart with nifi.tls.mode=externalSecret requires nifi.tls.existingSecret so the generated quickstart TLS Secret has a stable name" -}}
 {{- end -}}
 {{- if and (eq $tlsMode "externalSecret") (dig "tls" "sensitiveProps" "secretRef" "name" "" .Values.nifi) -}}
-{{- fail "quickstart.enabled=true with nifi.tls.mode=externalSecret requires nifi.tls.sensitiveProps.secretRef.name to stay empty so the generated quickstart TLS Secret can carry the sensitive props key" -}}
+{{- fail "quickstart with nifi.tls.mode=externalSecret requires nifi.tls.sensitiveProps.secretRef.name to stay empty so the generated quickstart TLS Secret can carry the sensitive props key" -}}
 {{- end -}}
-{{- if and (eq $tlsMode "certManager") (not (dig "tls" "certManager" "enabled" false .Values.nifi)) -}}
-{{- fail "quickstart.enabled=true with nifi.tls.mode=certManager requires nifi.tls.certManager.enabled=true" -}}
+{{- if and (eq $tlsMode "certManager") (not $tlsCertManagerEnabled) -}}
+{{- fail "quickstart with nifi.tls.mode=certManager requires nifi.tls.certManager.enabled=true" -}}
 {{- end -}}
-{{- if and (eq $tlsMode "certManager") (not (or (dig "tls" "certManager" "pkcs12" "password" "" .Values.nifi) (dig "tls" "certManager" "pkcs12" "passwordSecretRef" "name" "" .Values.nifi))) -}}
-{{- fail "quickstart.enabled=true with nifi.tls.mode=certManager requires either an inline PKCS12 password or nifi.tls.certManager.pkcs12.passwordSecretRef.name" -}}
+{{- if and (eq $tlsMode "certManager") (not (or (dig "tls" "certManager" "pkcs12" "password" "" .Values.nifi) (include "nifi-platform.nifiCertManagerPKCS12PasswordSecretName" .))) -}}
+{{- fail "quickstart with nifi.tls.mode=certManager requires either an inline PKCS12 password or nifi.tls.certManager.pkcs12.passwordSecretRef.name" -}}
 {{- end -}}
-{{- if and (eq $tlsMode "certManager") (not (or (dig "tls" "sensitiveProps" "value" "" .Values.nifi) (dig "tls" "sensitiveProps" "secretRef" "name" "" .Values.nifi))) -}}
-{{- fail "quickstart.enabled=true with nifi.tls.mode=certManager requires either nifi.tls.sensitiveProps.value or nifi.tls.sensitiveProps.secretRef.name" -}}
+{{- if and (eq $tlsMode "certManager") (not (or (dig "tls" "sensitiveProps" "value" "" .Values.nifi) (include "nifi-platform.nifiSensitivePropsSecretName" .))) -}}
+{{- fail "quickstart with nifi.tls.mode=certManager requires either nifi.tls.sensitiveProps.value or nifi.tls.sensitiveProps.secretRef.name" -}}
 {{- end -}}
 {{- if lt (int (default 24 .Values.quickstart.tls.passwordLength)) 12 -}}
 {{- fail "quickstart.tls.passwordLength must be at least 12" -}}

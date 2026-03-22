@@ -9,7 +9,7 @@ spec:
   replicas: {{ .Values.replicaCount }}
   podManagementPolicy: OrderedReady
   updateStrategy:
-    type: {{ ternary "OnDelete" "RollingUpdate" .Values.controllerManaged.enabled }}
+    type: {{ ternary "OnDelete" "RollingUpdate" (eq (include "nifi.controllerManagedEnabled" .) "true") }}
   selector:
     matchLabels:
       {{- include "nifi.selectorLabels" . | nindent 6 }}
@@ -31,7 +31,7 @@ spec:
       {{- if .Values.observability.siteToSiteProvenance.enabled }}
       {{- $podAnnotations = merge $podAnnotations (dict "checksum/site-to-site-provenance-config" (include (print $.Template.BasePath "/site-to-site-provenance-configmap.yaml") . | sha256sum)) }}
       {{- end }}
-      {{- $podAnnotations = merge $podAnnotations (dict "platform.nifi.io/controller-managed" (ternary "true" "false" .Values.controllerManaged.enabled)) }}
+      {{- $podAnnotations = merge $podAnnotations (dict "platform.nifi.io/controller-managed" (ternary "true" "false" (eq (include "nifi.controllerManagedEnabled" .) "true"))) }}
       {{- $podAnnotations = merge $podAnnotations (default (dict) .Values.podAnnotations) }}
       annotations:
         {{- toYaml $podAnnotations | nindent 8 }}

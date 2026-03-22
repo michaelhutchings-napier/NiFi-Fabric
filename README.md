@@ -8,6 +8,24 @@ It is built for teams that want a production-ready NiFi platform on Kubernetes w
 
 NiFi-Fabric is designed for standard Kubernetes, with AKS as the primary supported target environment. OpenShift is also supported for the documented managed install shape.
 
+## Fast Evaluation
+
+For the fastest supported first install, run:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  --set global.nifiFabric.installProfile=quickstart-cert-manager \
+  --set nifi.tls.certManager.issuerRef.name=nifi-ca
+```
+
+This assumes cert-manager is already installed and you have created or chosen the `Issuer` or `ClusterIssuer` your cluster will use for NiFi.
+
+The install bootstraps the initial single-user login and TLS inputs, while cert-manager creates the final workload TLS Secret.
+
+After install, continue with [First Access and Day-1 Checks](docs/first-day.md).
+
 ## Why NiFi-Fabric
 
 - one clear Helm install path for the standard managed deployment
@@ -32,7 +50,8 @@ Install cert-manager first, create or choose the `Issuer` or `ClusterIssuer`, th
 helm upgrade --install nifi charts/nifi-platform \
   --namespace nifi \
   --create-namespace \
-  -f examples/platform-managed-cert-manager-quickstart-values.yaml
+  --set global.nifiFabric.installProfile=quickstart-cert-manager \
+  --set nifi.tls.certManager.issuerRef.name=nifi-ca
 ```
 
 This standard path does not require pre-created bootstrap auth or TLS Secrets. The install bootstraps what it needs, and cert-manager creates the final workload TLS Secret.

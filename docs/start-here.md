@@ -21,18 +21,39 @@ For most teams, `charts/nifi-platform` is the right starting point.
 - support for single-user, OIDC, and LDAP authentication models
 - clear boundaries between Helm, Kubernetes, NiFi, and the controller
 
-## Standard Install Path
+## Choose Your Path
 
-Install cert-manager first, create or choose the `Issuer` or `ClusterIssuer`, then install NiFi-Fabric with:
+### Standard Production Install
+
+Use `charts/nifi-platform` with the standard cert-manager-first install flow.
+
+This is the recommended customer path when cert-manager and the target `Issuer` or `ClusterIssuer` already exist in the cluster.
+
+Start with [Install with Helm](install/helm.md).
+
+### Quick Evaluation Install
+
+Use the standard managed quickstart example when you want the fastest supported first install on the standard product path:
 
 ```bash
 helm upgrade --install nifi charts/nifi-platform \
   --namespace nifi \
   --create-namespace \
-  -f examples/platform-managed-cert-manager-quickstart-values.yaml
+  --set global.nifiFabric.installProfile=quickstart-cert-manager \
+  --set nifi.tls.certManager.issuerRef.name=nifi-ca
 ```
 
-This standard path does not require pre-created bootstrap auth or TLS Secrets.
+This path bootstraps the initial single-user login and TLS inputs, while cert-manager creates the final workload TLS Secret.
+
+The quickstart path is valid for evaluation and low-friction first installs, but it is not a substitute for explicit enterprise auth planning.
+
+After install, continue with [First Access and Day-1 Checks](first-day.md).
+
+### Advanced Explicit Auth And TLS Install
+
+Use the advanced path when you want explicit ownership of auth and TLS inputs from the start, including OIDC, LDAP, or explicit Secret-managed TLS inputs.
+
+Start with [Advanced Install Paths](install/advanced.md).
 
 ## Read Next
 

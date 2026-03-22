@@ -10,6 +10,20 @@
 # - App chart values reference for `nifi.*`: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/reference/app-chart-values.md
 
 # ------------------------------------------------------------------------------
+# Shared Install Profile
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/install/helm.md
+# ------------------------------------------------------------------------------
+
+# -- Shared install-profile preset used by the platform chart and its nested app chart.
+# Supported values are:
+# - `explicit`: preserve the normal chart values surface
+# - `quickstart-cert-manager`: standard managed quickstart with cert-manager
+# - `quickstart-self-signed`: secondary managed quickstart with self-signed TLS
+global:
+  nifiFabric:
+    installProfile: explicit
+
+# ------------------------------------------------------------------------------
 # Install Mode
 # Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/install/helm.md
 # ------------------------------------------------------------------------------

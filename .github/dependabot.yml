@@ -4,22 +4,51 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      semver-major-days: 14
+      semver-minor-days: 7
     open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
+    groups:
+      kubernetes-stack:
+        patterns:
+          - "k8s.io/*"
+          - "sigs.k8s.io/controller-runtime"
+        update-types:
+          - "major"
+          - "minor"
+          - "patch"
+      go-modules:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "k8s.io/*"
+          - "sigs.k8s.io/controller-runtime"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 3
     open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      semver-major-days: 14
+      semver-minor-days: 7
     open-pull-requests-limit: 3
-    labels:
-      - "dependencies"

@@ -12,13 +12,14 @@ The recommended OpenShift path is the same standard customer install used on oth
 
 ## Recommended OpenShift Install
 
-Install cert-manager first, then use the standard quickstart values with the OpenShift overlay:
+Install cert-manager first, then use the standard quickstart profile with the OpenShift overlay:
 
 ```bash
 helm upgrade --install nifi charts/nifi-platform \
   --namespace nifi \
   --create-namespace \
-  -f examples/platform-managed-cert-manager-quickstart-values.yaml \
+  --set global.nifiFabric.installProfile=quickstart-cert-manager \
+  --set nifi.tls.certManager.issuerRef.name=nifi-ca \
   -f examples/openshift/managed-values.yaml
 ```
 
@@ -32,7 +33,8 @@ If you want external HTTPS access, add the Route overlay:
 helm upgrade --install nifi charts/nifi-platform \
   --namespace nifi \
   --create-namespace \
-  -f examples/platform-managed-cert-manager-quickstart-values.yaml \
+  --set global.nifiFabric.installProfile=quickstart-cert-manager \
+  --set nifi.tls.certManager.issuerRef.name=nifi-ca \
   -f examples/openshift/managed-values.yaml \
   -f examples/openshift/route-proxy-host-values.yaml
 ```

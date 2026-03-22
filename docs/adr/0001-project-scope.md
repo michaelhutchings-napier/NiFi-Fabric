@@ -26,7 +26,7 @@ The project will not:
 - support NiFi 1.x
 - pursue NiFiKop compatibility or feature parity
 - add advanced dataflow, user, registry, or backup management in MVP
-- introduce additional CRDs unless justified in `docs/api.md` and a new ADR
+- introduce additional CRDs unless justified in the API reference docs and a new ADR
 
 ## Consequences
 

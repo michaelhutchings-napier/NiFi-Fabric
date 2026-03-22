@@ -63,7 +63,8 @@ Install NiFi-Fabric:
 helm upgrade --install nifi charts/nifi-platform \
   --namespace nifi \
   --create-namespace \
-  -f examples/platform-managed-cert-manager-quickstart-values.yaml
+  --set global.nifiFabric.installProfile=quickstart-cert-manager \
+  --set nifi.tls.certManager.issuerRef.name=nifi-ca
 ```
 
 Check cluster health:

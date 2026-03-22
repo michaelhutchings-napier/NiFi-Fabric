@@ -15,6 +15,12 @@ The project keeps one common product model across that supported NiFi 2.x line. 
 
 NiFi-Fabric supports Kubernetes `1.21+`.
 
+## Supported Helm Versions
+
+NiFi-Fabric requires Helm `3.x` or `4.x` for chart-based installs.
+
+The project charts use Helm chart `apiVersion: v2`, so Helm `2.x` is not supported.
+
 ## Standard Install Path
 
 The standard customer path is:

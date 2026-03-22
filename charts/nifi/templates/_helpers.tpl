@@ -166,12 +166,33 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- toYaml $labels -}}
 {{- end -}}
 
+{{- define "nifi.installProfile" -}}
+{{- $global := default (dict) .Values.global -}}
+{{- $nifiFabric := default (dict) $global.nifiFabric -}}
+{{- $profile := default "explicit" $nifiFabric.installProfile -}}
+{{- if not (has $profile (list "explicit" "quickstart-cert-manager" "quickstart-self-signed")) -}}
+{{- fail "global.nifiFabric.installProfile must be one of: explicit, quickstart-cert-manager, quickstart-self-signed" -}}
+{{- end -}}
+{{- $profile -}}
+{{- end -}}
+
+{{- define "nifi.controllerManagedEnabled" -}}
+{{- $profile := include "nifi.installProfile" . -}}
+{{- if or (eq $profile "quickstart-cert-manager") (eq $profile "quickstart-self-signed") -}}true{{- else if .Values.controllerManaged.enabled -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
 {{- define "nifi.tlsMode" -}}
+{{- $profile := include "nifi.installProfile" . -}}
 {{- $mode := default "externalSecret" .Values.tls.mode -}}
-{{- if and .Values.tls.certManager.enabled (ne $mode "certManager") -}}
+{{- if eq $profile "quickstart-cert-manager" -}}
+{{- $mode = "certManager" -}}
+{{- else if eq $profile "quickstart-self-signed" -}}
+{{- $mode = "externalSecret" -}}
+{{- end -}}
+{{- if and (eq $profile "explicit") .Values.tls.certManager.enabled (ne $mode "certManager") -}}
 {{- fail "tls.certManager.enabled=true requires tls.mode=certManager" -}}
 {{- end -}}
-{{- if and (eq $mode "certManager") (not .Values.tls.certManager.enabled) -}}
+{{- if and (eq $profile "explicit") (eq $mode "certManager") (not .Values.tls.certManager.enabled) -}}
 {{- fail "tls.mode=certManager requires tls.certManager.enabled=true" -}}
 {{- end -}}
 {{- if and (ne $mode "externalSecret") (ne $mode "certManager") -}}
@@ -191,6 +212,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "nifi.sensitivePropsSecretName" -}}
 {{- if .Values.tls.sensitiveProps.secretRef.name -}}
 {{- .Values.tls.sensitiveProps.secretRef.name -}}
+{{- else if eq (include "nifi.installProfile" .) "quickstart-cert-manager" -}}
+nifi-tls-params
 {{- else if eq (include "nifi.tlsMode" .) "externalSecret" -}}
 {{- include "nifi.tlsSecretName" . -}}
 {{- else -}}
@@ -205,6 +228,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "nifi.certManagerPKCS12PasswordSecretName" -}}
 {{- if .Values.tls.certManager.pkcs12.passwordSecretRef.name -}}
 {{- .Values.tls.certManager.pkcs12.passwordSecretRef.name -}}
+{{- else if eq (include "nifi.installProfile" .) "quickstart-cert-manager" -}}
+nifi-tls-params
 {{- else -}}
 {{- fail "tls.certManager.pkcs12.passwordSecretRef.name is required when tls.mode=certManager and tls.certManager.pkcs12.password is empty" -}}
 {{- end -}}
@@ -213,6 +238,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "nifi.certManagerPKCS12PasswordSecretKey" -}}
 {{- if .Values.tls.certManager.pkcs12.passwordSecretRef.key -}}
 {{- .Values.tls.certManager.pkcs12.passwordSecretRef.key -}}
+{{- else if eq (include "nifi.installProfile" .) "quickstart-cert-manager" -}}
+pkcs12Password
 {{- else -}}
 {{- fail "tls.certManager.pkcs12.passwordSecretRef.key is required when tls.mode=certManager and tls.certManager.pkcs12.password is empty" -}}
 {{- end -}}

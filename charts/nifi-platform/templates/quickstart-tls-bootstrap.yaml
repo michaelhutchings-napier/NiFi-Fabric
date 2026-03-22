@@ -1,6 +1,6 @@
-{{- if and (eq (include "nifi-platform.managedMode" .) "true") .Values.quickstart.enabled (eq (dig "tls" "mode" "externalSecret" .Values.nifi) "externalSecret") }}
+{{- if and (eq (include "nifi-platform.managedMode" .) "true") (eq (include "nifi-platform.quickstartEnabled" .) "true") (eq (include "nifi-platform.nifiTLSMode" .) "externalSecret") }}
 {{- $name := include "nifi-platform.quickstartTLSBootstrapName" . -}}
-{{- $tlsSecretName := dig "tls" "existingSecret" "nifi-tls" .Values.nifi -}}
+{{- $tlsSecretName := include "nifi-platform.tlsSecretName" . -}}
 {{- $tlsPasswordLength := int (default 24 .Values.quickstart.tls.passwordLength) -}}
 {{- $tlsPassword := printf "Nifi1!%s" (randAlphaNum (int (sub $tlsPasswordLength 6))) -}}
 {{- $sensitiveLength := int (default 32 .Values.quickstart.tls.sensitivePropsKeyLength) -}}

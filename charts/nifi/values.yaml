@@ -9,6 +9,18 @@
 # - NiFiCluster reference for managed mode: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/reference/nificluster.md
 
 # ------------------------------------------------------------------------------
+# Shared Install Profile
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/install/helm.md
+# ------------------------------------------------------------------------------
+
+# -- Shared install-profile preset.
+# This is primarily set by `charts/nifi-platform` through `global.nifiFabric.installProfile`.
+# Direct `charts/nifi` installs should usually leave this at `explicit`.
+global:
+  nifiFabric:
+    installProfile: explicit
+
+# ------------------------------------------------------------------------------
 # Workload Shape and Version
 # Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/install/helm.md
 # ------------------------------------------------------------------------------
