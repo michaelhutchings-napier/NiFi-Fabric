@@ -21,4 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - uses: rhysd/actionlint@v1
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+    - name: Run actionlint
+      run: go run github.com/rhysd/actionlint/cmd/actionlint@latest
