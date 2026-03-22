@@ -70,7 +70,7 @@ helm upgrade --install nifi charts/nifi-platform \
   -f examples/openshift/managed-values.yaml
 ```
 
-If you also need external HTTPS access through the native OpenShift passthrough `Route`, add:
+If you also need external HTTPS access through an OpenShift `Route`, add:
 
 ```bash
   -f examples/openshift/route-proxy-host-values.yaml

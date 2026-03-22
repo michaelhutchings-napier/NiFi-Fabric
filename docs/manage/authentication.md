@@ -24,10 +24,10 @@ Use OIDC when you want:
 
 OIDC belongs to the advanced install path. It does not depend on the standard single-user bootstrap Secret.
 
-Documented OpenShift shape:
+OpenShift example path:
 
 - install through `charts/nifi-platform`
-- external access through the native OpenShift passthrough `Route`
+- external access through an OpenShift `Route`
 - explicit Route host rendered into `nifi.web.proxy.host`
 - `authz.mode=externalClaimGroups`
 - external claim groups bound to the named NiFi bundles `admin`, `viewer`, `editor`, and `flowVersionManager`
@@ -49,10 +49,10 @@ Use LDAP when you want:
 
 LDAP also belongs to the advanced install path. It does not depend on the standard single-user bootstrap Secret.
 
-Documented OpenShift shape:
+OpenShift example path:
 
 - install through `charts/nifi-platform`
-- external access through the native OpenShift passthrough `Route`
+- external access through an OpenShift `Route`
 - `authz.mode=ldapSync`
 - explicit bootstrap admin identity
 
@@ -60,8 +60,8 @@ The OpenShift example overlay is [ldap-managed-values.yaml](/home/michael/Work/n
 
 Current limitation:
 
-- the documented OpenShift coverage here covers the bootstrap-admin identity path for LDAP
-- LDAP group-bootstrap and named bundle mapping are not yet verified on OpenShift in this path
+- current OpenShift coverage here includes the bootstrap-admin identity path for LDAP
+- current OpenShift coverage here does not include LDAP group-bootstrap or named bundle mapping in this path
 
 See:
 

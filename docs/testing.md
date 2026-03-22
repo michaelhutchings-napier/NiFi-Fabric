@@ -32,8 +32,8 @@ Project verification is centered on:
 
 Environment coverage is centered on:
 
-- AKS as the primary supported target environment for the standard managed install path
-- OpenShift as a supported environment for the documented managed install and passthrough `Route` shape
+- AKS as the primary supported target environment
+- OpenShift as a supported environment, including OpenShift `Route` for external HTTPS access
 
 ## How to Read Support Claims
 

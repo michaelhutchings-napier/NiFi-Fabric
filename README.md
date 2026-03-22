@@ -1,12 +1,12 @@
 # NiFi-Fabric: Apache NiFi 2 Kubernetes Platform
 
-NiFi-Fabric is an Apache NiFi 2 Kubernetes platform with a Helm-first install path and a thin operator for lifecycle safety.
+NiFi-Fabric is a straightforward Apache NiFi 2 platform for Kubernetes with a Helm-first install path and a thin operator for lifecycle safety.
 
-It keeps ordinary Kubernetes resources in Helm, uses cert-manager-first TLS by default, and supports GitOps-friendly rollout on AKS and other conformant Kubernetes environments.
+It keeps ordinary Kubernetes resources in Helm, uses cert-manager-first TLS by default, and fits GitOps-style rollout on AKS, OpenShift, and other conformant Kubernetes environments.
 
-It is built for teams that want a production-ready Apache NiFi 2 platform on Kubernetes without taking on a broad, CRD-heavy operator model.
+It is built for teams that want a production-ready NiFi platform on Kubernetes without taking on a broad, CRD-heavy operator model.
 
-NiFi-Fabric is designed for standard Kubernetes, with AKS as the primary supported target environment. OpenShift is also supported for the documented managed install shape.
+AKS is the primary supported target environment. OpenShift is also supported.
 
 ## Fast Evaluation
 
@@ -36,7 +36,7 @@ After install, continue with [First Access and Day-1 Checks](docs/first-day.md).
 - advisory and enforced autoscaling, plus optional KEDA integration
 - first-class managed authentication options, including OIDC and LDAP
 - runtime-managed NiFi configuration features, including Flow Registry Client catalogs, versioned-flow import, and Parameter Context management
-- native OpenShift passthrough `Route` support for external HTTPS access on OpenShift
+- OpenShift `Route` support for external HTTPS access
 - optional service mesh profiles for Linkerd, Istio sidecar mode, and Istio Ambient
 - native NiFi 2 Prometheus metrics support through direct secured API scraping, including multiple named `ServiceMonitor` profiles and per-profile URL parameters
 - optional exporter metrics and Site-to-Site delivery paths for metrics, status, and provenance
@@ -82,12 +82,12 @@ Reference and support:
 - [Verification and Support Levels](docs/testing.md)
 - [Experimental Features](docs/experimental-features.md)
 
-Advanced install paths, support details, compatibility nuance, and verification coverage live in the docs rather than in this homepage.
+For detailed install, compatibility, and verification guidance, use the docs.
 
 Environment support:
 
 - AKS is the primary supported target environment.
-- OpenShift is supported for the documented managed install shape, including the native passthrough `Route` model when external HTTPS access is needed.
+- OpenShift is supported, including OpenShift `Route` for external HTTPS access.
 
 ## License
 
