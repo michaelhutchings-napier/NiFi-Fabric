@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Apache NiFi 2 on AKS with Helm and cert-manager | NiFi-Fabric</title>
+    <meta
+      name="description"
+      content="Deploy Apache NiFi 2 on Azure Kubernetes Service with Helm-first installs, cert-manager TLS, PVC-backed storage, and GitOps-friendly operations."
+    >
+    <meta name="robots" content="index,follow">
+    <link rel="canonical" href="https://michaelhutchings-napier.github.io/NiFi-Fabric/docs/nifi-2-on-aks/">
+    <meta property="og:title" content="Apache NiFi 2 on AKS with Helm and cert-manager | NiFi-Fabric">
+    <meta
+      property="og:description"
+      content="Deploy Apache NiFi 2 on Azure Kubernetes Service with Helm-first installs, cert-manager TLS, PVC-backed storage, and GitOps-friendly operations."
+    >
+    <meta property="og:type" content="article">
+    <meta property="og:site_name" content="NiFi-Fabric">
+    <meta property="og:url" content="https://michaelhutchings-napier.github.io/NiFi-Fabric/docs/nifi-2-on-aks/">
+    <link rel="stylesheet" href="../../styles.css">
+  </head>
+  <body>
+    <header class="page-hero">
+      <div class="wrap">
+        <nav class="site-nav">
+          <a class="nav-home" href="../../">NiFi-Fabric</a>
+          <div class="nav-links">
+            <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric">GitHub</a>
+            <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/aks.md">AKS docs</a>
+          </div>
+        </nav>
+        <p class="eyebrow">NiFi 2 on AKS</p>
+        <h1>Deploy Apache NiFi 2 on AKS with the primary supported platform shape.</h1>
+        <p class="lede">
+          AKS is the primary supported target environment for NiFi-Fabric. The
+          recommended path combines the platform chart, cert-manager-first TLS,
+          and PVC-backed NiFi repositories.
+        </p>
+      </div>
+    </header>
+
+    <main>
+      <section class="section">
+        <div class="wrap grid article-grid">
+          <article class="card article-card">
+            <p class="section-label">AKS deployment shape</p>
+            <h2>What to prepare before the first install</h2>
+            <p>
+              For AKS, start with a cluster that can provision the PVCs NiFi
+              needs, make sure the kubelet identity can pull both the controller
+              and NiFi images, and install cert-manager before the first Helm
+              release. That keeps the deployment path aligned with the core
+              product docs and support position.
+            </p>
+            <ul>
+              <li>Use <span class="inline-code">charts/nifi-platform</span> in managed mode.</li>
+              <li>Install cert-manager and create or choose an Issuer first.</li>
+              <li>Use internal <span class="inline-code">ClusterIP</span> service exposure as the default starting point.</li>
+              <li>Add ingress or a load balancer only when the deployment needs it.</li>
+            </ul>
+            <p>
+              This path works well for GitOps because the chart values, TLS
+              references, and exposure changes stay declarative and easy to
+              review in source control.
+            </p>
+          </article>
+
+          <aside class="info-stack">
+            <div class="card article-card">
+              <p class="section-label">AKS checklist</p>
+              <ul>
+                <li>A PVC-capable StorageClass for NiFi repositories.</li>
+                <li>Image access for both controller and NiFi containers.</li>
+                <li>cert-manager installed and ready.</li>
+                <li>Issuer or ClusterIssuer selected for workload certificates.</li>
+              </ul>
+            </div>
+            <div class="card article-card">
+              <p class="section-label">Further reading</p>
+              <div class="article-links">
+                <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/aks.md">AKS guidance</a>
+                <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/install/helm.md">Install with Helm</a>
+                <a href="../cert-manager-tls-for-nifi/">cert-manager TLS for NiFi</a>
+                <a href="../apache-nifi-kubernetes/">Apache NiFi Kubernetes</a>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section alt">
+        <div class="wrap grid two-up">
+          <div>
+            <h2>Suggested AKS install command</h2>
+            <p>
+              The standard quickstart profile is the recommended starting point
+              for evaluation and early platform bring-up on AKS.
+            </p>
+          </div>
+          <div class="code-card">
+            <pre><code>helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  --set global.nifiFabric.installProfile=quickstart-cert-manager \
+  --set nifi.tls.certManager.issuerRef.name=nifi-ca</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>Related guides</h2>
+          <div class="link-grid">
+            <a class="link-card" href="../nifi-helm-chart/">
+              <strong>NiFi Helm chart</strong>
+              <span>Review the chart surface that backs the AKS deployment path.</span>
+            </a>
+            <a class="link-card" href="../cert-manager-tls-for-nifi/">
+              <strong>cert-manager TLS for NiFi</strong>
+              <span>Use the default certificate ownership model on AKS.</span>
+            </a>
+            <a class="link-card" href="../nifi-autoscaling-kubernetes/">
+              <strong>NiFi autoscaling Kubernetes</strong>
+              <span>Plan safe runtime scaling once the base deployment is stable.</span>
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer-note">
+      <div class="wrap">
+        AKS is the primary supported cloud target for NiFi-Fabric and the
+        default place to start for production-minded Apache NiFi 2 installs.
+      </div>
+    </footer>
+  </body>
+</html>

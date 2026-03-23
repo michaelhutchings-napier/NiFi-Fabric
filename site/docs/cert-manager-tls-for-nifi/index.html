@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>cert-manager TLS for Apache NiFi on Kubernetes | NiFi-Fabric</title>
+    <meta
+      name="description"
+      content="Set up cert-manager-first TLS for Apache NiFi 2 on Kubernetes with Helm-rendered certificates, restart-safe rotation, and optional trust-manager integration."
+    >
+    <meta name="robots" content="index,follow">
+    <link rel="canonical" href="https://michaelhutchings-napier.github.io/NiFi-Fabric/docs/cert-manager-tls-for-nifi/">
+    <meta property="og:title" content="cert-manager TLS for Apache NiFi on Kubernetes | NiFi-Fabric">
+    <meta
+      property="og:description"
+      content="Set up cert-manager-first TLS for Apache NiFi 2 on Kubernetes with Helm-rendered certificates, restart-safe rotation, and optional trust-manager integration."
+    >
+    <meta property="og:type" content="article">
+    <meta property="og:site_name" content="NiFi-Fabric">
+    <meta property="og:url" content="https://michaelhutchings-napier.github.io/NiFi-Fabric/docs/cert-manager-tls-for-nifi/">
+    <link rel="stylesheet" href="../../styles.css">
+  </head>
+  <body>
+    <header class="page-hero">
+      <div class="wrap">
+        <nav class="site-nav">
+          <a class="nav-home" href="../../">NiFi-Fabric</a>
+          <div class="nav-links">
+            <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric">GitHub</a>
+            <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/tls-and-cert-manager.md">TLS docs</a>
+          </div>
+        </nav>
+        <p class="eyebrow">cert-manager TLS for NiFi</p>
+        <h1>Keep Apache NiFi TLS certificate management explicit and restart-safe.</h1>
+        <p class="lede">
+          NiFi-Fabric is TLS-first. The standard path uses cert-manager for
+          workload certificates so the Kubernetes security model stays clear and
+          the rollout logic can react safely to certificate changes.
+        </p>
+      </div>
+    </header>
+
+    <main>
+      <section class="section">
+        <div class="wrap grid article-grid">
+          <article class="card article-card">
+            <p class="section-label">Default TLS model</p>
+            <h2>How cert-manager fits the NiFi-Fabric install path</h2>
+            <p>
+              On the standard path, Helm renders the Certificate object and
+              cert-manager creates the final workload TLS Secret. NiFi-Fabric
+              then keeps lifecycle safety front and center by treating
+              certificate rotation and restart handling as first-class runtime
+              concerns instead of hiding them behind a large controller surface.
+            </p>
+            <ul>
+              <li>Install cert-manager before the NiFi-Fabric release.</li>
+              <li>Create or choose an Issuer or ClusterIssuer for NiFi certificates.</li>
+              <li>Use the quickstart cert-manager profile for the fastest supported start.</li>
+              <li>Move to explicit secret ownership only when your platform needs it.</li>
+            </ul>
+            <p>
+              trust-manager remains optional. It is useful when you need a
+              shared CA bundle for outbound trust or metrics scraping, but it
+              does not replace cert-manager and it does not move TLS orchestration
+              into the operator.
+            </p>
+          </article>
+
+          <aside class="info-stack">
+            <div class="card article-card">
+              <p class="section-label">Key docs</p>
+              <div class="article-links">
+                <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/tls-and-cert-manager.md">TLS and cert-manager</a>
+                <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/install/advanced.md">Advanced install paths</a>
+                <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/authentication.md">Authentication</a>
+                <a href="../nifi-2-on-aks/">NiFi 2 on AKS</a>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section alt">
+        <div class="wrap grid two-up">
+          <div>
+            <h2>Standard cert-manager install command</h2>
+            <p>
+              The supported quickstart keeps the bootstrap simple while still
+              pointing the final workload certificate at your chosen issuer.
+            </p>
+          </div>
+          <div class="code-card">
+            <pre><code>helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  --set global.nifiFabric.installProfile=quickstart-cert-manager \
+  --set nifi.tls.certManager.issuerRef.name=nifi-ca</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>Related guides</h2>
+          <div class="link-grid">
+            <a class="link-card" href="../apache-nifi-kubernetes/">
+              <strong>Apache NiFi Kubernetes</strong>
+              <span>See the larger Helm-first operating model.</span>
+            </a>
+            <a class="link-card" href="../nifi-helm-chart/">
+              <strong>NiFi Helm chart</strong>
+              <span>Start with the chart surfaces that render the TLS resources.</span>
+            </a>
+            <a class="link-card" href="../nifi-2-on-aks/">
+              <strong>NiFi 2 on AKS</strong>
+              <span>Apply the same TLS model on the primary supported cloud target.</span>
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer-note">
+      <div class="wrap">
+        cert-manager-first TLS is the standard NiFi-Fabric security model for
+        Apache NiFi 2 on Kubernetes.
+      </div>
+    </footer>
+  </body>
+</html>

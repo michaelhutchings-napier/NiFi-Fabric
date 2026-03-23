@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>NiFi Autoscaling on Kubernetes with Safety-Aware Scale Down | NiFi-Fabric</title>
+    <meta
+      name="description"
+      content="Scale Apache NiFi on Kubernetes with advisory or enforced modes, controller-owned actions, optional KEDA intent, and safety-aware one-node-at-a-time scale down."
+    >
+    <meta name="robots" content="index,follow">
+    <link rel="canonical" href="https://michaelhutchings-napier.github.io/NiFi-Fabric/docs/nifi-autoscaling-kubernetes/">
+    <meta property="og:title" content="NiFi Autoscaling on Kubernetes with Safety-Aware Scale Down | NiFi-Fabric">
+    <meta
+      property="og:description"
+      content="Scale Apache NiFi on Kubernetes with advisory or enforced modes, controller-owned actions, optional KEDA intent, and safety-aware one-node-at-a-time scale down."
+    >
+    <meta property="og:type" content="article">
+    <meta property="og:site_name" content="NiFi-Fabric">
+    <meta property="og:url" content="https://michaelhutchings-napier.github.io/NiFi-Fabric/docs/nifi-autoscaling-kubernetes/">
+    <link rel="stylesheet" href="../../styles.css">
+  </head>
+  <body>
+    <header class="page-hero">
+      <div class="wrap">
+        <nav class="site-nav">
+          <a class="nav-home" href="../../">NiFi-Fabric</a>
+          <div class="nav-links">
+            <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric">GitHub</a>
+            <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/autoscaling.md">Autoscaling docs</a>
+          </div>
+        </nav>
+        <p class="eyebrow">NiFi autoscaling Kubernetes</p>
+        <h1>Scale Apache NiFi on Kubernetes with a controller-owned safety model.</h1>
+        <p class="lede">
+          NiFi-Fabric treats autoscaling as lifecycle work, not just replica
+          math. The controller can recommend or enforce actions while keeping
+          scale-down conservative and one node at a time.
+        </p>
+      </div>
+    </header>
+
+    <main>
+      <section class="section">
+        <div class="wrap grid article-grid">
+          <article class="card article-card">
+            <p class="section-label">Autoscaling model</p>
+            <h2>Why scaling NiFi needs more than a generic HPA</h2>
+            <p>
+              Apache NiFi is a stateful system, so autoscaling needs to respect
+              rollout ordering, restart safety, and competing lifecycle work.
+              NiFi-Fabric keeps the controller as the only component that makes
+              real scale changes in managed mode, which makes the behavior
+              easier to explain and safer to operate.
+            </p>
+            <ul>
+              <li><strong>Disabled</strong> keeps replica counts fixed.</li>
+              <li><strong>Advisory</strong> records recommendations for operator review.</li>
+              <li><strong>Enforced</strong> allows controller-owned runtime actions.</li>
+              <li>Scale-down remains conservative and one node at a time.</li>
+            </ul>
+            <p>
+              KEDA can still participate by writing scaling intent into the
+              managed API surface, but it does not take direct ownership of the
+              NiFi StatefulSet. That preserves one clear source of runtime
+              authority.
+            </p>
+          </article>
+
+          <aside class="info-stack">
+            <div class="card article-card">
+              <p class="section-label">Helpful links</p>
+              <div class="article-links">
+                <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/autoscaling.md">Autoscaling guide</a>
+                <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/keda.md">KEDA integration</a>
+                <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/testing.md">Verification and support</a>
+                <a href="../apache-nifi-kubernetes/">Apache NiFi Kubernetes</a>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section alt">
+        <div class="wrap">
+          <h2>Where autoscaling fits</h2>
+          <div class="link-grid">
+            <a class="link-card" href="../nifi-2-on-aks/">
+              <strong>NiFi 2 on AKS</strong>
+              <span>Establish the primary supported base deployment before enabling autoscaling.</span>
+            </a>
+            <a class="link-card" href="../cert-manager-tls-for-nifi/">
+              <strong>cert-manager TLS for NiFi</strong>
+              <span>Keep certificate rotation and restart handling safe alongside scaling.</span>
+            </a>
+            <a class="link-card" href="../nifi-helm-chart/">
+              <strong>NiFi Helm chart</strong>
+              <span>Configure the platform chart values that back the autoscaling model.</span>
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer-note">
+      <div class="wrap">
+        NiFi-Fabric autoscaling keeps real replica changes in one controller so
+        stateful NiFi lifecycle actions stay explainable and conservative.
+      </div>
+    </footer>
+  </body>
+</html>

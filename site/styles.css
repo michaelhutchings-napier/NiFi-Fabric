@@ -47,6 +47,10 @@ a {
   padding: 5rem 0 3rem;
 }
 
+.page-hero {
+  padding: 2rem 0 2.5rem;
+}
+
 .eyebrow {
   margin: 0 0 1rem;
   text-transform: uppercase;
@@ -96,6 +100,31 @@ h3 {
   flex-wrap: wrap;
   gap: 0.9rem;
   margin-top: 2rem;
+}
+
+.site-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.nav-home,
+.nav-links a {
+  text-decoration: none;
+}
+
+.nav-home {
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.nav-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  color: var(--muted);
 }
 
 .button {
@@ -148,6 +177,11 @@ h3 {
   gap: 1.4rem;
 }
 
+.article-grid {
+  grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr);
+  align-items: start;
+}
+
 .two-up {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
@@ -191,6 +225,47 @@ h3 {
 .card ul {
   margin: 0;
   padding-left: 1.1rem;
+  color: var(--muted);
+}
+
+.article-card,
+.info-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.article-card p,
+.article-card li,
+.info-stack p,
+.info-stack li {
+  color: var(--muted);
+}
+
+.section-label {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.78rem;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.inline-code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.95em;
+}
+
+.article-links {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.article-links a {
+  text-decoration: none;
+}
+
+.footer-note {
+  padding: 0 0 3rem;
   color: var(--muted);
 }
 
@@ -404,6 +479,7 @@ pre {
 
 @media (max-width: 900px) {
   .two-up,
+  .article-grid,
   .cards,
   .link-grid {
     grid-template-columns: 1fr;
@@ -411,6 +487,11 @@ pre {
 
   .hero {
     padding-top: 3.5rem;
+  }
+
+  .site-nav {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 
