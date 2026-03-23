@@ -33,8 +33,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-kubectl -n "${namespace}" get configmap "${configmap}" -o json >"${tmp}"
-
 python3 - "${tmp}" <<'PY'
 import json
 import sys
@@ -42,15 +40,12 @@ import time
 from pathlib import Path
 
 path = Path(sys.argv[1])
-payload = json.loads(path.read_text())
-key = "nifi.properties.overrides"
-current = payload.setdefault("data", {}).get(key, "")
-marker = f"# platform.nifi.io drift-marker={time.time_ns()}"
-if current and not current.endswith("\n"):
-    current += "\n"
-payload["data"][key] = current + marker + "\n"
+key = "platform.nifi.io.drift-marker"
+payload = {"data": {key: str(time.time_ns())}}
 path.write_text(json.dumps(payload))
 PY
 
-kubectl -n "${namespace}" apply -f "${tmp}" >/dev/null
-echo "config drift marker appended to ConfigMap/${configmap} in namespace ${namespace}"
+kubectl -n "${namespace}" patch configmap "${configmap}" \
+  --type merge \
+  --patch-file "${tmp}" >/dev/null
+echo "config drift marker written to ConfigMap/${configmap} in namespace ${namespace}"
