@@ -1,4 +1,4 @@
-This chart now deploys a minimal real NiFi 2.x cluster shape for kind and other small environments.
+This chart deploys Apache NiFi 2.x with a standard standalone-first install path for kind, development, and production-style environments.
 
 - Standalone mode is the default.
 - Set controllerManaged.enabled=true only when using the optional controller.
@@ -11,4 +11,4 @@ This chart now deploys a minimal real NiFi 2.x cluster shape for kind and other 
 - declared prepared `provider=nifiRegistry` imports can create or reconcile the exact live client they own for that compatibility path; other providers still expect the live client to already exist in NiFi.
 - the chart does not add ongoing synchronization or arbitrary process-group mutation.
 - For kind, use hack/create-kind-secrets.sh before installing the chart.
-- This chart is still not production complete. Advanced controller-driven rollout logic remains stubbed.
+- For production-style managed rollout and drift handling, install the controller and `NiFiCluster` path through `charts/nifi-platform`.
