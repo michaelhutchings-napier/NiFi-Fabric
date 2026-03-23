@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Apache NiFi on Kubernetes with Helm and Lifecycle Safety | NiFi-Fabric</title>
+    <meta
+      name="description"
+      content="Run Apache NiFi 2 on Kubernetes with Helm-managed resources, cert-manager TLS, GitOps-friendly installs, and a thin controller for rollout safety."
+    >
+    <meta name="robots" content="index,follow">
+    <link rel="canonical" href="https://michaelhutchings-napier.github.io/NiFi-Fabric/docs/apache-nifi-kubernetes/">
+    <meta property="og:title" content="Apache NiFi on Kubernetes with Helm and Lifecycle Safety | NiFi-Fabric">
+    <meta
+      property="og:description"
+      content="Run Apache NiFi 2 on Kubernetes with Helm-managed resources, cert-manager TLS, GitOps-friendly installs, and a thin controller for rollout safety."
+    >
+    <meta property="og:type" content="article">
+    <meta property="og:site_name" content="NiFi-Fabric">
+    <meta property="og:url" content="https://michaelhutchings-napier.github.io/NiFi-Fabric/docs/apache-nifi-kubernetes/">
+    <link rel="stylesheet" href="../../styles.css">
+  </head>
+  <body>
+    <header class="page-hero">
+      <div class="wrap">
+        <nav class="site-nav">
+          <a class="nav-home" href="../../">NiFi-Fabric</a>
+          <div class="nav-links">
+            <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric">GitHub</a>
+            <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/install/helm.md">Install docs</a>
+          </div>
+        </nav>
+        <p class="eyebrow">Apache NiFi Kubernetes</p>
+        <h1>Apache NiFi on Kubernetes without a heavyweight operator stack.</h1>
+        <p class="lede">
+          NiFi-Fabric is built for teams that want Apache NiFi 2 on Kubernetes
+          with Helm-first installs, cert-manager-first TLS, and a thin
+          controller that focuses on rollout and lifecycle safety.
+        </p>
+      </div>
+    </header>
+
+    <main>
+      <section class="section">
+        <div class="wrap grid article-grid">
+          <article class="card article-card">
+            <p class="section-label">What this page covers</p>
+            <h2>Why NiFi-Fabric fits Apache NiFi on Kubernetes</h2>
+            <p>
+              Apache NiFi on Kubernetes usually goes wrong when the platform
+              model becomes too controller-heavy or too magic to explain. The
+              NiFi-Fabric approach keeps ordinary Kubernetes resources in Helm
+              and reserves controller logic for the safety-sensitive work that
+              Helm cannot coordinate on its own.
+            </p>
+            <p>
+              That means the standard install path stays explicit, GitOps-ready,
+              and easy to reason about. Teams can see where StatefulSets,
+              Services, Certificates, and Secrets come from, while still getting
+              support for restart-aware rollout behavior and guarded lifecycle
+              actions.
+            </p>
+            <ul>
+              <li>Helm owns the standard Kubernetes resource model.</li>
+              <li>cert-manager owns workload certificates on the default path.</li>
+              <li>The controller focuses on rollout, restore, and restart safety.</li>
+              <li>AKS is the primary supported target, with OpenShift-friendly overlays.</li>
+            </ul>
+          </article>
+
+          <aside class="info-stack">
+            <div class="card article-card">
+              <p class="section-label">Recommended shape</p>
+              <ul>
+                <li>Use <span class="inline-code">charts/nifi-platform</span> for the standard managed install.</li>
+                <li>Start with internal <span class="inline-code">ClusterIP</span> service exposure.</li>
+                <li>Back NiFi repositories with PVCs from a suitable StorageClass.</li>
+                <li>Layer ingress, load balancers, or service mesh only when needed.</li>
+              </ul>
+            </div>
+            <div class="card article-card">
+              <p class="section-label">Jump to</p>
+              <div class="article-links">
+                <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/install/helm.md">Install with Helm</a>
+                <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/architecture.md">Architecture</a>
+                <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/features.md">Feature map</a>
+                <a href="../nifi-helm-chart/">NiFi Helm chart guide</a>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section alt">
+        <div class="wrap grid two-up">
+          <div>
+            <h2>How the Kubernetes model stays simple</h2>
+            <p>
+              NiFi-Fabric is intentionally not a broad NiFi controller stack. It
+              keeps CRDs minimal, prefers controller-runtime conventions, and
+              leans on native Kubernetes plus Helm wherever possible. That makes
+              the platform easier to adopt for teams who already manage GitOps
+              pipelines, cert-manager, and standard cluster networking.
+            </p>
+          </div>
+          <div class="code-card">
+            <pre><code>helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  --set global.nifiFabric.installProfile=quickstart-cert-manager \
+  --set nifi.tls.certManager.issuerRef.name=nifi-ca</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>Related guides</h2>
+          <div class="link-grid">
+            <a class="link-card" href="../nifi-helm-chart/">
+              <strong>NiFi Helm chart</strong>
+              <span>Use the supported chart surfaces for managed and standalone paths.</span>
+            </a>
+            <a class="link-card" href="../nifi-2-on-aks/">
+              <strong>NiFi 2 on AKS</strong>
+              <span>See the primary supported Azure Kubernetes deployment shape.</span>
+            </a>
+            <a class="link-card" href="../cert-manager-tls-for-nifi/">
+              <strong>cert-manager TLS for NiFi</strong>
+              <span>Understand the default certificate ownership model.</span>
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer-note">
+      <div class="wrap">
+        NiFi-Fabric is a Helm-first Apache NiFi 2 platform for Kubernetes with
+        a thin controller for lifecycle safety.
+      </div>
+    </footer>
+  </body>
+</html>

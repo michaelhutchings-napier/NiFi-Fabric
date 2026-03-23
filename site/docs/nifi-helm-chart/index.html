@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>NiFi Helm Chart for Apache NiFi 2 on Kubernetes | NiFi-Fabric</title>
+    <meta
+      name="description"
+      content="Use the NiFi-Fabric Helm charts to deploy Apache NiFi 2 with a standard install path, cert-manager-first TLS, and GitOps-friendly values management."
+    >
+    <meta name="robots" content="index,follow">
+    <link rel="canonical" href="https://michaelhutchings-napier.github.io/NiFi-Fabric/docs/nifi-helm-chart/">
+    <meta property="og:title" content="NiFi Helm Chart for Apache NiFi 2 on Kubernetes | NiFi-Fabric">
+    <meta
+      property="og:description"
+      content="Use the NiFi-Fabric Helm charts to deploy Apache NiFi 2 with a standard install path, cert-manager-first TLS, and GitOps-friendly values management."
+    >
+    <meta property="og:type" content="article">
+    <meta property="og:site_name" content="NiFi-Fabric">
+    <meta property="og:url" content="https://michaelhutchings-napier.github.io/NiFi-Fabric/docs/nifi-helm-chart/">
+    <link rel="stylesheet" href="../../styles.css">
+  </head>
+  <body>
+    <header class="page-hero">
+      <div class="wrap">
+        <nav class="site-nav">
+          <a class="nav-home" href="../../">NiFi-Fabric</a>
+          <div class="nav-links">
+            <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric">GitHub</a>
+            <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/reference/nifi-platform-values.md">Values reference</a>
+          </div>
+        </nav>
+        <p class="eyebrow">NiFi Helm chart</p>
+        <h1>Choose the Helm chart path that matches your Apache NiFi 2 deployment.</h1>
+        <p class="lede">
+          NiFi-Fabric keeps the standard Kubernetes install story centered on
+          Helm. That makes the install, upgrade, and GitOps surface easier to
+          understand than a controller-first design.
+        </p>
+      </div>
+    </header>
+
+    <main>
+      <section class="section">
+        <div class="wrap grid article-grid">
+          <article class="card article-card">
+            <p class="section-label">Chart surfaces</p>
+            <h2>Use the platform chart for the standard customer path</h2>
+            <p>
+              The main entry point is <span class="inline-code">charts/nifi-platform</span>.
+              It wraps the standard managed deployment shape and is the best fit
+              when you want one release that installs the operator, the NiFi
+              workload, and the opinionated defaults that NiFi-Fabric documents.
+            </p>
+            <p>
+              The reusable <span class="inline-code">charts/nifi</span> chart stays available for
+              standalone-first or more explicit app-level installs. Together,
+              the two charts keep the install surface boring and explainable
+              while still covering the common platform shapes.
+            </p>
+            <ul>
+              <li>Use <span class="inline-code">charts/nifi-platform</span> for the recommended managed deployment.</li>
+              <li>Use <span class="inline-code">charts/nifi</span> when you need the lower-level reusable app chart.</li>
+              <li>Keep configuration in values files for GitOps-friendly rollouts.</li>
+              <li>Prefer the cert-manager-first install profile unless you need explicit secret ownership.</li>
+            </ul>
+          </article>
+
+          <aside class="info-stack">
+            <div class="card article-card">
+              <p class="section-label">Start here</p>
+              <div class="article-links">
+                <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/install/helm.md">Install with Helm</a>
+                <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/install/advanced.md">Advanced install paths</a>
+                <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/reference/app-chart-values.md">App chart values</a>
+                <a href="https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/reference/nifi-platform-values.md">Platform chart values</a>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section alt">
+        <div class="wrap grid two-up">
+          <div>
+            <h2>Helm-first means cleaner GitOps review</h2>
+            <p>
+              The standard install path is easy to audit because the resource
+              ownership model is explicit. Values stay in the chart surface,
+              certificates stay with cert-manager, and the operator only handles
+              the lifecycle work that needs runtime awareness.
+            </p>
+          </div>
+          <div class="code-card">
+            <pre><code>helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  --set global.nifiFabric.installProfile=quickstart-cert-manager \
+  --set nifi.tls.certManager.issuerRef.name=nifi-ca</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="wrap">
+          <h2>Related guides</h2>
+          <div class="link-grid">
+            <a class="link-card" href="../apache-nifi-kubernetes/">
+              <strong>Apache NiFi Kubernetes</strong>
+              <span>Understand the overall Kubernetes operating model.</span>
+            </a>
+            <a class="link-card" href="../nifi-2-on-aks/">
+              <strong>NiFi 2 on AKS</strong>
+              <span>Apply the chart path on the primary supported cloud target.</span>
+            </a>
+            <a class="link-card" href="../cert-manager-tls-for-nifi/">
+              <strong>cert-manager TLS for NiFi</strong>
+              <span>Pair the chart install with the default certificate model.</span>
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer-note">
+      <div class="wrap">
+        The standard NiFi-Fabric install path keeps Apache NiFi 2 deployment on
+        Kubernetes centered on Helm and clear ownership boundaries.
+      </div>
+    </footer>
+  </body>
+</html>

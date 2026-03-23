@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://michaelhutchings-napier.github.io/NiFi-Fabric/sitemap.xml
