@@ -156,8 +156,8 @@ tls_config_hash_before="$(cluster_jsonpath '{.status.observedTLSConfigurationHas
 tls_restart_uids_before="$(pod_uid_snapshot)"
 run_make kind-tls-config-drift
 wait_for_tls_rollout_observed || fail "TLS restart-required rollout was not observed"
-wait_for_tls_config_hash "${tls_config_hash_before}" || fail "TLS configuration hash did not advance"
 wait_for_rollout_clear || fail "TLS restart-required rollout did not finish"
+wait_for_tls_config_hash "${tls_config_hash_before}" || fail "TLS configuration hash did not advance after rollout completion"
 run_make kind-health
 assert_all_pods_changed "${tls_restart_uids_before}" "TLS restart-required rollout"
 

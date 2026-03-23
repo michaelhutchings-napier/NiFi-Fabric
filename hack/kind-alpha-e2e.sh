@@ -415,14 +415,18 @@ run_phase_tls() {
   tls_config_hash_before="$(cluster_jsonpath '{.status.observedTLSConfigurationHash}')"
   tls_restart_uids_before="$(pod_uid_snapshot)"
   run_make kind-tls-config-drift
-  wait_for "TLS configuration hash to advance" 900 bash -ec '
-    current="$(kubectl -n "'"${NAMESPACE}"'" get nificluster "'"${HELM_RELEASE}"'" -o jsonpath="{.status.observedTLSConfigurationHash}")"
-    [[ -n "${current}" && "${current}" != "'"${tls_config_hash_before}"'" ]]
-  '
+  wait_for "TLS rollout to start" 300 bash -ec '
+    trigger="$(kubectl -n "'"${NAMESPACE}"'" get nificluster "'"${HELM_RELEASE}"'" -o jsonpath="{.status.rollout.trigger}")"
+    [[ "${trigger}" == "TLSDrift" ]]
+  ' || fail "TLS restart-required rollout was not observed"
   if ! wait_for_rollout_clear; then
     dump_tls_restart_diagnostics
     fail "TLS restart-required rollout did not finish"
   fi
+  wait_for "TLS configuration hash to advance" 300 bash -ec '
+    current="$(kubectl -n "'"${NAMESPACE}"'" get nificluster "'"${HELM_RELEASE}"'" -o jsonpath="{.status.observedTLSConfigurationHash}")"
+    [[ -n "${current}" && "${current}" != "'"${tls_config_hash_before}"'" ]]
+  ' || fail "TLS configuration hash did not advance after rollout completion"
   run_make kind-health
   assert_all_pods_changed "${tls_restart_uids_before}" "TLS restart-required rollout"
 }
