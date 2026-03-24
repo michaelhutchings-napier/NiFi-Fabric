@@ -1073,9 +1073,14 @@ app.kubernetes.io/component: metrics
 {{- end -}}
 {{- if eq $mode "nativeApi" -}}
 {{- $native := default (dict) $metrics.nativeApi -}}
+{{- $service := default (dict) $native.service -}}
+{{- $serviceMonitor := default (dict) $native.serviceMonitor -}}
 {{- $defaults := default (dict) $native.serviceMonitor.defaults -}}
 {{- if not $native.endpoints -}}
 {{- fail "observability.metrics.nativeApi.endpoints must contain at least one endpoint when observability.metrics.mode=nativeApi" -}}
+{{- end -}}
+{{- if and (not $service.enabled) (default false $serviceMonitor.enabled) -}}
+{{- fail "observability.metrics.nativeApi.service.enabled=false cannot be combined with an enabled nativeApi ServiceMonitor" -}}
 {{- end -}}
 {{- $enabledCount := 0 -}}
 {{- $defaultScheme := default "https" $defaults.scheme -}}

@@ -12,6 +12,11 @@ NiFi-Fabric supports:
 
 The primary recommended metrics path is `nativeApi`.
 
+For `charts/nifi-platform`, the default managed recommendation is native API metrics with no reverse-proxy sidecar:
+
+- `nifi.observability.metrics.mode=nativeApi`
+- `nifi.observability.metrics.nativeApi.serviceMonitor.enabled=false` until Prometheus Operator is present
+
 ## Native API Metrics
 
 Use `nativeApi` when you want the standard metrics path for NiFi-Fabric.
@@ -27,6 +32,12 @@ It provides:
 This means you can render more than one `ServiceMonitor` against `/nifi-api/flow/metrics/prometheus`, vary interval and timeout per profile, and attach Prometheus URL parameters such as `includedRegistries` or `sampleLabelValue` per profile.
 
 When you want a shared CA distribution path instead of manually managed CA Secrets, `nativeApi` can also consume a trust-manager-provided bundle through `observability.metrics.nativeApi.tlsConfig.ca.useTrustManagerBundle=true`.
+
+### ServiceMonitor Behavior
+
+`nativeApi` always supports the dedicated metrics `Service`, but `ServiceMonitor` creation is now explicit through `observability.metrics.nativeApi.serviceMonitor.enabled=true`.
+
+That split keeps the default managed path safe on clusters that do not install Prometheus Operator.
 
 ## Exporter Metrics
 

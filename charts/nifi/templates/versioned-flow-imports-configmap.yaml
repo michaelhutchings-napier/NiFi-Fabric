@@ -2,7 +2,7 @@
 {{- $statusFile := "/opt/nifi/nifi-current/logs/versioned-flow-imports-bootstrap-status.json" -}}
 {{- $descriptionMarker := "Managed by NiFi-Fabric versionedFlowImports" -}}
 {{- $authMode := include "nifi.authMode" . -}}
-{{- $proxiedIdentity := .Values.authz.bootstrap.initialAdminIdentity -}}
+{{- $proxiedIdentity := include "nifi.effectiveAuthzBootstrapInitialAdminIdentity" . -}}
 {{- if eq $authMode "singleUser" -}}
 {{- $proxiedIdentity = "__SINGLE_USER_IDENTITY__" -}}
 {{- end -}}

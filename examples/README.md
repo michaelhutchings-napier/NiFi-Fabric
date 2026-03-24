@@ -38,6 +38,7 @@ Generated manifest-bundle installs:
 
 - managed: `make render-platform-managed-bundle && kubectl apply -f dist/nifi-platform-managed-bundle.yaml`
 - managed + cert-manager: `make render-platform-managed-cert-manager-bundle && kubectl apply -f dist/nifi-platform-managed-cert-manager-bundle.yaml`
+- fresh packaged chart for downstreams: `make package-platform-chart`
 
 Advanced evaluator installs still exist:
 
@@ -117,8 +118,8 @@ There is also one optional fast overlay:
 Metrics note:
 
 - [platform-managed-metrics-native-values.yaml](platform-managed-metrics-native-values.yaml) is an optional overlay for the first-class native API metrics subsystem
-- it enables `nifi.observability.metrics.mode=nativeApi`
-- it is the recommended default metrics overlay for managed installs
+- it enables `nifi.observability.metrics.nativeApi.serviceMonitor.enabled=true`
+- the platform chart already defaults managed installs to `nifi.observability.metrics.mode=nativeApi` with the `managedNativeNoProxy` compatibility profile
 - it renders a dedicated metrics `Service` plus multiple named `ServiceMonitor` resources
 - it uses the provider-agnostic machine-auth Secret and CA Secret layout shared by the metrics subsystem
 - `hack/bootstrap-metrics-machine-auth.sh` can create those Kubernetes Secrets from a pre-minted token or from existing NiFi-accepted credentials

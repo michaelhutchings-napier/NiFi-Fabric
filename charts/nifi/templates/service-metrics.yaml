@@ -20,7 +20,7 @@ spec:
   type: ClusterIP
   sessionAffinity: None
   selector:
-    {{- include "nifi.selectorLabels" . | nindent 4 }}
+    {{- include "nifi.metricsServiceSelectorLabels" . | nindent 4 }}
   ports:
   - name: https
     port: {{ .Values.ports.https }}

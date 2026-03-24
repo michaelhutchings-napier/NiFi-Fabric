@@ -354,6 +354,7 @@ observability:
         annotations: {}
         labels: {}
       serviceMonitor:
+        enabled: false
         # -- Default Prometheus Operator settings for all named nativeApi scrape profiles.
         defaults:
           interval: 30s
@@ -579,6 +580,10 @@ observability:
       # `endOfStream` avoids replaying historical provenance on first start.
       # `beginningOfStream` allows an explicit one-time historical backfill instead.
       startPosition: endOfStream
+
+# ------------------------------------------------------------------------------
+# AML Compatibility Helpers
+# ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
 # Flow Registry Clients
@@ -811,14 +816,20 @@ nifi:
 # @default -- {"startup":{"periodSeconds":10,"failureThreshold":90,"timeoutSeconds":3},"readiness":{"periodSeconds":10,"failureThreshold":6,"timeoutSeconds":3},"liveness":{"periodSeconds":20,"failureThreshold":6,"timeoutSeconds":3}}
 probes:
   startup:
+    enabled: true
+    initialDelaySeconds: 0
     periodSeconds: 10
     failureThreshold: 90
     timeoutSeconds: 3
   readiness:
+    enabled: true
+    initialDelaySeconds: 0
     periodSeconds: 10
     failureThreshold: 6
     timeoutSeconds: 3
   liveness:
+    enabled: true
+    initialDelaySeconds: 0
     periodSeconds: 20
     failureThreshold: 6
     timeoutSeconds: 3

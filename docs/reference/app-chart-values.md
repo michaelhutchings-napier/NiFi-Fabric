@@ -147,6 +147,10 @@ See also:
 | `authz.capabilities.mutableFlow.groups[]` | string list | Seeded NiFi groups that should receive the mutable-flow bundle. Each group must also be seeded through `authz.applicationGroups[]` or `authz.bootstrap.initialAdminGroup`. | No | `[]` |
 | `authz.policies[]` | object list | File-managed policy definitions. | No | `[]` |
 
+## Platform Compatibility Profiles
+
+| Field | Type | Description | Required | Default |
+| --- | --- | --- | --- | --- |
 ## Observability and Metrics
 
 | Field | Type | Description | Required | Default |
@@ -156,6 +160,7 @@ See also:
 | `serviceMonitor.scrapeTimeout` | string | Deprecated compatibility shim scrape timeout. | No | `10s` |
 | `observability.metrics.mode` | enum | Metrics mode. Values: `disabled`, `nativeApi`, `exporter`, `siteToSite`. | No | `disabled` |
 | `observability.metrics.nativeApi.service.*` | object | Native metrics Service settings. | No | see values file |
+| `observability.metrics.nativeApi.serviceMonitor.enabled` | boolean | Enables native API `ServiceMonitor` rendering. Leave this `false` when Prometheus Operator is not installed; the native metrics `Service` can still be used directly. | No | `false` |
 | `observability.metrics.nativeApi.serviceMonitor.defaults.*` | object | Default ServiceMonitor settings for native metrics endpoints. | No | see values file |
 | `observability.metrics.nativeApi.machineAuth.*` | object | Provider-agnostic machine-auth Secret settings. | No | see values file |
 | `observability.metrics.nativeApi.tlsConfig.*` | object | TLS settings for secured native metrics scraping, including Secret or ConfigMap CA references. | No | see values file |

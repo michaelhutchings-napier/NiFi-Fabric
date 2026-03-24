@@ -46,6 +46,8 @@ helm upgrade --install nifi charts/nifi-platform \
 
 The install bootstraps what it needs, and cert-manager creates the final workload TLS Secret.
 
+By default, the platform chart also selects the native NiFi metrics path without a reverse-proxy sidecar. That gives you the dedicated metrics `Service` out of the box, while `ServiceMonitor` remains opt-in through `nifi.observability.metrics.nativeApi.serviceMonitor.enabled=true` when Prometheus Operator is installed.
+
 After install, read the generated single-user login from the release namespace:
 
 ```bash
