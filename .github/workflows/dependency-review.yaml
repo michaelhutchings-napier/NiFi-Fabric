@@ -46,4 +46,4 @@ jobs:
       if: steps.support.outputs.supported == 'true'
     - name: Dependency review
       if: steps.support.outputs.supported == 'true'
-      uses: actions/dependency-review-action@v4.8.2
+      uses: actions/dependency-review-action@v4.9.0
