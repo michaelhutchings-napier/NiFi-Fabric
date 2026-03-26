@@ -14,6 +14,14 @@ This chart deploys Apache NiFi 2.x with a standard standalone-first install path
 {{- if eq (include "nifi.authMode" .) "singleUser" }}
 - `auth.mode=singleUser` expects credentials Secret `{{ .Values.auth.singleUser.existingSecret }}` with keys `username` and `password`
 {{- end }}
+- First-day check:
+  - `make first-day-check NAMESPACE={{ .Release.Namespace }} HELM_RELEASE={{ .Release.Name }} STATEFULSET_NAME={{ include "nifi.fullname" . }} SERVICE_NAME={{ include "nifi.fullname" . }} MANAGED=false{{- if eq (include "nifi.authMode" .) "singleUser" }} AUTH_SECRET={{ include "nifi.singleUserUsernameSecretName" . }}{{- end }} TLS_SECRET={{ include "nifi.tlsSecretName" . }}{{- if eq (include "nifi.tlsMode" .) "certManager" }} TLS_PARAMS_SECRET={{ include "nifi.certManagerPKCS12PasswordSecretName" . }} CERTIFICATE={{ include "nifi.fullname" . }}{{- end }}`
+- Quick access:
+  - `kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "nifi.fullname" . }} 8443:8443`
+{{- if eq (include "nifi.authMode" .) "singleUser" }}
+  - `kubectl -n {{ .Release.Namespace }} get secret {{ include "nifi.singleUserUsernameSecretName" . }} -o jsonpath='{.data.username}' | base64 -d; echo`
+  - `kubectl -n {{ .Release.Namespace }} get secret {{ include "nifi.singleUserUsernameSecretName" . }} -o jsonpath='{.data.password}' | base64 -d; echo`
+{{- end }}
 - `flowRegistryClients.enabled=true` renders a prepared Flow Registry Client catalog for GitHub, GitLab, Bitbucket, Azure DevOps, or the bounded NiFi Registry compatibility path under `{{ .Values.flowRegistryClients.mountPath }}` in the NiFi pod.
 - the catalog is available as both `clients.yaml` and `clients.json` in ConfigMap `{{ include "nifi.fullname" . }}-flow-registry-clients`
 - Flow Registry Clients stay chart-first and bounded: the chart does not become a broad flow-management platform and the controller does not manage flows.

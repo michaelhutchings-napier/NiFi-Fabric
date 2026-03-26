@@ -61,6 +61,22 @@ kubectl -n nifi get secret nifi-auth -o jsonpath='{.data.username}' | base64 -d;
 kubectl -n nifi get secret nifi-auth -o jsonpath='{.data.password}' | base64 -d; echo
 ```
 
+Then run the short first-day check:
+
+```bash
+make first-day-check \
+  NAMESPACE=nifi \
+  HELM_RELEASE=nifi \
+  STATEFULSET_NAME=nifi \
+  CLUSTER_NAME=nifi \
+  MANAGED=true \
+  CONTROLLER_NAMESPACE=nifi-system \
+  CONTROLLER_DEPLOYMENT=nifi-controller-manager \
+  SERVICE_NAME=nifi \
+  TLS_PARAMS_SECRET=nifi-tls-params \
+  CERTIFICATE=nifi
+```
+
 For the recommended first login and day-1 verification flow, see [First Access and Day-1 Checks](../first-day.md).
 
 If you later want the explicit cert-manager path, you can upgrade in place to [`examples/platform-managed-cert-manager-values.yaml`](/home/michael/Work/nifi2-platform/examples/platform-managed-cert-manager-values.yaml). The chart keeps the quickstart-generated `nifi-auth` and `nifi-tls-params` Secrets in place during that handoff as long as you keep the same Secret names.

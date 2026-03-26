@@ -29,9 +29,21 @@ Managed mode details:
 - expected before install: `Secret/{{ include "nifi-platform.tlsSecretName" . }}` with PKCS12 material, passwords, and sensitive props
 {{- end }}
 - Secret contract examples live under `examples/secret-contracts/`
+- First-day check:
+  - `make first-day-check NAMESPACE={{ .Release.Namespace }} HELM_RELEASE={{ .Release.Name }} STATEFULSET_NAME={{ include "nifi-platform.targetRefName" . }} CLUSTER_NAME={{ include "nifi-platform.clusterName" . }} MANAGED=true CONTROLLER_NAMESPACE={{ include "nifi-platform.controllerNamespace" . }} CONTROLLER_DEPLOYMENT={{ include "nifi-platform.controllerName" . }} SERVICE_NAME={{ include "nifi-platform.targetRefName" . }}{{- if eq (include "nifi-platform.nifiAuthMode" .) "singleUser" }} AUTH_SECRET={{ include "nifi-platform.nifiAuthSecretName" . }}{{- end }} TLS_SECRET={{ include "nifi-platform.tlsSecretName" . }}{{- if eq (include "nifi-platform.nifiTLSMode" .) "certManager" }} TLS_PARAMS_SECRET={{ include "nifi-platform.nifiCertManagerPKCS12PasswordSecretName" . }} CERTIFICATE={{ include "nifi-platform.targetRefName" . }}{{- end }}`
+- Quick access:
+  - `kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "nifi-platform.targetRefName" . }} 8443:8443`
+{{- if eq (include "nifi-platform.nifiAuthMode" .) "singleUser" }}
+  - `kubectl -n {{ .Release.Namespace }} get secret {{ include "nifi-platform.nifiAuthSecretName" . }} -o jsonpath='{.data.username}' | base64 -d; echo`
+  - `kubectl -n {{ .Release.Namespace }} get secret {{ include "nifi-platform.nifiAuthSecretName" . }} -o jsonpath='{.data.password}' | base64 -d; echo`
+{{- end }}
+  - `kubectl -n {{ .Release.Namespace }} get nificluster {{ include "nifi-platform.clusterName" . }} -o yaml`
+  - `kubectl -n {{ include "nifi-platform.controllerNamespace" . }} logs deployment/{{ include "nifi-platform.controllerName" . }} --tail=100`
 {{- else }}
 Standalone mode details:
 
 - this release installed only the reusable `nifi` app chart resources
 - no controller or `NiFiCluster` was installed
+- First-day check:
+  - `make first-day-check NAMESPACE={{ .Release.Namespace }} HELM_RELEASE={{ .Release.Name }} STATEFULSET_NAME={{ include "nifi-platform.targetRefName" . }} SERVICE_NAME={{ include "nifi-platform.targetRefName" . }} MANAGED=false{{- if eq (include "nifi-platform.nifiAuthMode" .) "singleUser" }} AUTH_SECRET={{ include "nifi-platform.nifiAuthSecretName" . }}{{- end }} TLS_SECRET={{ include "nifi-platform.tlsSecretName" . }}{{- if eq (include "nifi-platform.nifiTLSMode" .) "certManager" }} TLS_PARAMS_SECRET={{ include "nifi-platform.nifiCertManagerPKCS12PasswordSecretName" . }} CERTIFICATE={{ include "nifi-platform.targetRefName" . }}{{- end }}`
 {{- end }}

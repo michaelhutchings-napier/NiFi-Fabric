@@ -2,6 +2,16 @@ GO ?= go
 HELM ?= helm
 KIND ?= kind
 KUBECTL ?= kubectl
+CONTROLLER_NAMESPACE ?= nifi-system
+CONTROLLER_DEPLOYMENT ?= nifi-controller-manager
+MANAGED ?= auto
+AUTH_SECRET ?= nifi-auth
+TLS_SECRET ?= nifi-tls
+TLS_PARAMS_SECRET ?=
+CERTIFICATE ?=
+STATEFULSET_NAME ?= $(HELM_RELEASE)
+CLUSTER_NAME ?= $(HELM_RELEASE)
+SERVICE_NAME ?= $(HELM_RELEASE)
 
 KIND_CLUSTER_NAME ?= nifi-fabric
 NAMESPACE ?= nifi
@@ -12,7 +22,7 @@ ENVTEST_K8S_VERSION ?= 1.31.0
 CONTROLLER_IMAGE ?= nifi-fabric-controller:dev
 NIFI_IMAGE ?= apache/nifi:2.0.0
 
-.PHONY: fmt test test-unit test-envtest helm-lint run setup-envtest envtest-use kind-up kind-down kind-secrets kind-health kind-config-drift kind-tls-drift kind-tls-config-drift kind-tls-restart-e2e kind-hibernate kind-restore kind-alpha-e2e kind-e2e-rollout kind-e2e-config-drift kind-e2e-tls kind-e2e-hibernate kind-bootstrap-cert-manager kind-cert-manager-secrets kind-cert-manager-e2e kind-cert-manager-e2e-reuse kind-cert-manager-fast-e2e kind-cert-manager-fast-e2e-reuse kind-cert-manager-nifi-2-8-e2e kind-cert-manager-nifi-2-8-e2e-reuse kind-cert-manager-nifi-2-8-fast-e2e kind-cert-manager-nifi-2-8-fast-e2e-reuse kind-platform-managed-e2e kind-platform-managed-e2e-reuse kind-platform-managed-fast-e2e kind-platform-managed-fast-e2e-reuse kind-platform-managed-restore-fast-e2e kind-platform-managed-restore-fast-e2e-reuse kind-parameter-contexts-runtime-fast-e2e kind-parameter-contexts-runtime-fast-e2e-reuse kind-platform-managed-versioned-flow-import-fast-e2e kind-platform-managed-versioned-flow-import-fast-e2e-reuse kind-platform-managed-versioned-flow-import-nifi-registry-fast-e2e kind-platform-managed-versioned-flow-import-nifi-registry-fast-e2e-reuse kind-platform-managed-cert-manager-e2e kind-platform-managed-cert-manager-e2e-reuse kind-platform-managed-cert-manager-fast-e2e kind-platform-managed-cert-manager-fast-e2e-reuse kind-platform-managed-trust-manager-fast-e2e kind-platform-managed-trust-manager-fast-e2e-reuse kind-metrics-fast-e2e kind-metrics-fast-e2e-reuse kind-metrics-native-api-fast-e2e kind-metrics-native-api-fast-e2e-reuse kind-metrics-native-api-trust-manager-fast-e2e kind-metrics-native-api-trust-manager-fast-e2e-reuse kind-metrics-exporter-fast-e2e kind-metrics-exporter-fast-e2e-reuse kind-metrics-exporter-trust-manager-fast-e2e kind-metrics-exporter-trust-manager-fast-e2e-reuse kind-metrics-site-to-site-fast-e2e kind-metrics-site-to-site-fast-e2e-reuse kind-site-to-site-status-fast-e2e kind-site-to-site-status-fast-e2e-reuse kind-site-to-site-provenance-fast-e2e kind-site-to-site-provenance-fast-e2e-reuse kind-keda-scale-up-fast-e2e kind-keda-scale-up-fast-e2e-reuse kind-keda-scale-down-fast-e2e kind-keda-scale-down-fast-e2e-reuse kind-linkerd-e2e kind-linkerd-e2e-reuse kind-linkerd-fast-e2e kind-linkerd-fast-e2e-reuse kind-istio-ambient-e2e kind-istio-ambient-e2e-reuse kind-istio-ambient-fast-e2e kind-istio-ambient-fast-e2e-reuse kind-auth-oidc-e2e kind-auth-oidc-e2e-reuse kind-auth-oidc-fast-e2e kind-auth-oidc-fast-e2e-reuse kind-auth-oidc-ingress-fast-e2e kind-auth-oidc-ingress-fast-e2e-reuse kind-auth-oidc-initial-admin-group-fast-e2e kind-auth-oidc-initial-admin-group-fast-e2e-reuse kind-auth-oidc-nifi-2-8-fast-e2e kind-auth-oidc-nifi-2-8-fast-e2e-reuse kind-auth-ldap-e2e kind-auth-ldap-e2e-reuse kind-auth-ldap-fast-e2e kind-auth-ldap-fast-e2e-reuse kind-nifi-2-8-e2e kind-nifi-2-8-e2e-reuse kind-nifi-2-8-fast-e2e kind-nifi-2-8-fast-e2e-reuse kind-nifi-compatibility-fast-e2e kind-nifi-compatibility-fast-e2e-reuse kind-autoscaling-scale-up-fast-e2e kind-autoscaling-scale-up-fast-e2e-reuse kind-autoscaling-scale-down-fast-e2e kind-autoscaling-scale-down-fast-e2e-reuse kind-autoscaling-churn-fast-e2e kind-autoscaling-churn-fast-e2e-reuse kind-flow-registry-gitlab-e2e kind-flow-registry-gitlab-e2e-reuse kind-flow-registry-gitlab-fast-e2e kind-flow-registry-gitlab-fast-e2e-reuse kind-flow-registry-github-fast-e2e kind-flow-registry-github-fast-e2e-reuse kind-flow-registry-github-workflow-fast-e2e kind-flow-registry-github-workflow-fast-e2e-reuse kind-versioned-flow-selection-fast-e2e kind-versioned-flow-selection-fast-e2e-reuse kind-flow-registry-bitbucket-fast-e2e kind-flow-registry-bitbucket-fast-e2e-reuse openshift-platform-managed-proof openshift-platform-managed-route-proof render-platform-managed-bundle render-platform-managed-cert-manager-bundle render-platform-standalone-bundle docker-build-controller kind-load-controller kind-load-nifi-image deploy-controller undeploy-controller install-crd helm-install-standalone helm-install-managed apply-managed install-standalone install-managed install-managed-cert-manager
+.PHONY: fmt test test-unit test-envtest helm-lint run setup-envtest envtest-use first-day-check kind-up kind-down kind-secrets kind-health kind-config-drift kind-tls-drift kind-tls-config-drift kind-tls-restart-e2e kind-hibernate kind-restore kind-alpha-e2e kind-e2e-rollout kind-e2e-config-drift kind-e2e-tls kind-e2e-hibernate kind-bootstrap-cert-manager kind-cert-manager-secrets kind-cert-manager-e2e kind-cert-manager-e2e-reuse kind-cert-manager-fast-e2e kind-cert-manager-fast-e2e-reuse kind-cert-manager-nifi-2-8-e2e kind-cert-manager-nifi-2-8-e2e-reuse kind-cert-manager-nifi-2-8-fast-e2e kind-cert-manager-nifi-2-8-fast-e2e-reuse kind-platform-managed-e2e kind-platform-managed-e2e-reuse kind-platform-managed-fast-e2e kind-platform-managed-fast-e2e-reuse kind-platform-managed-restore-fast-e2e kind-platform-managed-restore-fast-e2e-reuse kind-parameter-contexts-runtime-fast-e2e kind-parameter-contexts-runtime-fast-e2e-reuse kind-platform-managed-versioned-flow-import-fast-e2e kind-platform-managed-versioned-flow-import-fast-e2e-reuse kind-platform-managed-versioned-flow-import-nifi-registry-fast-e2e kind-platform-managed-versioned-flow-import-nifi-registry-fast-e2e-reuse kind-platform-managed-cert-manager-e2e kind-platform-managed-cert-manager-e2e-reuse kind-platform-managed-cert-manager-fast-e2e kind-platform-managed-cert-manager-fast-e2e-reuse kind-platform-managed-trust-manager-fast-e2e kind-platform-managed-trust-manager-fast-e2e-reuse kind-metrics-fast-e2e kind-metrics-fast-e2e-reuse kind-metrics-native-api-fast-e2e kind-metrics-native-api-fast-e2e-reuse kind-metrics-native-api-trust-manager-fast-e2e kind-metrics-native-api-trust-manager-fast-e2e-reuse kind-metrics-exporter-fast-e2e kind-metrics-exporter-fast-e2e-reuse kind-metrics-exporter-trust-manager-fast-e2e kind-metrics-exporter-trust-manager-fast-e2e-reuse kind-metrics-site-to-site-fast-e2e kind-metrics-site-to-site-fast-e2e-reuse kind-site-to-site-status-fast-e2e kind-site-to-site-status-fast-e2e-reuse kind-site-to-site-provenance-fast-e2e kind-site-to-site-provenance-fast-e2e-reuse kind-keda-scale-up-fast-e2e kind-keda-scale-up-fast-e2e-reuse kind-keda-scale-down-fast-e2e kind-keda-scale-down-fast-e2e-reuse kind-linkerd-e2e kind-linkerd-e2e-reuse kind-linkerd-fast-e2e kind-linkerd-fast-e2e-reuse kind-istio-ambient-e2e kind-istio-ambient-e2e-reuse kind-istio-ambient-fast-e2e kind-istio-ambient-fast-e2e-reuse kind-auth-oidc-e2e kind-auth-oidc-e2e-reuse kind-auth-oidc-fast-e2e kind-auth-oidc-fast-e2e-reuse kind-auth-oidc-ingress-fast-e2e kind-auth-oidc-ingress-fast-e2e-reuse kind-auth-oidc-initial-admin-group-fast-e2e kind-auth-oidc-initial-admin-group-fast-e2e-reuse kind-auth-oidc-nifi-2-8-fast-e2e kind-auth-oidc-nifi-2-8-fast-e2e-reuse kind-auth-ldap-e2e kind-auth-ldap-e2e-reuse kind-auth-ldap-fast-e2e kind-auth-ldap-fast-e2e-reuse kind-nifi-2-8-e2e kind-nifi-2-8-e2e-reuse kind-nifi-2-8-fast-e2e kind-nifi-2-8-fast-e2e-reuse kind-nifi-compatibility-fast-e2e kind-nifi-compatibility-fast-e2e-reuse kind-autoscaling-scale-up-fast-e2e kind-autoscaling-scale-up-fast-e2e-reuse kind-autoscaling-scale-down-fast-e2e kind-autoscaling-scale-down-fast-e2e-reuse kind-autoscaling-churn-fast-e2e kind-autoscaling-churn-fast-e2e-reuse kind-flow-registry-gitlab-e2e kind-flow-registry-gitlab-e2e-reuse kind-flow-registry-gitlab-fast-e2e kind-flow-registry-gitlab-fast-e2e-reuse kind-flow-registry-github-fast-e2e kind-flow-registry-github-fast-e2e-reuse kind-flow-registry-github-workflow-fast-e2e kind-flow-registry-github-workflow-fast-e2e-reuse kind-versioned-flow-selection-fast-e2e kind-versioned-flow-selection-fast-e2e-reuse kind-flow-registry-bitbucket-fast-e2e kind-flow-registry-bitbucket-fast-e2e-reuse openshift-platform-managed-proof openshift-platform-managed-route-proof render-platform-managed-bundle render-platform-managed-cert-manager-bundle render-platform-standalone-bundle docker-build-controller kind-load-controller kind-load-nifi-image deploy-controller undeploy-controller install-crd helm-install-standalone helm-install-managed apply-managed install-standalone install-managed install-managed-cert-manager
 
 fmt:
 	$(GO) fmt ./...
@@ -30,6 +40,21 @@ helm-lint:
 
 run:
 	$(GO) run ./main.go
+
+first-day-check:
+	bash hack/first-day-check.sh \
+		--namespace $(NAMESPACE) \
+		--release $(HELM_RELEASE) \
+		--statefulset $(STATEFULSET_NAME) \
+		--cluster-name $(CLUSTER_NAME) \
+		--managed $(MANAGED) \
+		--controller-namespace $(CONTROLLER_NAMESPACE) \
+		--controller-deployment $(CONTROLLER_DEPLOYMENT) \
+		--service $(SERVICE_NAME) \
+		--auth-secret $(AUTH_SECRET) \
+		--tls-secret $(TLS_SECRET) \
+		$(if $(TLS_PARAMS_SECRET),--tls-params-secret $(TLS_PARAMS_SECRET),) \
+		$(if $(CERTIFICATE),--certificate $(CERTIFICATE),)
 
 $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
