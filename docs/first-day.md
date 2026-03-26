@@ -13,20 +13,26 @@ The goal is simple:
 For the standard managed cert-manager quickstart, start with:
 
 ```bash
-make first-day-check \
-  NAMESPACE=nifi \
-  HELM_RELEASE=nifi \
-  STATEFULSET_NAME=nifi \
-  CLUSTER_NAME=nifi \
-  MANAGED=true \
-  CONTROLLER_NAMESPACE=nifi-system \
-  CONTROLLER_DEPLOYMENT=nifi-controller-manager \
-  SERVICE_NAME=nifi \
-  TLS_PARAMS_SECRET=nifi-tls-params \
-  CERTIFICATE=nifi
+kubectl -n nifi get nificluster,statefulset,pods,svc,pvc
+kubectl -n nifi get certificate,secret
+kubectl -n nifi-system get deployment,pods
+helm -n nifi status nifi
 ```
 
-For standalone or explicit external-secret installs, omit `TLS_PARAMS_SECRET` and set `MANAGED=false`.
+For standalone installs, use:
+
+```bash
+kubectl -n nifi get statefulset,pods,svc,pvc,secret
+helm -n nifi status nifi
+```
+
+If that standalone install uses cert-manager, also run:
+
+```bash
+kubectl -n nifi get certificate
+```
+
+If you are working from this repository, `make first-day-check` is still available as an optional wrapper around the same day-1 checks.
 
 ## 1. Check The Core Resources
 
@@ -76,17 +82,18 @@ Log in with the username and password from `Secret/nifi-auth`.
 ## 4. Run A Short Health Check
 
 ```bash
-make first-day-check NAMESPACE=nifi HELM_RELEASE=nifi STATEFULSET_NAME=nifi CLUSTER_NAME=nifi MANAGED=true CONTROLLER_NAMESPACE=nifi-system CONTROLLER_DEPLOYMENT=nifi-controller-manager SERVICE_NAME=nifi TLS_PARAMS_SECRET=nifi-tls-params CERTIFICATE=nifi
 helm -n nifi status nifi
+kubectl -n nifi get nificluster nifi -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.reason}{"\n"}{end}'
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.tls.phase}{" "}{.status.tls.reason}{"\n"}'
 kubectl -n nifi get nificluster nifi -o yaml
 kubectl -n nifi-system logs deployment/nifi-controller-manager --tail=100
 ```
 
 What good looks like:
 
-- the helper reports `PASS`
 - the Helm release is `deployed`
-- the `NiFiCluster` does not show a degraded rollout
+- `Available=True`, `SecretsReady=True`, and `TLSMaterialReady=True`
+- `status.tls.phase` is usually `Idle` once the initial rollout settles
 - the controller logs do not show repeated reconciliation failures
 
 ## 5. Optional First Metrics Check

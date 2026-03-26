@@ -14,8 +14,12 @@ This chart deploys Apache NiFi 2.x with a standard standalone-first install path
 {{- if eq (include "nifi.authMode" .) "singleUser" }}
 - `auth.mode=singleUser` expects credentials Secret `{{ .Values.auth.singleUser.existingSecret }}` with keys `username` and `password`
 {{- end }}
-- First-day check:
-  - `make first-day-check NAMESPACE={{ .Release.Namespace }} HELM_RELEASE={{ .Release.Name }} STATEFULSET_NAME={{ include "nifi.fullname" . }} SERVICE_NAME={{ include "nifi.fullname" . }} MANAGED=false{{- if eq (include "nifi.authMode" .) "singleUser" }} AUTH_SECRET={{ include "nifi.singleUserUsernameSecretName" . }}{{- end }} TLS_SECRET={{ include "nifi.tlsSecretName" . }}{{- if eq (include "nifi.tlsMode" .) "certManager" }} TLS_PARAMS_SECRET={{ include "nifi.certManagerPKCS12PasswordSecretName" . }} CERTIFICATE={{ include "nifi.fullname" . }}{{- end }}`
+- First checks:
+  - `kubectl -n {{ .Release.Namespace }} get statefulset,pods,svc,secret`
+{{- if eq (include "nifi.tlsMode" .) "certManager" }}
+  - `kubectl -n {{ .Release.Namespace }} get certificate {{ include "nifi.fullname" . }}`
+{{- end }}
+  - `helm -n {{ .Release.Namespace }} status {{ .Release.Name }}`
 - Quick access:
   - `kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "nifi.fullname" . }} 8443:8443`
 {{- if eq (include "nifi.authMode" .) "singleUser" }}
