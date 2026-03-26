@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -19,7 +20,7 @@ import (
 )
 
 func TestNiFiDataflowReconcileBlocksWhenClusterMissing(t *testing.T) {
-	reconciler, k8sClient := newTestDataflowReconciler(t, dataflowFixture())
+	reconciler, k8sClient, _ := newTestDataflowReconciler(t, dataflowFixture())
 
 	reconcileDataflow(t, reconciler)
 	reconcileDataflow(t, reconciler)
@@ -63,7 +64,7 @@ func TestNiFiDataflowReconcilePublishesBridgeConfigMapWhenTargetSupportsBridge(t
 			},
 		},
 	}
-	reconciler, k8sClient := newTestDataflowReconciler(t, dataflowFixture(), cluster, target)
+	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflowFixture(), cluster, target)
 
 	reconcileDataflow(t, reconciler)
 	reconcileDataflow(t, reconciler)
@@ -86,6 +87,7 @@ func TestNiFiDataflowReconcilePublishesBridgeConfigMapWhenTargetSupportsBridge(t
 	if !strings.Contains(configMap.Data["imports.json"], `"name": "orders-ingest"`) {
 		t.Fatalf("expected bridge configmap imports.json to contain dataflow entry\n%s", configMap.Data["imports.json"])
 	}
+	expectEventContains(t, recorder, "Normal RuntimeImportProgressing Published 1 bridged import declarations")
 }
 
 func TestNiFiDataflowReconcileProjectsReadyRuntimeStatus(t *testing.T) {
@@ -139,7 +141,7 @@ func TestNiFiDataflowReconcileProjectsReadyRuntimeStatus(t *testing.T) {
 }`,
 		},
 	}
-	reconciler, k8sClient := newTestDataflowReconciler(t, dataflowFixture(), cluster, target, statusConfigMap)
+	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflowFixture(), cluster, target, statusConfigMap)
 
 	reconcileDataflow(t, reconciler)
 	reconcileDataflow(t, reconciler)
@@ -160,9 +162,15 @@ func TestNiFiDataflowReconcileProjectsReadyRuntimeStatus(t *testing.T) {
 	if updated.Status.LastSuccessfulVersion != "12" {
 		t.Fatalf("expected last successful version to be projected from runtime status, got %q", updated.Status.LastSuccessfulVersion)
 	}
+	if !strings.Contains(updated.Status.LastOperation.Message, "process group pg-orders") {
+		t.Fatalf("expected last operation to include projected process group details, got %q", updated.Status.LastOperation.Message)
+	}
 	if condition := updated.GetCondition(platformv1alpha1.ConditionAvailable); condition == nil || condition.Status != metav1.ConditionTrue {
 		t.Fatalf("expected available true condition")
+	} else if !strings.Contains(condition.Message, "version 12") {
+		t.Fatalf("expected available condition to include runtime version detail, got %q", condition.Message)
 	}
+	expectEventContains(t, recorder, "Normal RuntimeImportReady", "process group pg-orders", "version 12")
 }
 
 func TestNiFiDataflowReconcileProjectsBlockedRuntimeStatus(t *testing.T) {
@@ -216,7 +224,7 @@ func TestNiFiDataflowReconcileProjectsBlockedRuntimeStatus(t *testing.T) {
 }`,
 		},
 	}
-	reconciler, k8sClient := newTestDataflowReconciler(t, dataflow, cluster, target, statusConfigMap)
+	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflow, cluster, target, statusConfigMap)
 
 	reconcileDataflow(t, reconciler)
 	reconcileDataflow(t, reconciler)
@@ -234,6 +242,10 @@ func TestNiFiDataflowReconcileProjectsBlockedRuntimeStatus(t *testing.T) {
 	if condition := updated.GetCondition(platformv1alpha1.ConditionParameterContextReady); condition == nil || condition.Status != metav1.ConditionFalse {
 		t.Fatalf("expected parameter context ready false condition")
 	}
+	if !strings.Contains(updated.Status.LastOperation.Message, "version 12") {
+		t.Fatalf("expected blocked last operation to include runtime version detail, got %q", updated.Status.LastOperation.Message)
+	}
+	expectEventContains(t, recorder, "Warning RuntimeImportBlocked", "version 12")
 }
 
 func TestNiFiDataflowReconcileBlocksWhenTargetDoesNotMountBridge(t *testing.T) {
@@ -247,7 +259,7 @@ func TestNiFiDataflowReconcileBlocksWhenTargetDoesNotMountBridge(t *testing.T) {
 	target := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},
 	}
-	reconciler, k8sClient := newTestDataflowReconciler(t, dataflowFixture(), cluster, target)
+	reconciler, k8sClient, _ := newTestDataflowReconciler(t, dataflowFixture(), cluster, target)
 
 	reconcileDataflow(t, reconciler)
 	reconcileDataflow(t, reconciler)
@@ -275,7 +287,7 @@ func reconcileDataflow(t *testing.T, reconciler *NiFiDataflowReconciler) {
 	}
 }
 
-func newTestDataflowReconciler(t *testing.T, objects ...client.Object) (*NiFiDataflowReconciler, client.Client) {
+func newTestDataflowReconciler(t *testing.T, objects ...client.Object) (*NiFiDataflowReconciler, client.Client, *record.FakeRecorder) {
 	t.Helper()
 
 	scheme := runtime.NewScheme()
@@ -292,11 +304,29 @@ func newTestDataflowReconciler(t *testing.T, objects ...client.Object) (*NiFiDat
 		WithObjects(objects...).
 		Build()
 
+	recorder := record.NewFakeRecorder(20)
+
 	return &NiFiDataflowReconciler{
 		Client:    k8sClient,
 		Scheme:    scheme,
 		APIReader: k8sClient,
-	}, k8sClient
+		Recorder:  recorder,
+	}, k8sClient, recorder
+}
+
+func expectEventContains(t *testing.T, recorder *record.FakeRecorder, want ...string) {
+	t.Helper()
+
+	select {
+	case event := <-recorder.Events:
+		for _, fragment := range want {
+			if !strings.Contains(event, fragment) {
+				t.Fatalf("expected event %q to contain %q", event, fragment)
+			}
+		}
+	default:
+		t.Fatalf("expected an event containing %v but recorder was empty", want)
+	}
 }
 
 func dataflowFixture() *platformv1alpha1.NiFiDataflow {

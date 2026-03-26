@@ -101,6 +101,7 @@ Manual UI edits outside the managed import scope are unsupported. The product do
 - `latest` is resolved during create or declared-change reconcile and then pinned through the ownership marker; the product does not keep polling for newer versions once the declaration is unchanged
 - missing live client, missing selected flow content, or unsupported manual drift is reported as `blocked` in the runtime status file instead of widening the feature into a generic recovery loop
 - when the optional controller bridge is enabled, the same runtime result is surfaced back into `NiFiDataflow.status` from the controller-observed status `ConfigMap`
+- when the optional controller bridge is enabled, the controller also emits Kubernetes events for meaningful bounded-runtime transitions such as `Ready`, `Blocked`, and `Failed`
 - ongoing automatic synchronization to newer registry versions is out of scope
 
 ## Runtime Coverage

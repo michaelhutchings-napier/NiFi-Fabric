@@ -96,6 +96,7 @@ func (r *NiFiDataflowReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 		return ctrl.Result{}, patchErr
 	}
+	r.emitStatusEventIfNeeded(original, dataflow)
 	if reconcileErr != nil {
 		return result, reconcileErr
 	}
@@ -418,6 +419,30 @@ func runtimeImportObservedVersion(runtimeImport *bridgeRuntimeImportRef) string 
 	return strings.TrimSpace(runtimeImport.ResolvedVersion)
 }
 
+func runtimeImportSummary(runtimeImport *bridgeRuntimeImportRef) string {
+	if runtimeImport == nil {
+		return ""
+	}
+
+	parts := make([]string, 0, 4)
+	if processGroupID := strings.TrimSpace(runtimeImport.ProcessGroupID); processGroupID != "" {
+		parts = append(parts, fmt.Sprintf("process group %s", processGroupID))
+	}
+	if observedVersion := runtimeImportObservedVersion(runtimeImport); observedVersion != "" {
+		parts = append(parts, fmt.Sprintf("version %s", observedVersion))
+	}
+	if strings.TrimSpace(runtimeImport.RegistryClientName) != "" && strings.TrimSpace(runtimeImport.FlowName) != "" {
+		parts = append(parts, fmt.Sprintf("registry client %s flow %s", runtimeImport.RegistryClientName, runtimeImport.FlowName))
+	}
+	if parameterContextName := strings.TrimSpace(runtimeImport.ParameterContextName); parameterContextName != "" {
+		parts = append(parts, fmt.Sprintf("Parameter Context %s", parameterContextName))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, ", ")
+}
+
 func runtimeImportSourceResolved(runtimeImport *bridgeRuntimeImportRef) bool {
 	if runtimeImport == nil {
 		return false
@@ -462,6 +487,54 @@ func (r *NiFiDataflowReconciler) patchStatus(ctx context.Context, original, upda
 	}
 
 	return r.Status().Patch(ctx, updated, client.MergeFrom(original))
+}
+
+func (r *NiFiDataflowReconciler) emitStatusEventIfNeeded(original, updated *platformv1alpha1.NiFiDataflow) {
+	if r.Recorder == nil {
+		return
+	}
+	if original == nil || updated == nil {
+		return
+	}
+	if !shouldEmitStatusEvent(original, updated) {
+		return
+	}
+
+	eventType, reason := statusEventMetadata(updated)
+	message := strings.TrimSpace(updated.Status.LastOperation.Message)
+	if message == "" {
+		message = fmt.Sprintf("NiFiDataflow %s transitioned to phase %s", updated.Name, updated.Status.Phase)
+	}
+	r.Recorder.Event(updated, eventType, reason, message)
+}
+
+func shouldEmitStatusEvent(original, updated *platformv1alpha1.NiFiDataflow) bool {
+	return original.Status.Phase != updated.Status.Phase ||
+		original.Status.ProcessGroupID != updated.Status.ProcessGroupID ||
+		original.Status.ObservedVersion != updated.Status.ObservedVersion ||
+		original.Status.LastSuccessfulVersion != updated.Status.LastSuccessfulVersion ||
+		original.Status.LastOperation.Type != updated.Status.LastOperation.Type ||
+		original.Status.LastOperation.Phase != updated.Status.LastOperation.Phase ||
+		original.Status.LastOperation.Message != updated.Status.LastOperation.Message
+}
+
+func statusEventMetadata(dataflow *platformv1alpha1.NiFiDataflow) (string, string) {
+	if dataflow == nil {
+		return corev1.EventTypeNormal, "StatusUpdated"
+	}
+
+	switch dataflow.Status.Phase {
+	case platformv1alpha1.DataflowPhaseReady:
+		return corev1.EventTypeNormal, "RuntimeImportReady"
+	case platformv1alpha1.DataflowPhaseProgressing, platformv1alpha1.DataflowPhaseImporting:
+		return corev1.EventTypeNormal, "RuntimeImportProgressing"
+	case platformv1alpha1.DataflowPhaseBlocked:
+		return corev1.EventTypeWarning, "RuntimeImportBlocked"
+	case platformv1alpha1.DataflowPhaseFailed:
+		return corev1.EventTypeWarning, "RuntimeImportFailed"
+	default:
+		return corev1.EventTypeNormal, "StatusUpdated"
+	}
 }
 
 func (r *NiFiDataflowReconciler) markSuspended(dataflow *platformv1alpha1.NiFiDataflow) {
@@ -933,6 +1006,9 @@ func (r *NiFiDataflowReconciler) applyRuntimeImportStatus(dataflow *platformv1al
 func (r *NiFiDataflowReconciler) markRuntimeImportProgressing(dataflow *platformv1alpha1.NiFiDataflow, cluster *platformv1alpha1.NiFiCluster, configMapName, statusConfigMapName string, runtimeImport *bridgeRuntimeImportRef) {
 	now := metav1.Now()
 	message := fmt.Sprintf("Published controller bridge ConfigMap %s and observed runtime status %q for import %s in ConfigMap %s", configMapName, runtimeImport.Status, dataflow.Name, statusConfigMapName)
+	if summary := runtimeImportSummary(runtimeImport); summary != "" {
+		message = fmt.Sprintf("%s with %s", message, summary)
+	}
 	dataflow.Status.Phase = platformv1alpha1.DataflowPhaseProgressing
 	if processGroupID := strings.TrimSpace(runtimeImport.ProcessGroupID); processGroupID != "" {
 		dataflow.Status.ProcessGroupID = processGroupID
@@ -1006,7 +1082,7 @@ func (r *NiFiDataflowReconciler) markRuntimeImportProgressing(dataflow *platform
 		Type:               platformv1alpha1.ConditionAvailable,
 		Status:             metav1.ConditionFalse,
 		Reason:             "RuntimeProgressing",
-		Message:            "The bounded runtime has not reported a completed import result yet",
+		Message:            message,
 		LastTransitionTime: now,
 	})
 	dataflow.SetCondition(metav1.Condition{
@@ -1032,11 +1108,15 @@ func (r *NiFiDataflowReconciler) markRuntimeImportReady(dataflow *platformv1alph
 	if action == "" {
 		action = "reconciled"
 	}
+	message := fmt.Sprintf("Bounded runtime reported %s import %s through ConfigMap %s", action, dataflow.Name, statusConfigMapName)
+	if summary := runtimeImportSummary(runtimeImport); summary != "" {
+		message = fmt.Sprintf("%s with %s", message, summary)
+	}
 	dataflow.Status.LastOperation = platformv1alpha1.LastOperation{
 		Type:        "ObserveRuntimeStatus",
 		Phase:       platformv1alpha1.OperationPhaseSucceeded,
 		CompletedAt: &now,
-		Message:     fmt.Sprintf("Bounded runtime reported %s import %s through ConfigMap %s", action, dataflow.Name, statusConfigMapName),
+		Message:     message,
 	}
 	dataflow.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionTargetResolved,
@@ -1088,7 +1168,7 @@ func (r *NiFiDataflowReconciler) markRuntimeImportReady(dataflow *platformv1alph
 		Type:               platformv1alpha1.ConditionAvailable,
 		Status:             metav1.ConditionTrue,
 		Reason:             "RuntimeReady",
-		Message:            fmt.Sprintf("The bounded runtime reconciled import %s and reported version %s through ConfigMap %s", dataflow.Name, dataflow.Status.ObservedVersion, statusConfigMapName),
+		Message:            message,
 		LastTransitionTime: now,
 	})
 	dataflow.SetCondition(metav1.Condition{
@@ -1111,6 +1191,9 @@ func (r *NiFiDataflowReconciler) markRuntimeImportBlocked(dataflow *platformv1al
 	reason := strings.TrimSpace(runtimeImport.Reason)
 	if reason == "" {
 		reason = fmt.Sprintf("The bounded runtime reported blocked status for import %s in ConfigMap %s", dataflow.Name, statusConfigMapName)
+	}
+	if summary := runtimeImportSummary(runtimeImport); summary != "" {
+		reason = fmt.Sprintf("%s (%s)", reason, summary)
 	}
 	dataflow.Status.Phase = platformv1alpha1.DataflowPhaseBlocked
 	dataflow.Status.LastOperation = platformv1alpha1.LastOperation{
