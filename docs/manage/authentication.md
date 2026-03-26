@@ -54,6 +54,8 @@ The OpenShift example overlay is [oidc-managed-values.yaml](../../examples/opens
 See:
 
 - [Advanced Install Paths](../install/advanced.md)
+- [Integrated OIDC Install Contract](../install/integrated-oidc.md)
+- [Keycloak OIDC Production Setup](../install/keycloak-oidc-production.md)
 - [TLS and cert-manager](tls-and-cert-manager.md) when the IdP needs custom CA trust
 - [Authz Tooling Pointer](../../tools/nifi-fabric-authz/README.md)
 - [Dev Keycloak Bootstrap Realm Example](../../examples/keycloak-dev-bootstrap-realm.json)
@@ -78,6 +80,12 @@ Common troubleshooting:
 
 - if users authenticate but the expected group access never appears, check whether Keycloak emits group names or full paths and make sure the generated overlay uses the same shape
 - if a user is added to a brand-new Keycloak group, regenerate and redeploy the NiFi authz overlay because NiFi-Fabric must seed that group explicitly
+
+Identity ownership reminder:
+
+- Keycloak remains the source of truth for users, passwords, and group membership
+- NiFi-Fabric does not reset Keycloak passwords or reconcile Keycloak user state
+- any repeated user or password overwrite behavior comes from the Keycloak bootstrap mechanism, not from NiFi-Fabric
 
 ## LDAP
 

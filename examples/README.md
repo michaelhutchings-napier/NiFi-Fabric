@@ -230,6 +230,12 @@ There are also authentication overlays:
 - [values-prod-oidc.yaml](values-prod-oidc.yaml)
   - Production OIDC overlay for `charts/nifi-platform`.
   - Recommended customer path once the customer-managed Keycloak realm, groups, users, and client already exist.
+  - Pair it with [../docs/install/keycloak-oidc-production.md](../docs/install/keycloak-oidc-production.md) for the production setup steps.
+
+- [integrated-keycloak-oidc-contract.yaml](integrated-keycloak-oidc-contract.yaml)
+  - Advanced higher-level install contract sketch for bootstrapping Keycloak and NiFi-Fabric together.
+  - Not consumed directly by `charts/nifi-platform`.
+  - Shows the recommended “declare the OIDC client secret once and use it in both Keycloak and `Secret/nifi-oidc`” pattern.
 
 - [ldap-values.yaml](ldap-values.yaml)
   - Enables `auth.mode=ldap` with `authz.mode=ldapSync`.
