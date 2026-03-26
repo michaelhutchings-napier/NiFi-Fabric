@@ -167,6 +167,37 @@ Operational note:
 - already logged-in users should re-login after membership changes so NiFi sees fresh claims
 - new group names still require an authz overlay update and rollout
 
+#### LDAP Production Track
+
+Use this for the current production LDAP workflow.
+
+Required sequencing:
+
+1. The customer confirms real LDAP or AD connectivity, bind credentials, user search, and group search settings first.
+2. The explicit bootstrap admin identity or bootstrap admin group is chosen up front.
+3. Create `Secret/nifi-ldap-bind` with the bind DN and password.
+4. Install NiFi-Fabric with:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  -f examples/platform-managed-values.yaml \
+  -f examples/ldap-values.yaml
+```
+
+Use:
+
+- [ldap-values.yaml](../../examples/ldap-values.yaml)
+- [LDAP Production Setup](ldap-production.md)
+
+Current limitation:
+
+- the LDAP path is intentionally narrower than OIDC `externalClaimGroups`
+- `ldap + ldapSync` currently focuses on native directory login plus the explicit bootstrap admin path
+- the baseline example uses `authz.bootstrap.initialAdminIdentity` on the default image
+- `authz.bootstrap.initialAdminGroup` is available on newer NiFi images and should be treated as an advanced option
+
 #### Advanced Integrated OIDC Option
 
 Use this only when you want a higher-level install path that bootstraps both Keycloak and NiFi-Fabric together while keeping the NiFi chart contract stable.

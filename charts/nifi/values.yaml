@@ -280,6 +280,7 @@ auth:
       identityAttribute: ""
       groupNameAttribute: ""
       groupNameReferencedGroupAttribute: ""
+    userGroupProvider: {}
     groupSearch:
       base: ""
       filter: ""

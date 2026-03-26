@@ -110,10 +110,13 @@ Current limitation:
 
 - current OpenShift coverage here includes the bootstrap-admin identity path for LDAP
 - current OpenShift coverage here does not include LDAP group-bootstrap or named bundle mapping in this path
+- the baseline LDAP example uses `authz.bootstrap.initialAdminIdentity`
+- LDAP initial-admin-group bootstrap is supported on newer NiFi images and should be treated as an advanced path
 
 See:
 
 - [Advanced Install Paths](../install/advanced.md)
+- [LDAP Production Setup](../install/ldap-production.md)
 
 ## Authorization Model
 
@@ -128,7 +131,17 @@ The project also includes named authorization bundles for common access patterns
 Current coverage is:
 
 - OIDC: external groups map into named NiFi bundles
-- LDAP: current coverage includes login plus the explicit bootstrap-admin identity path
+- LDAP: current coverage includes native login, explicit bootstrap-admin identity on the default image, and initial-admin-group bootstrap on newer NiFi images
+
+### Post-Deploy LDAP Changes
+
+For the current `ldap + ldapSync` path:
+
+- users and passwords remain directory-owned
+- user and group changes should follow LDAP sync or the next relevant auth lookup path
+- changing directory membership for existing groups should not require a NiFi restart
+- changing bootstrap admin intent or NiFi-side LDAP settings still requires a values change and rollout
+- LDAP group bootstrap on newer NiFi images depends on the directory-backed user-group provider, so keep the user-group-provider user search filter aligned with directory lookup rather than the login filter
 
 ## Next Steps
 

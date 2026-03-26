@@ -95,7 +95,7 @@ func TestPlatformQuickstartRejectsLDAP(t *testing.T) {
 		"--set", "nifi.auth.ldap.groupSearch.nameAttribute=cn",
 		"--set", "nifi.auth.ldap.groupSearch.memberAttribute=member",
 		"--set", "nifi.authz.mode=ldapSync",
-		"--set", "nifi.authz.bootstrap.initialAdminGroup=nifi-platform-admins",
+		"--set", "nifi.authz.bootstrap.initialAdminIdentity=alice",
 	)
 	if err == nil {
 		t.Fatalf("expected quickstart to reject ldap auth mode\n%s", output)

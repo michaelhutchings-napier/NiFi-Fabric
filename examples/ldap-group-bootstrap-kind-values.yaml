@@ -1,0 +1,24 @@
+# Focused kind overlay for LDAP group-bootstrap and post-start group sync.
+# Compose with:
+# - examples/managed/values.yaml
+# - examples/nifi-2.8.0-values.yaml
+# - examples/ldap-group-bootstrap-values.yaml
+
+replicaCount: 2
+
+auth:
+  ldap:
+    url: ldap://ldap.nifi.svc.cluster.local:389
+    authenticationStrategy: SIMPLE
+    identityStrategy: USE_USERNAME
+    syncInterval: 10 secs
+    managerSecret:
+      name: nifi-ldap-bind
+
+authz:
+  applicationGroups: []
+  policies: []
+
+nifi:
+  jvmHeapInit: 512m
+  jvmHeapMax: 512m

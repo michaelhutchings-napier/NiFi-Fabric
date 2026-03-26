@@ -22,6 +22,26 @@
 {{- toYaml (default (list) .Values.authz.applicationGroups) -}}
 {{- end -}}
 
+{{- define "nifi.supportsLdapInitialAdminGroup" -}}
+{{- $tag := default "" .Values.image.tag -}}
+{{- if regexMatch "^[0-9]+\\.[0-9]+\\.[0-9]+$" $tag -}}
+{{- ternary "true" "false" (semverCompare ">=2.5.0" $tag) -}}
+{{- else -}}
+{{- "true" -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "nifi.effectiveLdapUserGroupProviderUserSearchFilter" -}}
+{{- $configured := dig "userGroupProvider" "userSearch" "filter" "__auto__" .Values.auth.ldap -}}
+{{- if ne $configured "__auto__" -}}
+{{- $configured -}}
+{{- else if include "nifi.effectiveAuthzBootstrapInitialAdminGroup" . -}}
+{{- "" -}}
+{{- else -}}
+{{- default "" .Values.auth.ldap.userSearch.filter -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "nifi.authValidation" -}}
 {{- $authMode := include "nifi.authMode" . -}}
 {{- $authzMode := include "nifi.authzMode" . -}}
@@ -76,6 +96,9 @@
   {{- end -}}
   {{- if not .Values.auth.ldap.groupSearch.memberAttribute -}}
     {{- fail "auth.ldap.groupSearch.memberAttribute is required when auth.mode=ldap and authz.mode=ldapSync" -}}
+  {{- end -}}
+  {{- if and $effectiveBootstrapGroup (ne (include "nifi.supportsLdapInitialAdminGroup" .) "true") -}}
+    {{- fail (printf "authz.bootstrap.initialAdminGroup with auth.mode=ldap requires Apache NiFi >= 2.5.0; image.tag=%q does not support native LDAP initial admin group bootstrap, so use authz.bootstrap.initialAdminIdentity or a newer NiFi image" (default "" .Values.image.tag)) -}}
   {{- end -}}
 {{- end -}}
 {{- if and (or (eq $authMode "oidc") (eq $authMode "ldap")) (not $effectiveBootstrapGroup) (not $effectiveBootstrapIdentity) -}}
@@ -460,7 +483,7 @@ file-user-group-provider
         <property name="User Search Base">{{ required "auth.ldap.userSearch.base is required when auth.mode=ldap" .Values.auth.ldap.userSearch.base }}</property>
         <property name="User Object Class">{{ .Values.auth.ldap.userSearch.objectClass }}</property>
         <property name="User Search Scope">{{ .Values.auth.ldap.userSearch.scope }}</property>
-        <property name="User Search Filter">{{ .Values.auth.ldap.userSearch.filter }}</property>
+        <property name="User Search Filter">{{ include "nifi.effectiveLdapUserGroupProviderUserSearchFilter" . }}</property>
         <property name="User Identity Attribute">{{ .Values.auth.ldap.userSearch.identityAttribute }}</property>
         <property name="User Group Name Attribute">{{ .Values.auth.ldap.userSearch.groupNameAttribute }}</property>
         <property name="User Group Name Attribute - Referenced Group Attribute">{{ .Values.auth.ldap.userSearch.groupNameReferencedGroupAttribute }}</property>
