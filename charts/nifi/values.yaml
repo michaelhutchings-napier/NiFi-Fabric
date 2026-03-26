@@ -354,7 +354,7 @@ observability:
         annotations: {}
         labels: {}
       serviceMonitor:
-        enabled: false
+        enabled: true
         # -- Default Prometheus Operator settings for all named nativeApi scrape profiles.
         defaults:
           interval: 30s
@@ -580,10 +580,6 @@ observability:
       # `endOfStream` avoids replaying historical provenance on first start.
       # `beginningOfStream` allows an explicit one-time historical backfill instead.
       startPosition: endOfStream
-
-# ------------------------------------------------------------------------------
-# AML Compatibility Helpers
-# ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
 # Flow Registry Clients

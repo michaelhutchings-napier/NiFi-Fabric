@@ -17,6 +17,8 @@ For `charts/nifi-platform`, the default managed recommendation is native API met
 - `nifi.observability.metrics.mode=nativeApi`
 - `nifi.observability.metrics.nativeApi.serviceMonitor.enabled=false` until Prometheus Operator is present
 
+The base `charts/nifi` chart keeps native API `ServiceMonitor` rendering enabled by default for backward compatibility. Set `observability.metrics.nativeApi.serviceMonitor.enabled=false` explicitly there when you want only the dedicated metrics `Service`.
+
 ## Native API Metrics
 
 Use `nativeApi` when you want the standard metrics path for NiFi-Fabric.
@@ -35,7 +37,11 @@ When you want a shared CA distribution path instead of manually managed CA Secre
 
 ### ServiceMonitor Behavior
 
-`nativeApi` always supports the dedicated metrics `Service`, but `ServiceMonitor` creation is now explicit through `observability.metrics.nativeApi.serviceMonitor.enabled=true`.
+`nativeApi` always supports the dedicated metrics `Service`.
+
+For `charts/nifi-platform`, `ServiceMonitor` creation stays explicit through `nifi.observability.metrics.nativeApi.serviceMonitor.enabled=true` so the default managed install does not assume Prometheus Operator is present.
+
+For direct `charts/nifi` installs, native API `ServiceMonitor` rendering stays enabled by default for backward compatibility, and the same flag can disable it when needed.
 
 That split keeps the default managed path safe on clusters that do not install Prometheus Operator.
 

@@ -453,19 +453,8 @@ app.kubernetes.io/component: metrics-exporter
 {{- end -}}
 
 {{- define "nifi.metricsServiceSelectorLabels" -}}
-{{- $observability := default (dict) .Values.observability -}}
-{{- $metrics := default (dict) $observability.metrics -}}
-{{- $native := default (dict) $metrics.nativeApi -}}
-{{- $service := default (dict) $native.service -}}
-{{- $mode := default "disabled" $metrics.mode -}}
-{{- if eq $mode "exporter" -}}
-{{- include "nifi.metricsExporterSelectorLabels" . }}
-{{- else if $service.enabled -}}
 {{- include "nifi.selectorLabels" . }}
 app.kubernetes.io/component: metrics
-{{- else -}}
-{{- include "nifi.selectorLabels" . }}
-{{- end -}}
 {{- end -}}
 
 {{- define "nifi.metricsEndpointName" -}}

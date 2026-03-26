@@ -18,7 +18,7 @@ spec:
   {{- $hostName := $host -}}
   {{- $paths := list (dict "path" "/" "pathType" "Prefix") -}}
   {{- if kindIs "map" $host }}
-  {{- $hostName = default $host.host $host -}}
+  {{- $hostName = $host.host -}}
   {{- if $host.paths }}
   {{- $paths = $host.paths -}}
   {{- end }}
