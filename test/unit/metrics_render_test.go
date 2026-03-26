@@ -103,6 +103,30 @@ func TestPlatformManagedNativeMetricsExampleRendersMultipleServiceMonitors(t *te
 	}
 }
 
+func TestPlatformManagedDefaultsToNativeMetricsServiceWithoutServiceMonitor(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi-platform",
+		"-f", "examples/platform-managed-values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+	if strings.Contains(output, "kind: ServiceMonitor") {
+		t.Fatalf("expected platform-managed defaults to omit ServiceMonitor until explicitly enabled\n%s", output)
+	}
+	for _, want := range []string{
+		"kind: Service",
+		"name: test-nifi-metrics",
+		"app.kubernetes.io/component: metrics",
+		"targetPort: https",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
 func TestPlatformManagedExporterRenderIncludesPodHardeningDefaults(t *testing.T) {
 	output, err := helmTemplate(
 		t,

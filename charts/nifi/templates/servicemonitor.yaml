@@ -19,12 +19,14 @@ spec:
 {{- else if eq $mode "nativeApi" }}
 {{- $native := .Values.observability.metrics.nativeApi -}}
 {{- $defaults := $native.serviceMonitor.defaults -}}
+{{- $serviceMonitorEnabled := default false $native.serviceMonitor.enabled -}}
 {{- $machineAuth := $native.machineAuth -}}
 {{- $tlsConfig := $native.tlsConfig -}}
 {{- $tlsServerName := include "nifi.metricsTLSServerName" $ -}}
 {{- $caRefType := include "nifi.nativeMetricsCARefType" $ -}}
 {{- $caRefName := include "nifi.nativeMetricsCARefName" $ -}}
 {{- $caRefKey := include "nifi.nativeMetricsCARefKey" $ -}}
+{{- if $serviceMonitorEnabled }}
 {{- range $endpoint := $native.endpoints }}
 {{- if $endpoint.enabled }}
 {{- $defaultAnnotations := default (dict) $defaults.annotations }}
@@ -59,7 +61,7 @@ spec:
     matchLabels:
       {{- include "nifi.metricsServiceSelectorLabels" $ | nindent 6 }}
   endpoints:
-  - port: https
+  - port: {{ default "https" $endpoint.port }}
     path: {{ $endpoint.path }}
     interval: {{ default $defaults.interval $endpoint.interval }}
     scrapeTimeout: {{ default $defaults.scrapeTimeout $endpoint.scrapeTimeout }}
@@ -108,6 +110,7 @@ spec:
       {{- end }}
     {{- end }}
 ---
+{{- end }}
 {{- end }}
 {{- end }}
 {{- else if eq $mode "exporter" }}
