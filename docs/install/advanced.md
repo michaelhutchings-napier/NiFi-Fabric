@@ -97,6 +97,63 @@ For advanced managed installs:
 
 See [Authentication](../manage/authentication.md) for the auth-mode details and supported value shapes.
 
+#### OIDC Dev Bootstrap Track
+
+Use this when you want a local, personal, or demo-friendly OIDC workflow with a small Keycloak realm bootstrap and an optional dev admin user.
+
+Recommended sequencing:
+
+1. Bootstrap Keycloak with a small realm import.
+2. Create `Secret/nifi-oidc` with the same client secret used by the imported client.
+3. Install NiFi-Fabric with:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  -f examples/platform-managed-values.yaml \
+  -f examples/values-dev-keycloak-bootstrap.yaml
+```
+
+Use:
+
+- [values-dev-keycloak-bootstrap.yaml](../../examples/values-dev-keycloak-bootstrap.yaml)
+- [keycloak-dev-bootstrap-realm.json](../../examples/keycloak-dev-bootstrap-realm.json)
+
+This path is convenience-oriented and intentionally non-production.
+
+#### OIDC Production Track
+
+Use this for the recommended customer OIDC workflow.
+
+Required sequencing:
+
+1. The customer completes Keycloak realm, groups, users, and OIDC client setup first.
+2. The bootstrap admin group exists in Keycloak before NiFi first login.
+3. Create `Secret/nifi-oidc` with the customer-managed client secret.
+4. Install NiFi-Fabric with:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  --namespace nifi \
+  --create-namespace \
+  -f examples/platform-managed-values.yaml \
+  -f examples/values-prod-oidc.yaml
+```
+
+Use:
+
+- [values-prod-oidc.yaml](../../examples/values-prod-oidc.yaml)
+
+This is the recommended customer ownership model because Keycloak owns realm, client, user, and group administration while NiFi-Fabric only needs the matching authz scaffold ready before first login.
+
+Operational note:
+
+- users can be created in Keycloak after NiFi is already running
+- adding those users to existing seeded groups does not require a NiFi restart
+- already logged-in users should re-login after membership changes so NiFi sees fresh claims
+- new group names still require an authz overlay update and rollout
+
 ## Generated Manifest Bundle
 
 If you need a manifest-based workflow without copying chart logic, render a generated bundle from `charts/nifi-platform`:

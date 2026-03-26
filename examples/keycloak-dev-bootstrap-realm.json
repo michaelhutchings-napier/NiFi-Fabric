@@ -1,0 +1,74 @@
+{
+  "realm": "nifi",
+  "enabled": true,
+  "registrationAllowed": false,
+  "defaultSignatureAlgorithm": "RS256",
+  "clients": [
+    {
+      "clientId": "nifi-fabric",
+      "name": "NiFi Fabric",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "change-me-dev-client-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "attributes": {
+        "id.token.signed.response.alg": "RS256",
+        "access.token.signed.response.alg": "RS256"
+      },
+      "redirectUris": [
+        "https://nifi.example.local/*"
+      ],
+      "webOrigins": [
+        "https://nifi.example.local"
+      ],
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "claim.name": "groups"
+          }
+        }
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "name": "nifi-platform-admins"
+    },
+    {
+      "name": "nifi-flow-operators"
+    },
+    {
+      "name": "nifi-flow-observers"
+    }
+  ],
+  "users": [
+    {
+      "username": "dev-admin",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Dev",
+      "lastName": "Admin",
+      "email": "dev-admin@example.local",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "change-me-dev-password",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "nifi-platform-admins"
+      ]
+    }
+  ]
+}

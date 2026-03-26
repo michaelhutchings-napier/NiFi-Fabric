@@ -131,6 +131,8 @@ Advanced paths remain available for teams that want:
 - OIDC or LDAP
 - standalone app-chart installation
 - generated manifest workflows
+- optional external-style authz generation for OIDC group-to-bundle overlays
+- separate OIDC tracks for dev bootstrap convenience and customer-owned production setup
 
 For install guidance, see:
 
