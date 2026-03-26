@@ -2,6 +2,8 @@
 
 NiFi-Fabric keeps the standard install path simple and cert-manager-first. Advanced paths are available when you want explicit ownership of auth or TLS inputs.
 
+If you are not trying to keep full Secret ownership, stop here and use the standard install path in [Install with Helm](helm.md).
+
 ## Advanced Managed Install
 
 Use the advanced managed path when you want to bring your own Secrets.
@@ -22,6 +24,20 @@ Before install, create:
 - `Secret/nifi-auth`
 - `Secret/nifi-tls`
 
+The default `nifi-tls` contract is:
+
+- `ca.crt`
+- `keystore.p12`
+- `truststore.p12`
+- `keystorePassword`
+- `truststorePassword`
+- `sensitivePropsKey`
+
+Examples:
+
+- [`examples/secret-contracts/auth-single-user-secret.yaml`](/tmp/tmp.ZKzaVUztym/examples/secret-contracts/auth-single-user-secret.yaml)
+- [`examples/secret-contracts/tls-external-secret.yaml`](/tmp/tmp.ZKzaVUztym/examples/secret-contracts/tls-external-secret.yaml)
+
 ### Explicit Cert-Manager Inputs
 
 Use this when cert-manager already exists, but you still want explicit ownership of the supporting auth and parameter Secrets:
@@ -37,6 +53,18 @@ Before install, create:
 
 - `Secret/nifi-auth`
 - `Secret/nifi-tls-params`
+
+The default `nifi-tls-params` contract is:
+
+- `pkcs12Password`
+- `sensitivePropsKey`
+
+cert-manager still writes `Secret/nifi-tls` from the rendered `Certificate`.
+
+Examples:
+
+- [`examples/secret-contracts/auth-single-user-secret.yaml`](/tmp/tmp.ZKzaVUztym/examples/secret-contracts/auth-single-user-secret.yaml)
+- [`examples/secret-contracts/tls-cert-manager-params-secret.yaml`](/tmp/tmp.ZKzaVUztym/examples/secret-contracts/tls-cert-manager-params-secret.yaml)
 
 You still install separately:
 

@@ -378,6 +378,10 @@ Flow Registry Client notes:
 
 ## Managed
 
+- [secret-contracts/](secret-contracts/)
+  - Copyable example Secret manifests for the explicit auth and TLS paths.
+  - Shows the expected key layout for `nifi-auth`, `nifi-tls`, and `nifi-tls-params`.
+
 - [platform-managed-cert-manager-quickstart-values.yaml](platform-managed-cert-manager-quickstart-values.yaml)
   - Standard one-release product-chart values for the cert-manager-first managed install path.
   - Generates `nifi-auth` and `nifi-tls-params` in the release namespace.

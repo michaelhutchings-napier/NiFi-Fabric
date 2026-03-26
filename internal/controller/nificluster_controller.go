@@ -118,11 +118,21 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 
 	switch cluster.Spec.DesiredState {
 	case platformv1alpha1.DesiredStateHibernated:
+		r.markInputReadinessUnknown(cluster, "Hibernated", "Secret and TLS readiness are not evaluated while desiredState=Hibernated")
 		if scaleDownInProgress {
 			pauseAutoscalingScaleDownForLifecycle(cluster, autoscalingBlockedReasonScaleDownPausedForHibernation, "autoscaling scale-down is paused while hibernation has precedence")
 		}
 		return r.reconcileHibernation(ctx, cluster, target, pods)
 	case platformv1alpha1.DesiredStateRunning:
+		readiness, err := r.evaluateInputReadiness(ctx, cluster, target)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("evaluate input readiness: %w", err)
+		}
+		if !readiness.Ready() {
+			r.markInputReadinessBlocked(cluster, readiness)
+			return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
+		}
+		r.applyInputReadiness(cluster, readiness)
 		if restoreInProgress(cluster, target) {
 			if scaleDownInProgress {
 				pauseAutoscalingScaleDownForLifecycle(cluster, autoscalingBlockedReasonScaleDownPausedForRestore, "autoscaling scale-down is paused while restore has precedence")
@@ -393,7 +403,14 @@ func (r *NiFiClusterReconciler) finishSteadyState(ctx context.Context, cluster *
 	cluster.Status.LastOperation = succeededOperation(lastOperationTypeForSteadyState(cluster), lastOperationMessageForSteadyState(cluster, target, drift))
 	cluster.Status.Rollout = platformv1alpha1.RolloutStatus{}
 	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
-	clearTLSObservation(cluster)
+	switch {
+	case drift.TLSResolvedWithoutRestart:
+		r.markTLSResolvedWithoutRestart(cluster, drift)
+	case drift.HasCertificateInputs:
+		setTLSStatusIdle(cluster, "NoTLSDrift", "No active TLS observation or restart is required")
+	default:
+		clearTLSObservation(cluster)
+	}
 
 	return steadyStateReconcileResult(cluster), nil
 }
@@ -550,6 +567,7 @@ func reconcileRequestForCluster(cluster platformv1alpha1.NiFiCluster) reconcile.
 
 func (r *NiFiClusterReconciler) markSuspended(cluster *platformv1alpha1.NiFiCluster) {
 	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
+	r.markInputReadinessUnknown(cluster, "Suspended", "Secret and TLS readiness are not evaluated while reconciliation is suspended")
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionTargetResolved,
 		Status:             metav1.ConditionUnknown,
@@ -594,6 +612,7 @@ func (r *NiFiClusterReconciler) markSuspended(cluster *platformv1alpha1.NiFiClus
 
 func (r *NiFiClusterReconciler) markTargetMissing(cluster *platformv1alpha1.NiFiCluster, targetName string) {
 	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
+	r.markInputReadinessUnknown(cluster, "TargetNotResolved", "Secret and TLS readiness are not evaluated until the target StatefulSet exists")
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionTargetResolved,
 		Status:             metav1.ConditionFalse,
@@ -635,6 +654,7 @@ func (r *NiFiClusterReconciler) markTargetMissing(cluster *platformv1alpha1.NiFi
 func (r *NiFiClusterReconciler) markUnmanagedTarget(cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet) {
 	cluster.Status.ObservedStatefulSetRevision = target.Status.UpdateRevision
 	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
+	r.markInputReadinessUnknown(cluster, "UnmanagedTarget", "Secret and TLS readiness are not evaluated for unmanaged targets")
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionTargetResolved,
 		Status:             metav1.ConditionTrue,
@@ -675,6 +695,7 @@ func (r *NiFiClusterReconciler) markUnmanagedTarget(cluster *platformv1alpha1.Ni
 
 func (r *NiFiClusterReconciler) markUnsupportedDesiredState(cluster *platformv1alpha1.NiFiCluster) {
 	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
+	r.markInputReadinessUnknown(cluster, "DesiredStateUnsupported", "Secret and TLS readiness are not evaluated for unsupported desired states")
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionTargetResolved,
 		Status:             metav1.ConditionTrue,
@@ -1019,11 +1040,12 @@ func (r *NiFiClusterReconciler) startRevisionRolloutIfNeeded(cluster *platformv1
 	}
 }
 
-func (r *NiFiClusterReconciler) startTLSRolloutIfNeeded(cluster *platformv1alpha1.NiFiCluster, drift WatchedResourceDrift) {
+func (r *NiFiClusterReconciler) startTLSRolloutIfNeeded(cluster *platformv1alpha1.NiFiCluster, drift WatchedResourceDrift, reason, message string) {
 	if cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerTLSDrift &&
 		cluster.Status.Rollout.TargetCertificateHash == drift.CurrentCertificateHash &&
 		cluster.Status.Rollout.TargetTLSConfigurationHash == drift.CurrentTLSConfigurationHash &&
 		cluster.Status.Rollout.StartedAt != nil {
+		r.markTLSRestartRequired(cluster, drift, reason, message)
 		return
 	}
 
@@ -1035,6 +1057,7 @@ func (r *NiFiClusterReconciler) startTLSRolloutIfNeeded(cluster *platformv1alpha
 		TargetTLSConfigurationHash: drift.CurrentTLSConfigurationHash,
 	}
 	clearTLSObservation(cluster)
+	r.markTLSRestartRequired(cluster, drift, reason, message)
 }
 
 func (r *NiFiClusterReconciler) captureSteadyStateHashes(cluster *platformv1alpha1.NiFiCluster, drift WatchedResourceDrift) {
@@ -1071,23 +1094,24 @@ func (r *NiFiClusterReconciler) handleTLSPolicy(ctx context.Context, cluster *pl
 	}
 
 	if cluster.Status.Rollout.Trigger == platformv1alpha1.RolloutTriggerTLSDrift {
+		r.markTLSRestartRequired(cluster, drift, "TLSRolloutInProgress", fmt.Sprintf("Controlled TLS restart rollout is in progress for %s", joinOrNone(drift.CertificateRefs)))
 		drift.CertificateDrift = true
 		return drift, ctrl.Result{}, false, nil
 	}
 
 	if !drift.CertificateDrift {
-		clearTLSObservation(cluster)
+		setTLSStatusIdle(cluster, "NoTLSDrift", "No active TLS observation or restart is required")
 		return drift, ctrl.Result{}, false, nil
 	}
 
 	if drift.MaterialTLSChange {
-		r.startTLSRolloutIfNeeded(cluster, drift)
+		r.startTLSRolloutIfNeeded(cluster, drift, "TLSConfigurationDriftDetected", fmt.Sprintf("TLS wiring changed for %s, so a controlled restart rollout is required", joinOrNone(drift.CertificateRefs)))
 		return drift, ctrl.Result{}, false, nil
 	}
 
 	switch tlsDiffPolicy(cluster) {
 	case platformv1alpha1.TLSDiffPolicyAlwaysRestart:
-		r.startTLSRolloutIfNeeded(cluster, drift)
+		r.startTLSRolloutIfNeeded(cluster, drift, "TLSRestartPolicyAlwaysRestart", fmt.Sprintf("TLS drift was detected for %s and the restart policy requires a controlled rollout instead of autoreload observation", joinOrNone(drift.CertificateRefs)))
 		return drift, ctrl.Result{}, false, nil
 	case platformv1alpha1.TLSDiffPolicyObserveOnly:
 		return r.observeTLSDiff(ctx, cluster, target, drift, false)
@@ -1103,7 +1127,7 @@ func (r *NiFiClusterReconciler) observeTLSDiff(ctx context.Context, cluster *pla
 	r.applyClusterHealth(cluster, healthResult)
 	if err != nil {
 		if restartOnFailure {
-			r.startTLSRolloutIfNeeded(cluster, drift)
+			r.startTLSRolloutIfNeeded(cluster, drift, "TLSAutoreloadHealthDegraded", fmt.Sprintf("Cluster health degraded during TLS autoreload observation for %s, so a controlled restart rollout is required", joinOrNone(drift.CertificateRefs)))
 			return drift, ctrl.Result{}, false, nil
 		}
 		r.markTLSObservationDegraded(cluster, drift, err)
@@ -1119,7 +1143,7 @@ func (r *NiFiClusterReconciler) observeTLSDiff(ctx context.Context, cluster *pla
 	r.applyClusterHealth(cluster, healthResult)
 	if err != nil {
 		if restartOnFailure {
-			r.startTLSRolloutIfNeeded(cluster, drift)
+			r.startTLSRolloutIfNeeded(cluster, drift, "TLSAutoreloadHealthDegraded", fmt.Sprintf("Cluster health degraded during TLS autoreload observation for %s, so a controlled restart rollout is required", joinOrNone(drift.CertificateRefs)))
 			return drift, ctrl.Result{}, false, nil
 		}
 		r.markTLSObservationDegraded(cluster, drift, err)
@@ -1138,6 +1162,7 @@ func (r *NiFiClusterReconciler) observeTLSDiff(ctx context.Context, cluster *pla
 }
 
 func (r *NiFiClusterReconciler) markTLSObserving(cluster *platformv1alpha1.NiFiCluster, drift WatchedResourceDrift) {
+	setTLSStatus(cluster, platformv1alpha1.TLSStatusPhaseObservingAutoreload, "TLSAutoreloadObserving", fmt.Sprintf("Observing TLS autoreload for %s before deciding whether a restart is required", joinOrNone(drift.CertificateRefs)))
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionAvailable,
 		Status:             metav1.ConditionTrue,
@@ -1163,6 +1188,7 @@ func (r *NiFiClusterReconciler) markTLSObserving(cluster *platformv1alpha1.NiFiC
 }
 
 func (r *NiFiClusterReconciler) markTLSObservationDegraded(cluster *platformv1alpha1.NiFiCluster, drift WatchedResourceDrift, healthErr error) {
+	setTLSStatus(cluster, platformv1alpha1.TLSStatusPhaseObservingAutoreload, "TLSAutoreloadHealthDegraded", fmt.Sprintf("Cluster health degraded during TLS autoreload observation for %s: %v", joinOrNone(drift.CertificateRefs), healthErr))
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionAvailable,
 		Status:             metav1.ConditionFalse,
@@ -1185,6 +1211,24 @@ func (r *NiFiClusterReconciler) markTLSObservationDegraded(cluster *platformv1al
 		LastTransitionTime: metav1.Now(),
 	})
 	cluster.Status.LastOperation = runningOperation("TLSObservation", fmt.Sprintf("TLS drift remains unresolved because cluster health degraded: %v", healthErr))
+}
+
+func (r *NiFiClusterReconciler) markTLSResolvedWithoutRestart(cluster *platformv1alpha1.NiFiCluster, drift WatchedResourceDrift) {
+	cluster.Status.TLS = platformv1alpha1.TLSStatus{
+		Phase:   platformv1alpha1.TLSStatusPhaseResolvedWithoutRestart,
+		Reason:  "TLSDriftResolvedWithoutRestart",
+		Message: fmt.Sprintf("TLS drift resolved through autoreload for %s without a controlled restart", joinOrNone(drift.CertificateRefs)),
+	}
+}
+
+func (r *NiFiClusterReconciler) markTLSRestartRequired(cluster *platformv1alpha1.NiFiCluster, drift WatchedResourceDrift, reason, message string) {
+	cluster.Status.TLS = platformv1alpha1.TLSStatus{
+		Phase:                      platformv1alpha1.TLSStatusPhaseRestartRequired,
+		Reason:                     reason,
+		Message:                    message,
+		TargetCertificateHash:      drift.CurrentCertificateHash,
+		TargetTLSConfigurationHash: drift.CurrentTLSConfigurationHash,
+	}
 }
 
 func (r *NiFiClusterReconciler) listTargetPods(ctx context.Context, target *appsv1.StatefulSet) ([]corev1.Pod, error) {

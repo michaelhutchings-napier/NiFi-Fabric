@@ -135,6 +135,9 @@ Defaults in this page are shown only when they are real API defaults or fixed en
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
 | `status.tls.observationStartedAt` | timestamp | When the current TLS observation window began. | No |  |
+| `status.tls.phase` | enum | Current TLS decision state. Values: `Idle`, `ObservingAutoreload`, `ResolvedWithoutRestart`, `RestartRequired`. | No |  |
+| `status.tls.reason` | string | Short controller reason for the current TLS decision state. | No |  |
+| `status.tls.message` | string | Human-readable TLS decision summary. | No |  |
 | `status.tls.targetCertificateHash` | string | Certificate hash the controller is evaluating or has settled on. | No |  |
 | `status.tls.targetTLSConfigurationHash` | string | TLS configuration hash the controller is evaluating or has settled on. | No |  |
 
@@ -242,7 +245,7 @@ Defaults in this page are shown only when they are real API defaults or fixed en
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
-| `status.conditions[].type` | string | Condition type. Current controller condition types include `TargetResolved`, `Available`, `Progressing`, `Degraded`, and `Hibernated`. | No |  |
+| `status.conditions[].type` | string | Condition type. Current controller condition types include `TargetResolved`, `SecretsReady`, `TLSMaterialReady`, `Available`, `Progressing`, `Degraded`, and `Hibernated`. `SecretsReady` reports whether referenced Secret inputs such as `nifi-auth` are present and usable. `TLSMaterialReady` reports whether the workload TLS Secret and referenced TLS support inputs such as `nifi-tls` or `nifi-tls-params` are present and structurally usable. | No |  |
 | `status.conditions[].status` | enum | Kubernetes condition status. Values: `True`, `False`, `Unknown`. | No |  |
 | `status.conditions[].reason` | string | Short machine-readable reason. | No |  |
 | `status.conditions[].message` | string | Human-readable condition message. | No |  |
