@@ -76,21 +76,16 @@ kubectl -n nifi get secret nifi-auth -o jsonpath='{.data.username}' | base64 -d;
 kubectl -n nifi get secret nifi-auth -o jsonpath='{.data.password}' | base64 -d; echo
 ```
 
-Then run the short first-day check:
+Then run the first day-1 checks:
 
 ```bash
-make first-day-check \
-  NAMESPACE=nifi \
-  HELM_RELEASE=nifi \
-  STATEFULSET_NAME=nifi \
-  CLUSTER_NAME=nifi \
-  MANAGED=true \
-  CONTROLLER_NAMESPACE=nifi-system \
-  CONTROLLER_DEPLOYMENT=nifi-controller-manager \
-  SERVICE_NAME=nifi \
-  TLS_PARAMS_SECRET=nifi-tls-params \
-  CERTIFICATE=nifi
+kubectl -n nifi get nificluster,statefulset,pods,svc,pvc
+kubectl -n nifi get certificate,secret
+kubectl -n nifi-system get deployment,pods
+helm -n nifi status nifi
 ```
+
+If you are working from this repository, `make first-day-check` remains available as an optional wrapper for the same checks.
 
 For the recommended first login and day-1 verification flow, see [First Access and Day-1 Checks](../first-day.md).
 
