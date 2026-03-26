@@ -92,6 +92,16 @@ make render-platform-standalone-bundle
 kubectl apply -f dist/nifi-platform-standalone-bundle.yaml
 ```
 
+## Fresh Packaged Platform Chart
+
+If a downstream chart or GitOps repo needs a packaged `nifi-platform` archive, build it from a fresh temporary chart copy instead of relying on whatever nested `.tgz` files already exist in the workspace:
+
+```bash
+make package-platform-chart
+```
+
+That writes a newly packaged chart into `dist/charts` and rebuilds nested dependencies first, which avoids stale bundled subchart archives during local downstream integration.
+
 For standalone chart use and lower-level platform-team assembly, see [Platform Team Notes](../internals/platform-team.md).
 For backup and recovery, see [Backup, Restore, and Disaster Recovery](../dr.md).
 

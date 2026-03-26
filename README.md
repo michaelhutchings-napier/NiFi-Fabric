@@ -26,6 +26,8 @@ The install bootstraps the initial single-user login and TLS inputs, while cert-
 
 This quickstart uses the single-user bootstrap path. OIDC and LDAP stay available through the explicit install paths.
 
+The standard platform chart also defaults to native NiFi metrics without a reverse-proxy sidecar. It renders the direct metrics `Service` by default and leaves `ServiceMonitor` opt-in for Prometheus Operator environments.
+
 After install, continue with [First Access and Day-1 Checks](docs/first-day.md).
 
 ## Why NiFi-Fabric
@@ -52,6 +54,8 @@ It gives you a secure, low-friction managed install for evaluation and early bri
 See [Install with Helm](docs/install/helm.md) and [Advanced Install Paths](docs/install/advanced.md).
 
 For local evaluation, `kind` is the primary documented path. `minikube` can also be used for small local installs when cert-manager, image access, and a working default `StorageClass` are available. See [Local Kind Guide](docs/local-kind.md).
+
+For downstream packaging and GitOps assembly, use `make package-platform-chart` to build a fresh `charts/nifi-platform` archive without depending on any stale nested `.tgz` files in the repo tree.
 
 ## Documentation
 

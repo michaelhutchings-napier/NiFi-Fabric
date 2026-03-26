@@ -53,7 +53,7 @@ See also:
 | `ingress.enabled` | boolean | Enables Kubernetes Ingress rendering. | No | `false` |
 | `ingress.className` | string | Ingress class name. | No | `""` |
 | `ingress.annotations` | object | Ingress annotations. | No | `{}` |
-| `ingress.hosts[]` | object list | Ingress host and path rules. | No | see values file |
+| `ingress.hosts[]` | object-or-string list | Ingress host and path rules. String entries use the host as shorthand for a single `/` `Prefix` path. | No | see values file |
 | `ingress.tls[]` | object list | Ingress TLS entries. | No | `[]` |
 | `openshift.route.enabled` | boolean | Enables OpenShift Route rendering. The documented model keeps the Route hostname explicit and mirrors it into `web.proxyHosts`. | No | `false` |
 | `openshift.route.host` | string | Explicit Route host. Required when `openshift.route.enabled=true`. | No | `""` |
@@ -156,6 +156,7 @@ See also:
 | `serviceMonitor.scrapeTimeout` | string | Deprecated compatibility shim scrape timeout. | No | `10s` |
 | `observability.metrics.mode` | enum | Metrics mode. Values: `disabled`, `nativeApi`, `exporter`, `siteToSite`. | No | `disabled` |
 | `observability.metrics.nativeApi.service.*` | object | Native metrics Service settings. | No | see values file |
+| `observability.metrics.nativeApi.serviceMonitor.enabled` | boolean | Enables native API `ServiceMonitor` rendering. Direct `charts/nifi` installs keep this `true` by default for backward compatibility; set it to `false` when Prometheus Operator is not installed and you only want the native metrics `Service`. | No | `true` |
 | `observability.metrics.nativeApi.serviceMonitor.defaults.*` | object | Default ServiceMonitor settings for native metrics endpoints. | No | see values file |
 | `observability.metrics.nativeApi.machineAuth.*` | object | Provider-agnostic machine-auth Secret settings. | No | see values file |
 | `observability.metrics.nativeApi.tlsConfig.*` | object | TLS settings for secured native metrics scraping, including Secret or ConfigMap CA references. | No | see values file |

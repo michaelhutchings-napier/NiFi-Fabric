@@ -265,9 +265,12 @@ keda:
 # - `nifi.parameterContexts.*` for prepared Parameter Context catalogs
 # - `nifi.versionedFlowImports.*` for runtime-managed versioned-flow import and version selection
 # - `nifi.ingress.*` or `nifi.openshift.route.*`
-# - `nifi.observability.metrics.*` with `mode=nativeApi` for the recommended metrics path
+# - `nifi.observability.metrics.*`; the default managed recommendation here is native API metrics without a reverse-proxy sidecar
 # - `nifi.observability.metrics.*.tlsConfig.ca.useTrustManagerBundle=true` when using the optional trust-manager bundle
 nifi:
   observability:
     metrics:
-      mode: disabled
+      mode: nativeApi
+      nativeApi:
+        serviceMonitor:
+          enabled: false

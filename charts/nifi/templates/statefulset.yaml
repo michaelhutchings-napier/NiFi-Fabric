@@ -568,24 +568,39 @@ spec:
           containerPort: {{ .Values.ports.cluster }}
         - name: load-balance
           containerPort: {{ .Values.ports.loadBalance }}
+        {{- if .Values.probes.startup.enabled }}
         startupProbe:
           tcpSocket:
             port: https
+          {{- with .Values.probes.startup.initialDelaySeconds }}
+          initialDelaySeconds: {{ . }}
+          {{- end }}
           periodSeconds: {{ .Values.probes.startup.periodSeconds }}
           failureThreshold: {{ .Values.probes.startup.failureThreshold }}
           timeoutSeconds: {{ .Values.probes.startup.timeoutSeconds }}
+        {{- end }}
+        {{- if .Values.probes.readiness.enabled }}
         readinessProbe:
           tcpSocket:
             port: https
+          {{- with .Values.probes.readiness.initialDelaySeconds }}
+          initialDelaySeconds: {{ . }}
+          {{- end }}
           periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
           failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
           timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+        {{- end }}
+        {{- if .Values.probes.liveness.enabled }}
         livenessProbe:
           tcpSocket:
             port: https
+          {{- with .Values.probes.liveness.initialDelaySeconds }}
+          initialDelaySeconds: {{ . }}
+          {{- end }}
           periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
           failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
           timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+        {{- end }}
         resources:
           {{- toYaml .Values.resources | nindent 10 }}
         volumeMounts:
