@@ -87,7 +87,7 @@ func TestNiFiDataflowReconcilePublishesBridgeConfigMapWhenTargetSupportsBridge(t
 	if !strings.Contains(configMap.Data["imports.json"], `"name": "orders-ingest"`) {
 		t.Fatalf("expected bridge configmap imports.json to contain dataflow entry\n%s", configMap.Data["imports.json"])
 	}
-	expectEventContains(t, recorder, "Normal RuntimeImportProgressing Published 1 bridged import declarations")
+	expectEventContains(t, recorder, "Normal RuntimeImportProgressing", "controller bridge is published")
 }
 
 func TestNiFiDataflowReconcileProjectsReadyRuntimeStatus(t *testing.T) {
@@ -245,7 +245,93 @@ func TestNiFiDataflowReconcileProjectsBlockedRuntimeStatus(t *testing.T) {
 	if !strings.Contains(updated.Status.LastOperation.Message, "version 12") {
 		t.Fatalf("expected blocked last operation to include runtime version detail, got %q", updated.Status.LastOperation.Message)
 	}
-	expectEventContains(t, recorder, "Warning RuntimeImportBlocked", "version 12")
+	expectEventContains(t, recorder, "Warning RuntimeImportBlocked", "Parameter Context attachment", "version 12")
+}
+
+func TestNiFiDataflowReconcileDoesNotSpamBlockedEventsWhenOnlyDetailTextChanges(t *testing.T) {
+	cluster := &platformv1alpha1.NiFiCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},
+		Spec: platformv1alpha1.NiFiClusterSpec{
+			TargetRef:    platformv1alpha1.TargetRef{Name: "nifi"},
+			DesiredState: platformv1alpha1.DesiredStateRunning,
+		},
+	}
+	target := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{
+						{
+							Name: "nifidataflow-bridge",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{Name: "nifi-nifidataflows"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	dataflow := dataflowFixture()
+	dataflow.Spec.Target.ParameterContextRef = &platformv1alpha1.ParameterContextRef{Name: "orders-prod"}
+	statusConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi-nifidataflows-status", Namespace: "nifi"},
+		Data: map[string]string{
+			"status.json": `{
+  "status": "blocked",
+  "imports": [
+    {
+      "name": "orders-ingest",
+      "status": "blocked",
+      "reason": "declared Parameter Context \"orders-prod\" does not exist in NiFi yet",
+      "registryClientName": "github-main",
+      "registryClientId": "registry-1",
+      "bucket": "platform-flows",
+      "bucketId": "bucket-1",
+      "flowName": "orders-ingest",
+      "flowId": "flow-1",
+      "resolvedVersion": "12"
+    }
+  ]
+}`,
+		},
+	}
+	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflow, cluster, target, statusConfigMap)
+
+	reconcileDataflow(t, reconciler)
+	reconcileDataflow(t, reconciler)
+	expectEventContains(t, recorder, "Warning RuntimeImportBlocked", "Parameter Context attachment")
+
+	updatedConfigMap := &corev1.ConfigMap{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: "nifi", Name: "nifi-nifidataflows-status"}, updatedConfigMap); err != nil {
+		t.Fatalf("get status configmap: %v", err)
+	}
+	updatedConfigMap.Data["status.json"] = `{
+  "status": "blocked",
+  "imports": [
+    {
+      "name": "orders-ingest",
+      "status": "blocked",
+      "reason": "declared Parameter Context \"orders-prod\" still does not exist after retry",
+      "registryClientName": "github-main",
+      "registryClientId": "registry-1",
+      "bucket": "platform-flows",
+      "bucketId": "bucket-1",
+      "flowName": "orders-ingest",
+      "flowId": "flow-1",
+      "resolvedVersion": "12"
+    }
+  ]
+}`
+	if err := k8sClient.Update(context.Background(), updatedConfigMap); err != nil {
+		t.Fatalf("update status configmap: %v", err)
+	}
+
+	reconcileDataflow(t, reconciler)
+	expectNoEvent(t, recorder)
 }
 
 func TestNiFiDataflowReconcileBlocksWhenTargetDoesNotMountBridge(t *testing.T) {
@@ -326,6 +412,16 @@ func expectEventContains(t *testing.T, recorder *record.FakeRecorder, want ...st
 		}
 	default:
 		t.Fatalf("expected an event containing %v but recorder was empty", want)
+	}
+}
+
+func expectNoEvent(t *testing.T, recorder *record.FakeRecorder) {
+	t.Helper()
+
+	select {
+	case event := <-recorder.Events:
+		t.Fatalf("expected no event but received %q", event)
+	default:
 	}
 }
 

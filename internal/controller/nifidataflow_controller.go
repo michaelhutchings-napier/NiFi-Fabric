@@ -501,7 +501,7 @@ func (r *NiFiDataflowReconciler) emitStatusEventIfNeeded(original, updated *plat
 	}
 
 	eventType, reason := statusEventMetadata(updated)
-	message := strings.TrimSpace(updated.Status.LastOperation.Message)
+	message := statusEventMessage(updated)
 	if message == "" {
 		message = fmt.Sprintf("NiFiDataflow %s transitioned to phase %s", updated.Name, updated.Status.Phase)
 	}
@@ -509,13 +509,7 @@ func (r *NiFiDataflowReconciler) emitStatusEventIfNeeded(original, updated *plat
 }
 
 func shouldEmitStatusEvent(original, updated *platformv1alpha1.NiFiDataflow) bool {
-	return original.Status.Phase != updated.Status.Phase ||
-		original.Status.ProcessGroupID != updated.Status.ProcessGroupID ||
-		original.Status.ObservedVersion != updated.Status.ObservedVersion ||
-		original.Status.LastSuccessfulVersion != updated.Status.LastSuccessfulVersion ||
-		original.Status.LastOperation.Type != updated.Status.LastOperation.Type ||
-		original.Status.LastOperation.Phase != updated.Status.LastOperation.Phase ||
-		original.Status.LastOperation.Message != updated.Status.LastOperation.Message
+	return statusEventSignature(original) != statusEventSignature(updated)
 }
 
 func statusEventMetadata(dataflow *platformv1alpha1.NiFiDataflow) (string, string) {
@@ -534,6 +528,87 @@ func statusEventMetadata(dataflow *platformv1alpha1.NiFiDataflow) (string, strin
 		return corev1.EventTypeWarning, "RuntimeImportFailed"
 	default:
 		return corev1.EventTypeNormal, "StatusUpdated"
+	}
+}
+
+func statusEventSignature(dataflow *platformv1alpha1.NiFiDataflow) string {
+	if dataflow == nil {
+		return ""
+	}
+
+	eventType, eventReason := statusEventMetadata(dataflow)
+	signatureParts := []string{
+		eventType,
+		eventReason,
+		string(dataflow.Status.Phase),
+		dataflow.Status.LastOperation.Type,
+		string(dataflow.Status.LastOperation.Phase),
+		conditionSignaturePart(dataflow.GetCondition(platformv1alpha1.ConditionTargetResolved)),
+		conditionSignaturePart(dataflow.GetCondition(platformv1alpha1.ConditionSourceResolved)),
+		conditionSignaturePart(dataflow.GetCondition(platformv1alpha1.ConditionParameterContextReady)),
+		conditionSignaturePart(dataflow.GetCondition(platformv1alpha1.ConditionAvailable)),
+		conditionSignaturePart(dataflow.GetCondition(platformv1alpha1.ConditionProgressing)),
+		conditionSignaturePart(dataflow.GetCondition(platformv1alpha1.ConditionDegraded)),
+	}
+
+	switch dataflow.Status.Phase {
+	case platformv1alpha1.DataflowPhaseReady:
+		signatureParts = append(signatureParts, dataflow.Status.ProcessGroupID, dataflow.Status.ObservedVersion, dataflow.Status.LastSuccessfulVersion)
+	case platformv1alpha1.DataflowPhaseProgressing, platformv1alpha1.DataflowPhaseImporting:
+		signatureParts = append(signatureParts, dataflow.Status.ProcessGroupID, dataflow.Status.ObservedVersion)
+	}
+
+	return strings.Join(signatureParts, "|")
+}
+
+func conditionSignaturePart(condition *metav1.Condition) string {
+	if condition == nil {
+		return ""
+	}
+	return strings.Join([]string{condition.Type, string(condition.Status), condition.Reason}, ":")
+}
+
+func statusEventMessage(dataflow *platformv1alpha1.NiFiDataflow) string {
+	if dataflow == nil {
+		return ""
+	}
+
+	switch dataflow.Status.Phase {
+	case platformv1alpha1.DataflowPhaseReady:
+		parts := []string{fmt.Sprintf("NiFiDataflow %s is Ready", dataflow.Name)}
+		if processGroupID := strings.TrimSpace(dataflow.Status.ProcessGroupID); processGroupID != "" {
+			parts = append(parts, fmt.Sprintf("process group %s", processGroupID))
+		}
+		if observedVersion := strings.TrimSpace(dataflow.Status.ObservedVersion); observedVersion != "" {
+			parts = append(parts, fmt.Sprintf("version %s", observedVersion))
+		}
+		return strings.Join(parts, ": ")
+	case platformv1alpha1.DataflowPhaseProgressing, platformv1alpha1.DataflowPhaseImporting:
+		if condition := dataflow.GetCondition(platformv1alpha1.ConditionProgressing); condition != nil && condition.Reason == "BridgePublished" {
+			return fmt.Sprintf("NiFiDataflow %s is Progressing: controller bridge is published and waiting for bounded runtime reconcile", dataflow.Name)
+		}
+		if observedVersion := strings.TrimSpace(dataflow.Status.ObservedVersion); observedVersion != "" {
+			return fmt.Sprintf("NiFiDataflow %s is Progressing: bounded runtime reconcile is in progress for version %s", dataflow.Name, observedVersion)
+		}
+		return fmt.Sprintf("NiFiDataflow %s is Progressing: bounded runtime reconcile is in progress", dataflow.Name)
+	case platformv1alpha1.DataflowPhaseBlocked:
+		if condition := dataflow.GetCondition(platformv1alpha1.ConditionParameterContextReady); condition != nil && condition.Status == metav1.ConditionFalse {
+			if observedVersion := strings.TrimSpace(dataflow.Status.ObservedVersion); observedVersion != "" {
+				return fmt.Sprintf("NiFiDataflow %s is Blocked: bounded runtime import is blocked on Parameter Context attachment for version %s", dataflow.Name, observedVersion)
+			}
+			return fmt.Sprintf("NiFiDataflow %s is Blocked: bounded runtime import is blocked on Parameter Context attachment", dataflow.Name)
+		}
+		if condition := dataflow.GetCondition(platformv1alpha1.ConditionSourceResolved); condition != nil && condition.Status == metav1.ConditionFalse {
+			return fmt.Sprintf("NiFiDataflow %s is Blocked: bounded runtime import is blocked before source resolution completed", dataflow.Name)
+		}
+		if condition := dataflow.GetCondition(platformv1alpha1.ConditionTargetResolved); condition != nil && condition.Status == metav1.ConditionFalse {
+			return fmt.Sprintf("NiFiDataflow %s is Blocked: target wiring or referenced resources are not ready", dataflow.Name)
+		}
+		return fmt.Sprintf("NiFiDataflow %s is Blocked: bounded runtime import needs operator attention", dataflow.Name)
+	case platformv1alpha1.DataflowPhaseFailed:
+		return fmt.Sprintf("NiFiDataflow %s is Failed: bounded runtime status observation needs operator attention", dataflow.Name)
+	default:
+		return strings.TrimSpace(dataflow.Status.LastOperation.Message)
 	}
 }
 
