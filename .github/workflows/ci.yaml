@@ -24,6 +24,10 @@ jobs:
       run: go test ./...
     - name: Helm lint
       run: helm lint charts/nifi
+    - name: Authz tool generated overlays are fresh
+      run: make authz-render-check
+    - name: Authz tool validation
+      run: make authz-validate
     - name: Helm template examples
       run: |
         helm template nifi charts/nifi -f examples/standalone/values.yaml >/tmp/nifi-standalone.yaml

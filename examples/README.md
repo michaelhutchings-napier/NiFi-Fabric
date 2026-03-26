@@ -217,6 +217,20 @@ There are also authentication overlays:
   - Compose with [oidc-values.yaml](oidc-values.yaml) and [oidc-group-claims-values.yaml](oidc-group-claims-values.yaml).
   - Use it when the external browser flow stays on the same `oidc + externalClaimGroups` model and NiFi needs a public HTTPS host for redirects.
 
+- [values-dev-keycloak-bootstrap.yaml](values-dev-keycloak-bootstrap.yaml)
+  - Development OIDC overlay for `charts/nifi-platform`.
+  - Convenience path for local, personal, and demo environments.
+  - Pair it with [platform-managed-values.yaml](platform-managed-values.yaml) and [keycloak-dev-bootstrap-realm.json](keycloak-dev-bootstrap-realm.json).
+
+- [keycloak-dev-bootstrap-realm.json](keycloak-dev-bootstrap-realm.json)
+  - Sample Keycloak startup-import realm for the dev bootstrap OIDC path.
+  - Seeds a client, groups, and an optional local dev admin user.
+  - Non-production example only.
+
+- [values-prod-oidc.yaml](values-prod-oidc.yaml)
+  - Production OIDC overlay for `charts/nifi-platform`.
+  - Recommended customer path once the customer-managed Keycloak realm, groups, users, and client already exist.
+
 - [ldap-values.yaml](ldap-values.yaml)
   - Enables `auth.mode=ldap` with `authz.mode=ldapSync`.
 

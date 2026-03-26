@@ -77,6 +77,10 @@ Manage NiFi:
 - [Flow Registry Clients](docs/manage/flow-registry-clients.md)
 - [Operations and Troubleshooting](docs/operations.md)
 
+Optional in-repo tooling:
+
+- [NiFi-Fabric Authz Tooling](tools/nifi-fabric-authz/README.md)
+
 Reference and support:
 
 - [Documentation Home](docs/README.md)
