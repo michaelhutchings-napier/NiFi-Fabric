@@ -16,6 +16,8 @@ The platform also needs to remember the prior running replica count so hibernati
 The minimum condition set is:
 
 - `TargetResolved`
+- `SecretsReady`
+- `TLSMaterialReady`
 - `Available`
 - `Progressing`
 - `Degraded`
@@ -31,6 +33,8 @@ Status also records:
 - `status.hibernation.lastRunningReplicas`
 
 The controller should emit Kubernetes events and expose controller metrics for reconciliation errors, rollout progress, and hibernation transitions.
+
+`SecretsReady` and `TLSMaterialReady` are observation-only conditions. They tell users whether referenced Secret inputs and workload TLS material are present and structurally usable. They do not imply controller ownership of those Secrets.
 
 ## Consequences
 

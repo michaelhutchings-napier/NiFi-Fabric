@@ -118,11 +118,21 @@ func (r *NiFiClusterReconciler) reconcileCluster(ctx context.Context, cluster *p
 
 	switch cluster.Spec.DesiredState {
 	case platformv1alpha1.DesiredStateHibernated:
+		r.markInputReadinessUnknown(cluster, "Hibernated", "Secret and TLS readiness are not evaluated while desiredState=Hibernated")
 		if scaleDownInProgress {
 			pauseAutoscalingScaleDownForLifecycle(cluster, autoscalingBlockedReasonScaleDownPausedForHibernation, "autoscaling scale-down is paused while hibernation has precedence")
 		}
 		return r.reconcileHibernation(ctx, cluster, target, pods)
 	case platformv1alpha1.DesiredStateRunning:
+		readiness, err := r.evaluateInputReadiness(ctx, cluster, target)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("evaluate input readiness: %w", err)
+		}
+		if !readiness.Ready() {
+			r.markInputReadinessBlocked(cluster, readiness)
+			return ctrl.Result{RequeueAfter: rolloutPollRequeue}, nil
+		}
+		r.applyInputReadiness(cluster, readiness)
 		if restoreInProgress(cluster, target) {
 			if scaleDownInProgress {
 				pauseAutoscalingScaleDownForLifecycle(cluster, autoscalingBlockedReasonScaleDownPausedForRestore, "autoscaling scale-down is paused while restore has precedence")
@@ -550,6 +560,7 @@ func reconcileRequestForCluster(cluster platformv1alpha1.NiFiCluster) reconcile.
 
 func (r *NiFiClusterReconciler) markSuspended(cluster *platformv1alpha1.NiFiCluster) {
 	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
+	r.markInputReadinessUnknown(cluster, "Suspended", "Secret and TLS readiness are not evaluated while reconciliation is suspended")
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionTargetResolved,
 		Status:             metav1.ConditionUnknown,
@@ -594,6 +605,7 @@ func (r *NiFiClusterReconciler) markSuspended(cluster *platformv1alpha1.NiFiClus
 
 func (r *NiFiClusterReconciler) markTargetMissing(cluster *platformv1alpha1.NiFiCluster, targetName string) {
 	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
+	r.markInputReadinessUnknown(cluster, "TargetNotResolved", "Secret and TLS readiness are not evaluated until the target StatefulSet exists")
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionTargetResolved,
 		Status:             metav1.ConditionFalse,
@@ -635,6 +647,7 @@ func (r *NiFiClusterReconciler) markTargetMissing(cluster *platformv1alpha1.NiFi
 func (r *NiFiClusterReconciler) markUnmanagedTarget(cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet) {
 	cluster.Status.ObservedStatefulSetRevision = target.Status.UpdateRevision
 	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
+	r.markInputReadinessUnknown(cluster, "UnmanagedTarget", "Secret and TLS readiness are not evaluated for unmanaged targets")
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionTargetResolved,
 		Status:             metav1.ConditionTrue,
@@ -675,6 +688,7 @@ func (r *NiFiClusterReconciler) markUnmanagedTarget(cluster *platformv1alpha1.Ni
 
 func (r *NiFiClusterReconciler) markUnsupportedDesiredState(cluster *platformv1alpha1.NiFiCluster) {
 	cluster.Status.NodeOperation = platformv1alpha1.NodeOperationStatus{}
+	r.markInputReadinessUnknown(cluster, "DesiredStateUnsupported", "Secret and TLS readiness are not evaluated for unsupported desired states")
 	cluster.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionTargetResolved,
 		Status:             metav1.ConditionTrue,

@@ -242,7 +242,7 @@ Defaults in this page are shown only when they are real API defaults or fixed en
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
-| `status.conditions[].type` | string | Condition type. Current controller condition types include `TargetResolved`, `Available`, `Progressing`, `Degraded`, and `Hibernated`. | No |  |
+| `status.conditions[].type` | string | Condition type. Current controller condition types include `TargetResolved`, `SecretsReady`, `TLSMaterialReady`, `Available`, `Progressing`, `Degraded`, and `Hibernated`. `SecretsReady` reports whether referenced Secret inputs are present and usable. `TLSMaterialReady` reports whether the workload TLS Secret and referenced TLS keys are present and structurally usable. | No |  |
 | `status.conditions[].status` | enum | Kubernetes condition status. Values: `True`, `False`, `Unknown`. | No |  |
 | `status.conditions[].reason` | string | Short machine-readable reason. | No |  |
 | `status.conditions[].message` | string | Human-readable condition message. | No |  |
