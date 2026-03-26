@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"sort"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -325,12 +326,93 @@ func requiredTLSSecretKeys(target *appsv1.StatefulSet) []string {
 	if err == nil {
 		for _, propertyName := range []string{"nifi.security.keystore", "nifi.security.truststore"} {
 			if value, ok := extractReplacePropertyValue(initContainer, propertyName); ok {
-				required[path.Base(value)] = struct{}{}
+				value = resolveInitScriptValue(initContainer, value)
+				key := path.Base(value)
+				if key == "" || key == "." {
+					continue
+				}
+				if _, ok := shellVariableName(key); ok {
+					continue
+				}
+				required[key] = struct{}{}
 			}
 		}
 	}
 
 	return sortedKeys(required)
+}
+
+func resolveInitScriptValue(container corev1.Container, value string) string {
+	if name, ok := shellVariableName(value); ok {
+		if resolved, found := findInitScriptAssignment(container, name); found {
+			return resolved
+		}
+	}
+	return value
+}
+
+func shellVariableName(value string) (string, bool) {
+	switch {
+	case strings.HasPrefix(value, "${") && strings.HasSuffix(value, "}"):
+		name := strings.TrimSuffix(strings.TrimPrefix(value, "${"), "}")
+		if name != "" {
+			return name, true
+		}
+	case strings.HasPrefix(value, "$") && len(value) > 1:
+		name := value[1:]
+		if !strings.ContainsAny(name, "/ \t\n\r") {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+func findInitScriptAssignment(container corev1.Container, name string) (string, bool) {
+	scripts := append(append([]string{}, container.Command...), container.Args...)
+	for _, script := range scripts {
+		for _, line := range strings.Split(script, "\n") {
+			if value, ok := extractShellAssignmentValue(line, name); ok {
+				return value, true
+			}
+		}
+	}
+	return "", false
+}
+
+func extractShellAssignmentValue(line, name string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	prefix := name + "="
+	if !strings.HasPrefix(trimmed, prefix) {
+		return "", false
+	}
+
+	value := strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
+	if value == "" {
+		return "", false
+	}
+
+	if strings.HasPrefix(value, "\"") {
+		rest := strings.TrimPrefix(value, "\"")
+		end := strings.Index(rest, "\"")
+		if end == -1 {
+			return "", false
+		}
+		return rest[:end], true
+	}
+	if strings.HasPrefix(value, "'") {
+		rest := strings.TrimPrefix(value, "'")
+		end := strings.Index(rest, "'")
+		if end == -1 {
+			return "", false
+		}
+		return rest[:end], true
+	}
+
+	fields := strings.Fields(value)
+	if len(fields) == 0 {
+		return "", false
+	}
+	return fields[0], true
 }
 
 func validateTLSEnv(loadSecret secretLoader, envVar corev1.EnvVar, envName, tlsSecretName string) (string, string, bool, error) {
