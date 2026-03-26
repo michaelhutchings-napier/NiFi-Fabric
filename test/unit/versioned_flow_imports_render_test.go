@@ -46,6 +46,57 @@ func TestVersionedFlowImportsValidationFailsWithoutImports(t *testing.T) {
 	}
 }
 
+func TestVersionedFlowImportsAllowsControllerBridgeWithoutInlineImports(t *testing.T) {
+	args := append(
+		preparedGitHubFlowRegistryClientArgs(),
+		"--set", "controllerManaged.enabled=true",
+		"--set", "auth.mode=singleUser",
+		"--set", "authz.bundles.flowVersionManager.includeInitialAdmin=true",
+		"--set", "versionedFlowImports.enabled=true",
+		"--set", "versionedFlowImports.controllerBridge.enabled=true",
+	)
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		args...,
+	)
+	if err != nil {
+		t.Fatalf("expected helm template to allow controller bridge without inline imports: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		`"externalImportsPath": "/opt/nifi/fabric/nifidataflows/imports.json"`,
+		`"statusConfigMapName": "test-nifi-nifidataflows-status"`,
+		`name: nifidataflow-bridge`,
+		`name: test-nifi-nifidataflows`,
+		`name: test-nifi-nifidataflows-status`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestVersionedFlowImportsControllerBridgeRequiresManagedWorkload(t *testing.T) {
+	args := append(
+		preparedGitHubFlowRegistryClientArgs(),
+		"--set", "auth.mode=singleUser",
+		"--set", "authz.bundles.flowVersionManager.includeInitialAdmin=true",
+		"--set", "versionedFlowImports.enabled=true",
+		"--set", "versionedFlowImports.controllerBridge.enabled=true",
+	)
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		args...,
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail when controller bridge is enabled without controllerManaged workload\n%s", output)
+	}
+	if !strings.Contains(output, "versionedFlowImports.controllerBridge.enabled=true requires controllerManaged.enabled=true") {
+		t.Fatalf("expected controller bridge validation error\n%s", output)
+	}
+}
+
 func TestVersionedFlowImportsValidationFailsForVersionWithWhitespace(t *testing.T) {
 	args := append(
 		preparedGitHubFlowRegistryClientArgs(),

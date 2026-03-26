@@ -30,11 +30,20 @@ Use app chart values under:
 
 - `versionedFlowImports.enabled`
 - `versionedFlowImports.mountPath`
+- `versionedFlowImports.controllerBridge.*`
 - `versionedFlowImports.imports[]`
 
 Use platform chart values under:
 
 - `nifi.versionedFlowImports.*`
+
+The same bounded runtime path can also consume controller-owned `NiFiDataflow`
+declarations through the optional `versionedFlowImports.controllerBridge.*`
+mount. That bridge reuses the existing in-pod bounded import reconciler rather
+than introducing a separate live flow-management engine. When the controller
+bridge is enabled, the same runtime path also mirrors its latest bounded import
+status into a controller-observed ConfigMap so `NiFiDataflow.status` can report
+live runtime outcomes from the existing pod `-0` reconciler.
 
 ## Ownership and Drift
 
@@ -42,6 +51,7 @@ What the product creates:
 
 - one chart-rendered `ConfigMap` runtime bundle when `versionedFlowImports.enabled=true`
 - one pod mount that makes that bundle available inside the NiFi pod
+- when `versionedFlowImports.controllerBridge.enabled=true`, one chart-rendered runtime status `ConfigMap` that pod `-0` updates with the latest bounded import outcomes
 - for declared `provider=nifiRegistry` imports only, one live product-owned Flow Registry Client in NiFi when it does not already exist
 - the declared root-child imported process-group instances in NiFi for product-owned targets
 - an ownership marker in the imported process-group comments for each declared product-owned target
@@ -54,6 +64,7 @@ What the product reconciles:
 - live attachment or update of the declared registry, bucket, flow, and selected version for owned imported process groups
 - live direct Parameter Context attachment or detachment for the declared imported process group when one reference is configured
 - the ownership marker metadata used to keep the owned scope explicit and auditable
+- the controller-side projection of the runtime status `ConfigMap` back into `NiFiDataflow.status`
 
 What the product references:
 
@@ -89,6 +100,7 @@ Manual UI edits outside the managed import scope are unsupported. The product do
 - at most one direct Parameter Context reference is supported per import in this feature
 - `latest` is resolved during create or declared-change reconcile and then pinned through the ownership marker; the product does not keep polling for newer versions once the declaration is unchanged
 - missing live client, missing selected flow content, or unsupported manual drift is reported as `blocked` in the runtime status file instead of widening the feature into a generic recovery loop
+- when the optional controller bridge is enabled, the same runtime result is surfaced back into `NiFiDataflow.status` from the controller-observed status `ConfigMap`
 - ongoing automatic synchronization to newer registry versions is out of scope
 
 ## Runtime Coverage

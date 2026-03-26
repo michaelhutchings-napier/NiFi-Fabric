@@ -707,6 +707,11 @@ spec:
         - name: versioned-flow-imports
           mountPath: {{ .Values.versionedFlowImports.mountPath }}
           readOnly: true
+        {{- if .Values.versionedFlowImports.controllerBridge.enabled }}
+        - name: nifidataflow-bridge
+          mountPath: {{ .Values.versionedFlowImports.controllerBridge.mountPath }}
+          readOnly: true
+        {{- end }}
         {{- end }}
         {{- if and $flowActionAudit.enabled (eq $flowActionAuditExport.type "log") }}
         - name: flow-action-audit-reporter
@@ -816,6 +821,12 @@ spec:
       - name: versioned-flow-imports
         configMap:
           name: {{ include "nifi.versionedFlowImportsConfigName" . }}
+      {{- if .Values.versionedFlowImports.controllerBridge.enabled }}
+      - name: nifidataflow-bridge
+        configMap:
+          name: {{ include "nifi.nifidataflowBridgeConfigName" . }}
+          optional: true
+      {{- end }}
       {{- end }}
       {{- if and $flowActionAudit.enabled (eq $flowActionAuditExport.type "log") }}
       - name: flow-action-audit-reporter

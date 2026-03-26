@@ -46,6 +46,8 @@
     "reconcilePodOrdinal" 0
     "proxiedIdentity" $proxiedIdentity
     "clientId" "fabric-versioned-flow-import-reconciler"
+    "externalImportsPath" (ternary (printf "%s/imports.json" .Values.versionedFlowImports.controllerBridge.mountPath) "" .Values.versionedFlowImports.controllerBridge.enabled)
+    "statusConfigMapName" (ternary (include "nifi.nifidataflowBridgeStatusConfigName" .) "" .Values.versionedFlowImports.controllerBridge.enabled)
   )
   "ownership" $ownership
   "preparedRegistryClients" (list)
@@ -165,9 +167,54 @@ data:
         pass
 
 
+    def load_external_imports(config):
+        path = config.get("management", {}).get("externalImportsPath", "")
+        if not path or not os.path.exists(path):
+            return []
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        if isinstance(payload, dict):
+            payload = payload.get("imports", [])
+        if not isinstance(payload, list):
+            raise NiFiAPIError("external NiFiDataflow bridge imports payload must be a list or an object with an imports list")
+        imports = []
+        for entry in payload:
+            if not isinstance(entry, dict):
+                raise NiFiAPIError("external NiFiDataflow bridge imports payload must contain only object entries")
+            imports.append(entry)
+        return imports
+
+
+    def validate_merged_imports(imports):
+        import_names = set()
+        target_names = set()
+        for entry in imports:
+            name = str(entry.get("name", "")).strip()
+            if not name:
+                raise NiFiAPIError("merged versioned flow imports require every import to have a non-empty name")
+            if name in import_names:
+                raise NiFiAPIError(f"merged versioned flow imports contain duplicate import name {name!r}")
+            import_names.add(name)
+
+            target = entry.get("target", {})
+            target_name = str(target.get("rootProcessGroupName", "")).strip()
+            if not target_name:
+                raise NiFiAPIError(f"merged versioned flow imports require import {name!r} to declare target.rootProcessGroupName")
+            if target_name in target_names:
+                raise NiFiAPIError(
+                    f"merged versioned flow imports contain duplicate target root process group name {target_name!r}"
+                )
+            target_names.add(target_name)
+
+
     def load_config():
         with open(CONFIG_PATH, "r", encoding="utf-8") as handle:
-            return json.load(handle)
+            config = json.load(handle)
+        imports = list(config.get("imports", []))
+        imports.extend(load_external_imports(config))
+        validate_merged_imports(imports)
+        config["imports"] = imports
+        return config
 
 
     def load_previous_status(config):
@@ -190,16 +237,99 @@ data:
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
             handle.write("\n")
+        publish_status_configmap(config, payload)
 
 
     def base_status(config):
         return {
             "podName": os.environ.get("POD_NAME", ""),
+            "podNamespace": os.environ.get("POD_NAMESPACE", ""),
             "authMode": config["management"].get("authMode", ""),
             "status": "running",
             "imports": [],
             "retainedOwnedImports": [],
         }
+
+
+    def kubernetes_api_base_url():
+        host = os.environ.get("KUBERNETES_SERVICE_HOST", "")
+        port = os.environ.get("KUBERNETES_SERVICE_PORT_HTTPS") or os.environ.get("KUBERNETES_SERVICE_PORT", "443")
+        if not host:
+            raise NiFiAPIError("KUBERNETES_SERVICE_HOST is not available for runtime status publication")
+        return f"https://{host}:{port}"
+
+
+    def kubernetes_request(method, path, payload=None, expect=(200,)):
+        token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        ca_path = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        if not os.path.exists(token_path):
+            raise NiFiAPIError("service account token path is not available for runtime status publication")
+        with open(token_path, "r", encoding="utf-8") as handle:
+            token = handle.read().strip()
+        if not token:
+            raise NiFiAPIError("service account token is empty for runtime status publication")
+
+        headers = {
+            "Authorization": "Bearer " + token,
+        }
+        body = None
+        if payload is not None:
+            body = json.dumps(payload).encode("utf-8")
+            headers["Content-Type"] = "application/merge-patch+json" if method == "PATCH" else "application/json"
+
+        req = urllib.request.Request(kubernetes_api_base_url() + path, data=body, headers=headers, method=method)
+        context = ssl.create_default_context(cafile=ca_path)
+        try:
+            with urllib.request.urlopen(req, timeout=10, context=context) as response:
+                data = response.read()
+                if response.status not in expect:
+                    raise NiFiAPIError(
+                        f"{method} {path} returned unexpected status {response.status}: {data[:4096].decode('utf-8', 'ignore')}"
+                    )
+                if not data:
+                    return None
+                return json.loads(data.decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            body_text = exc.read().decode("utf-8", "ignore")
+            raise NiFiAPIError(f"{method} {path} failed with status {exc.code}: {body_text[:4096]}") from exc
+        except urllib.error.URLError as exc:
+            raise NiFiAPIError(f"{method} {path} failed: {exc}") from exc
+
+
+    def publish_status_configmap(config, payload):
+        configmap_name = config["management"].get("statusConfigMapName", "")
+        namespace = os.environ.get("POD_NAMESPACE", "")
+        if not configmap_name or not namespace:
+            return
+        if payload.get("status") == "skipped":
+            return
+
+        status_json = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+        path = f"/api/v1/namespaces/{urllib.parse.quote(namespace, safe='')}/configmaps/{urllib.parse.quote(configmap_name, safe='')}"
+        patch_payload = {
+            "data": {
+                "status.json": status_json,
+            }
+        }
+        try:
+            kubernetes_request("PATCH", path, patch_payload, expect=(200,))
+            return
+        except Exception:
+            create_payload = {
+                "apiVersion": "v1",
+                "kind": "ConfigMap",
+                "metadata": {
+                    "name": configmap_name,
+                    "namespace": namespace,
+                    "labels": {
+                        "app.kubernetes.io/component": "nifidataflow-bridge-status",
+                    },
+                },
+                "data": {
+                    "status.json": status_json,
+                },
+            }
+            kubernetes_request("POST", f"/api/v1/namespaces/{urllib.parse.quote(namespace, safe='')}/configmaps", create_payload, expect=(201,))
 
 
     def should_manage(config, status):

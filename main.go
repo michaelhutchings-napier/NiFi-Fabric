@@ -60,6 +60,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := (&controller.NiFiDataflowReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("nifidataflow-controller"),
+	}).SetupWithManager(mgr); err != nil {
+		ctrl.Log.WithName("setup").Error(err, "unable to create controller", "controller", "NiFiDataflow")
+		os.Exit(1)
+	}
+
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		ctrl.Log.WithName("setup").Error(err, "unable to set up health check")
 		os.Exit(1)

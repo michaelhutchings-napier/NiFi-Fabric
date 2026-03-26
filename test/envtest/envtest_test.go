@@ -58,4 +58,18 @@ func TestEnvtestScaffold(t *testing.T) {
 	if err := k8sClient.Create(context.Background(), cluster); err != nil {
 		t.Fatalf("create NiFiCluster: %v", err)
 	}
+
+	dataflow := &platformv1alpha1.NiFiDataflow{}
+	dataflow.Name = "example-flow"
+	dataflow.Namespace = "default"
+	dataflow.Spec.ClusterRef.Name = cluster.Name
+	dataflow.Spec.Source.RegistryClient.Name = "github-main"
+	dataflow.Spec.Source.Bucket = "platform-flows"
+	dataflow.Spec.Source.Flow = "example-flow"
+	dataflow.Spec.Source.Version = "1"
+	dataflow.Spec.Target.RootChildProcessGroupName = "example-flow"
+
+	if err := k8sClient.Create(context.Background(), dataflow); err != nil {
+		t.Fatalf("create NiFiDataflow: %v", err)
+	}
 }

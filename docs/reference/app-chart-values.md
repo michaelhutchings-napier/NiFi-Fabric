@@ -236,6 +236,8 @@ For behavior and examples, see [Flows](../manage/flows.md).
 | --- | --- | --- | --- | --- |
 | `versionedFlowImports.enabled` | boolean | Enables runtime-managed versioned-flow import reconciliation. | No | `false` |
 | `versionedFlowImports.mountPath` | string | Mount path for the rendered runtime bundle and status files consumed by the live in-pod reconciler. | No | `/opt/nifi/fabric/versioned-flow-imports` |
+| `versionedFlowImports.controllerBridge.enabled` | boolean | Enables the optional controller-owned `NiFiDataflow` bridge input consumed by the same bounded in-pod reconciler and the matching runtime status ConfigMap observed back into `NiFiDataflow.status`. Requires `controllerManaged.enabled=true`. | No | `false` |
+| `versionedFlowImports.controllerBridge.mountPath` | string | Mount path for the optional controller-owned `NiFiDataflow` bridge ConfigMap. | No | `/opt/nifi/fabric/nifidataflows` |
 | `versionedFlowImports.imports[]` | object list | Declared versioned-flow imports with a selected registry client name, bucket, flow name, selected version identifier or `latest`, one intended root-child target name, and optional direct Parameter Context reference. | No | `[]` |
 
 ## Availability, Storage, and Resources

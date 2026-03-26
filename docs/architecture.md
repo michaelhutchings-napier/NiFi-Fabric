@@ -55,6 +55,8 @@ This keeps the product model simple:
 - TLS-aware restart decisions
 - hibernation and restore sequencing
 - controller-owned autoscaling execution
+- publishing the optional bounded `NiFiDataflow` bridge catalog ConfigMap for the existing in-pod versioned-flow import runtime path when that feature is enabled
+- observing the optional bounded `NiFiDataflow` bridge status ConfigMap written by the same in-pod versioned-flow import runtime path so `NiFiDataflow.status` reflects live runtime outcomes without a second flow-management engine
 - lifecycle safety checks, status, and events
 
 ## Managed Lifecycle Model
@@ -121,6 +123,8 @@ NiFi-Fabric supports a small set of runtime-managed configuration features:
 - Flow Registry Client catalogs
 - Parameter Context management
 - versioned-flow import
+- optional controller-owned `NiFiDataflow` bridge input into the same bounded versioned-flow import runtime path
+- optional controller observation of the corresponding bounded runtime status ConfigMap written by reconcile pod `-0`
 - optional typed Site-to-Site sender-side observability features
 
 These features are intentionally narrower than a broad NiFi object-management operator. They are designed to solve common product use cases without introducing a large CRD or control-plane surface.
