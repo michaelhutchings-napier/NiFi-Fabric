@@ -51,7 +51,7 @@ This keeps the product model simple:
 ### The controller owns
 
 - rollout sequencing
-- Secret and TLS input readiness status for managed running clusters
+- Secret and TLS input readiness status for managed running clusters, including the standard `nifi-auth`, `nifi-tls`, and `nifi-tls-params` contracts when referenced
 - TLS-aware restart decisions
 - hibernation and restore sequencing
 - controller-owned autoscaling execution

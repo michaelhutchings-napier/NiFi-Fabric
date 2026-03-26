@@ -772,8 +772,8 @@ func TestReconcileBlocksWhenTLSSecretIsMissing(t *testing.T) {
 		t.Fatalf("get updated cluster: %v", err)
 	}
 	secretsReady := updatedCluster.GetCondition(platformv1alpha1.ConditionSecretsReady)
-	if secretsReady == nil || secretsReady.Status != metav1.ConditionFalse || secretsReady.Reason != "SecretMissing" {
-		t.Fatalf("expected SecretsReady false for missing TLS secret, got %#v", secretsReady)
+	if secretsReady == nil || secretsReady.Status != metav1.ConditionTrue {
+		t.Fatalf("expected SecretsReady to stay true for a TLS-only failure, got %#v", secretsReady)
 	}
 	tlsReady := updatedCluster.GetCondition(platformv1alpha1.ConditionTLSReady)
 	if tlsReady == nil || tlsReady.Status != metav1.ConditionFalse || tlsReady.Reason != "TLSSecretMissing" {
@@ -816,6 +816,181 @@ func TestReconcileBlocksWhenTLSSecretIsMissingRequiredKey(t *testing.T) {
 	tlsReady := updatedCluster.GetCondition(platformv1alpha1.ConditionTLSReady)
 	if tlsReady == nil || tlsReady.Status != metav1.ConditionFalse || tlsReady.Reason != "TLSSecretKeyMissing" {
 		t.Fatalf("expected TLSMaterialReady false for missing TLS key, got %#v", tlsReady)
+	}
+}
+
+func TestReconcileBlocksWhenExternalTLSSecretIsMissingSensitivePropsKey(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	statefulSet.Spec.Template.Spec.InitContainers[0].Env = append(statefulSet.Spec.Template.Spec.InitContainers[0].Env, corev1.EnvVar{
+		Name: "NIFI_SENSITIVE_PROPS_KEY",
+		ValueFrom: &corev1.EnvVarSource{
+			SecretKeyRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: "nifi-tls"},
+				Key:                  "sensitivePropsKey",
+			},
+		},
+	})
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+		readyPod("nifi-2", "nifi", "nifi-rev"),
+	}
+	tlsSecret := watchedSecret("nifi-tls", corev1.SecretTypeOpaque, map[string][]byte{
+		"ca.crt":             []byte("ca"),
+		"keystore.p12":       []byte("keystore"),
+		"truststore.p12":     []byte("truststore"),
+		"keystorePassword":   []byte("changeit"),
+		"truststorePassword": []byte("changeit"),
+	})
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{}, cluster, statefulSet, tlsSecret, &pods[0], &pods[1], &pods[2])
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected input readiness requeue, got %s", result.RequeueAfter)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	secretsReady := updatedCluster.GetCondition(platformv1alpha1.ConditionSecretsReady)
+	if secretsReady == nil || secretsReady.Status != metav1.ConditionTrue {
+		t.Fatalf("expected SecretsReady to stay true for TLS contract failure, got %#v", secretsReady)
+	}
+	tlsReady := updatedCluster.GetCondition(platformv1alpha1.ConditionTLSReady)
+	if tlsReady == nil || tlsReady.Status != metav1.ConditionFalse || tlsReady.Reason != "TLSSecretKeyMissing" {
+		t.Fatalf("expected TLSMaterialReady false for missing sensitive props key in TLS secret, got %#v", tlsReady)
+	}
+}
+
+func TestReconcileBlocksWhenCertManagerTLSParamsSecretIsMissingKey(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	statefulSet.Spec.Template.Spec.InitContainers[0].Env[0].ValueFrom.SecretKeyRef.Name = "nifi-tls-params"
+	statefulSet.Spec.Template.Spec.InitContainers[0].Env[0].ValueFrom.SecretKeyRef.Key = "pkcs12Password"
+	statefulSet.Spec.Template.Spec.InitContainers[0].Env[1].ValueFrom.SecretKeyRef.Name = "nifi-tls-params"
+	statefulSet.Spec.Template.Spec.InitContainers[0].Env[1].ValueFrom.SecretKeyRef.Key = "pkcs12Password"
+	statefulSet.Spec.Template.Spec.InitContainers[0].Env = append(statefulSet.Spec.Template.Spec.InitContainers[0].Env, corev1.EnvVar{
+		Name: "NIFI_SENSITIVE_PROPS_KEY",
+		ValueFrom: &corev1.EnvVarSource{
+			SecretKeyRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: "nifi-tls-params"},
+				Key:                  "sensitivePropsKey",
+			},
+		},
+	})
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+		readyPod("nifi-2", "nifi", "nifi-rev"),
+	}
+	tlsSecret := watchedSecret("nifi-tls", corev1.SecretTypeOpaque, map[string][]byte{
+		"ca.crt":         []byte("ca"),
+		"keystore.p12":   []byte("keystore"),
+		"truststore.p12": []byte("truststore"),
+	})
+	tlsParamsSecret := watchedSecret("nifi-tls-params", corev1.SecretTypeOpaque, map[string][]byte{
+		"pkcs12Password": []byte("changeit"),
+	})
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{}, cluster, statefulSet, tlsSecret, tlsParamsSecret, &pods[0], &pods[1], &pods[2])
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected input readiness requeue, got %s", result.RequeueAfter)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	secretsReady := updatedCluster.GetCondition(platformv1alpha1.ConditionSecretsReady)
+	if secretsReady == nil || secretsReady.Status != metav1.ConditionTrue {
+		t.Fatalf("expected SecretsReady to stay true for TLS support-secret failure, got %#v", secretsReady)
+	}
+	tlsReady := updatedCluster.GetCondition(platformv1alpha1.ConditionTLSReady)
+	if tlsReady == nil || tlsReady.Status != metav1.ConditionFalse || tlsReady.Reason != "TLSSupportSecretKeyMissing" {
+		t.Fatalf("expected TLSMaterialReady false for missing tls-params key, got %#v", tlsReady)
+	}
+}
+
+func TestReconcileBlocksWhenSingleUserSecretIsMissingPasswordKey(t *testing.T) {
+	ctx := context.Background()
+	cluster := managedCluster()
+
+	replicas := int32(3)
+	statefulSet := managedStatefulSet("nifi", replicas, "nifi-rev", "nifi-rev")
+	statefulSet.Spec.Template.Spec.Containers[0].Env = append(statefulSet.Spec.Template.Spec.Containers[0].Env,
+		corev1.EnvVar{
+			Name: "SINGLE_USER_CREDENTIALS_USERNAME",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "nifi-auth"},
+					Key:                  "username",
+				},
+			},
+		},
+		corev1.EnvVar{
+			Name: "SINGLE_USER_CREDENTIALS_PASSWORD",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "nifi-auth"},
+					Key:                  "password",
+				},
+			},
+		},
+	)
+	pods := []corev1.Pod{
+		readyPod("nifi-0", "nifi", "nifi-rev"),
+		readyPod("nifi-1", "nifi", "nifi-rev"),
+		readyPod("nifi-2", "nifi", "nifi-rev"),
+	}
+	tlsSecret := watchedSecret("nifi-tls", corev1.SecretTypeOpaque, map[string][]byte{
+		"ca.crt":             []byte("ca"),
+		"keystore.p12":       []byte("keystore"),
+		"truststore.p12":     []byte("truststore"),
+		"keystorePassword":   []byte("changeit"),
+		"truststorePassword": []byte("changeit"),
+	})
+	authSecret := watchedSecret("nifi-auth", corev1.SecretTypeOpaque, map[string][]byte{
+		"username": []byte("admin"),
+	})
+
+	reconciler, k8sClient := newTestReconciler(t, &fakeHealthChecker{}, cluster, statefulSet, tlsSecret, authSecret, &pods[0], &pods[1], &pods[2])
+
+	result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if result.RequeueAfter != rolloutPollRequeue {
+		t.Fatalf("expected input readiness requeue, got %s", result.RequeueAfter)
+	}
+
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	secretsReady := updatedCluster.GetCondition(platformv1alpha1.ConditionSecretsReady)
+	if secretsReady == nil || secretsReady.Status != metav1.ConditionFalse || secretsReady.Reason != "SingleUserSecretKeyMissing" {
+		t.Fatalf("expected SecretsReady false for missing single-user password key, got %#v", secretsReady)
+	}
+	tlsReady := updatedCluster.GetCondition(platformv1alpha1.ConditionTLSReady)
+	if tlsReady == nil || tlsReady.Status != metav1.ConditionTrue {
+		t.Fatalf("expected TLSMaterialReady to stay true, got %#v", tlsReady)
 	}
 }
 

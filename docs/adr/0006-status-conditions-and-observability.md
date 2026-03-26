@@ -34,7 +34,7 @@ Status also records:
 
 The controller should emit Kubernetes events and expose controller metrics for reconciliation errors, rollout progress, and hibernation transitions.
 
-`SecretsReady` and `TLSMaterialReady` are observation-only conditions. They tell users whether referenced Secret inputs and workload TLS material are present and structurally usable. They do not imply controller ownership of those Secrets.
+`SecretsReady` and `TLSMaterialReady` are observation-only conditions. They tell users whether referenced Secret inputs and workload TLS material are present and structurally usable, including the standard `nifi-auth`, `nifi-tls`, and `nifi-tls-params` contracts when those inputs are in use. They do not imply controller ownership of those Secrets.
 
 ## Consequences
 

@@ -30,6 +30,8 @@ type secretRequirement struct {
 	RequiredKeys map[string]struct{}
 }
 
+type secretLoader func(name string) (*corev1.Secret, bool, error)
+
 func defaultInputReadiness() inputReadiness {
 	return inputReadiness{
 		SecretsReady:   true,
@@ -63,8 +65,16 @@ func (r *NiFiClusterReconciler) evaluateInputReadiness(ctx context.Context, clus
 		reader = r.Client
 	}
 
-	requirements := collectSecretRequirements(cluster, target)
-	secrets := make(map[string]*corev1.Secret, len(requirements))
+	tlsSecretName, err := findTLSSecretName(target.Spec.Template.Spec.Volumes)
+	if err != nil {
+		readiness.TLSReady = false
+		readiness.TLSReason = "TLSSecretReferenceMissing"
+		readiness.TLSMessage = "Target StatefulSet does not define a TLS Secret volume"
+		return readiness, nil
+	}
+
+	requirements := collectSecretRequirements(cluster, target, tlsSecretName)
+	secrets := make(map[string]*corev1.Secret, len(requirements)+2)
 	loadSecret := func(name string) (*corev1.Secret, bool, error) {
 		if secret, ok := secrets[name]; ok {
 			return secret, true, nil
@@ -81,72 +91,34 @@ func (r *NiFiClusterReconciler) evaluateInputReadiness(ctx context.Context, clus
 		return secret, true, nil
 	}
 
-	for _, requirement := range requirements {
-		if requirement.Name == "" {
-			continue
-		}
-
-		secret, found, err := loadSecret(requirement.Name)
-		if err != nil {
-			return readiness, err
-		}
-		if !found {
-			if readiness.SecretsReady {
-				readiness.SecretsReady = false
-				readiness.SecretsReason = "SecretMissing"
-				readiness.SecretsMessage = fmt.Sprintf("Secret %q is referenced by the managed NiFi inputs but does not exist", requirement.Name)
-			}
-			continue
-		}
-
-		keys := sortedKeys(requirement.RequiredKeys)
-		for _, key := range keys {
-			if len(secret.Data[key]) > 0 {
-				continue
-			}
-			if readiness.SecretsReady {
-				readiness.SecretsReady = false
-				readiness.SecretsReason = "SecretKeyMissing"
-				readiness.SecretsMessage = fmt.Sprintf("Secret %q is missing required key %q", requirement.Name, key)
-			}
-			break
-		}
-	}
-
-	tlsSecretName, err := findTLSSecretName(target.Spec.Template.Spec.Volumes)
-	if err != nil {
-		readiness.TLSReady = false
-		readiness.TLSReason = "TLSSecretReferenceMissing"
-		readiness.TLSMessage = "Target StatefulSet does not define a TLS Secret volume"
-		return readiness, nil
-	}
-
-	tlsSecret, found, err := loadSecret(tlsSecretName)
-	if err != nil {
+	if reason, message, err := validateSecretRequirements(loadSecret, requirements); err != nil {
 		return readiness, err
-	}
-	if !found {
-		readiness.TLSReady = false
-		readiness.TLSReason = "TLSSecretMissing"
-		readiness.TLSMessage = fmt.Sprintf("TLS Secret %q was not found", tlsSecretName)
-		return readiness, nil
+	} else if reason != "" {
+		readiness.SecretsReady = false
+		readiness.SecretsReason = reason
+		readiness.SecretsMessage = message
 	}
 
-	requiredTLSKeys := requiredTLSSecretKeys(target)
-	for _, key := range requiredTLSKeys {
-		if len(tlsSecret.Data[key]) > 0 {
-			continue
-		}
+	if reason, message, handled, err := validateSingleUserSecretRequirements(loadSecret, target); err != nil {
+		return readiness, err
+	} else if handled {
+		readiness.SecretsReady = false
+		readiness.SecretsReason = reason
+		readiness.SecretsMessage = message
+	}
+
+	if reason, message, handled, err := validateTLSContractRequirements(loadSecret, target, tlsSecretName); err != nil {
+		return readiness, err
+	} else if handled {
 		readiness.TLSReady = false
-		readiness.TLSReason = "TLSSecretKeyMissing"
-		readiness.TLSMessage = fmt.Sprintf("TLS Secret %q is missing required key %q", tlsSecretName, key)
-		return readiness, nil
+		readiness.TLSReason = reason
+		readiness.TLSMessage = message
 	}
 
 	return readiness, nil
 }
 
-func collectSecretRequirements(cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet) []secretRequirement {
+func collectSecretRequirements(cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, tlsSecretName string) []secretRequirement {
 	requirements := map[string]map[string]struct{}{}
 	addRequirement := func(name string, keys ...string) {
 		if name == "" {
@@ -164,10 +136,16 @@ func collectSecretRequirements(cluster *platformv1alpha1.NiFiCluster, target *ap
 	}
 
 	for _, ref := range cluster.Spec.RestartTriggers.Secrets {
+		if ref.Name == tlsSecretName {
+			continue
+		}
 		addRequirement(ref.Name)
 	}
 
 	for _, volume := range target.Spec.Template.Spec.Volumes {
+		if volume.Name == "tls" || (volume.Secret != nil && volume.Secret.SecretName == tlsSecretName) {
+			continue
+		}
 		if volume.Secret != nil {
 			keys := make([]string, 0, len(volume.Secret.Items))
 			for _, item := range volume.Secret.Items {
@@ -193,6 +171,9 @@ func collectSecretRequirements(cluster *platformv1alpha1.NiFiCluster, target *ap
 	collectFromContainerSet := func(containers []corev1.Container) {
 		for _, container := range containers {
 			for _, envVar := range container.Env {
+				if coreTLSSecretEnvVarNames[envVar.Name] || singleUserSecretEnvVarNames[envVar.Name] {
+					continue
+				}
 				if envVar.ValueFrom != nil && envVar.ValueFrom.SecretKeyRef != nil {
 					addRequirement(envVar.ValueFrom.SecretKeyRef.Name, envVar.ValueFrom.SecretKeyRef.Key)
 				}
@@ -225,6 +206,116 @@ func collectSecretRequirements(cluster *platformv1alpha1.NiFiCluster, target *ap
 	return result
 }
 
+var coreTLSSecretEnvVarNames = map[string]bool{
+	"KEYSTORE_PASSWORD":        true,
+	"TRUSTSTORE_PASSWORD":      true,
+	"NIFI_SENSITIVE_PROPS_KEY": true,
+}
+
+var singleUserSecretEnvVarNames = map[string]bool{
+	"SINGLE_USER_CREDENTIALS_USERNAME": true,
+	"SINGLE_USER_CREDENTIALS_PASSWORD": true,
+}
+
+func validateSecretRequirements(loadSecret secretLoader, requirements []secretRequirement) (string, string, error) {
+	for _, requirement := range requirements {
+		if requirement.Name == "" {
+			continue
+		}
+
+		secret, found, err := loadSecret(requirement.Name)
+		if err != nil {
+			return "", "", err
+		}
+		if !found {
+			return "SecretMissing", fmt.Sprintf("Secret %q is referenced by the managed NiFi inputs but does not exist", requirement.Name), nil
+		}
+
+		for _, key := range sortedKeys(requirement.RequiredKeys) {
+			if len(secret.Data[key]) > 0 {
+				continue
+			}
+			return "SecretKeyMissing", fmt.Sprintf("Secret %q is missing required key %q", requirement.Name, key), nil
+		}
+	}
+
+	return "", "", nil
+}
+
+func validateSingleUserSecretRequirements(loadSecret secretLoader, target *appsv1.StatefulSet) (string, string, bool, error) {
+	container, err := findContainer(target.Spec.Template.Spec.Containers, nifiContainerName)
+	if err != nil {
+		return "", "", false, nil
+	}
+
+	usernameEnv, usernameFound := findEnvVar(container.Env, "SINGLE_USER_CREDENTIALS_USERNAME")
+	passwordEnv, passwordFound := findEnvVar(container.Env, "SINGLE_USER_CREDENTIALS_PASSWORD")
+	if !usernameFound && !passwordFound {
+		return "", "", false, nil
+	}
+	if !usernameFound || !passwordFound {
+		return "SingleUserSecretReferenceMissing", "The target StatefulSet is missing one or more single-user credential Secret references", true, nil
+	}
+
+	if reason, message, handled, err := validateSecretBackedEnv(loadSecret, usernameEnv, "single-user username", "SingleUserSecretReferenceMissing", "SingleUserSecretMissing", "SingleUserSecretKeyMissing"); err != nil {
+		return "", "", false, err
+	} else if handled {
+		return reason, message, true, nil
+	}
+	if reason, message, handled, err := validateSecretBackedEnv(loadSecret, passwordEnv, "single-user password", "SingleUserSecretReferenceMissing", "SingleUserSecretMissing", "SingleUserSecretKeyMissing"); err != nil {
+		return "", "", false, err
+	} else if handled {
+		return reason, message, true, nil
+	}
+
+	return "", "", false, nil
+}
+
+func validateTLSContractRequirements(loadSecret secretLoader, target *appsv1.StatefulSet, tlsSecretName string) (string, string, bool, error) {
+	tlsSecret, found, err := loadSecret(tlsSecretName)
+	if err != nil {
+		return "", "", false, err
+	}
+	if !found {
+		return "TLSSecretMissing", fmt.Sprintf("TLS Secret %q was not found", tlsSecretName), true, nil
+	}
+
+	for _, key := range requiredTLSSecretKeys(target) {
+		if len(tlsSecret.Data[key]) > 0 {
+			continue
+		}
+		return "TLSSecretKeyMissing", fmt.Sprintf("TLS Secret %q is missing required key %q", tlsSecretName, key), true, nil
+	}
+
+	initContainer, err := findContainer(target.Spec.Template.Spec.InitContainers, "init-conf")
+	if err != nil {
+		return "TLSConfigurationReferenceMissing", "The target StatefulSet is missing the init-conf container required for TLS bootstrap", true, nil
+	}
+
+	for _, envName := range []string{"KEYSTORE_PASSWORD", "TRUSTSTORE_PASSWORD"} {
+		envVar, found := findEnvVar(initContainer.Env, envName)
+		if !found {
+			return "TLSConfigurationReferenceMissing", fmt.Sprintf("The target StatefulSet is missing TLS bootstrap env %q", envName), true, nil
+		}
+
+		if reason, message, handled, err := validateTLSEnv(loadSecret, envVar, envName, tlsSecretName); err != nil {
+			return "", "", false, err
+		} else if handled {
+			return reason, message, true, nil
+		}
+	}
+
+	if envVar, found := findEnvVar(initContainer.Env, "NIFI_SENSITIVE_PROPS_KEY"); found {
+		if reason, message, handled, err := validateTLSEnv(loadSecret, envVar, "NIFI_SENSITIVE_PROPS_KEY", tlsSecretName); err != nil {
+			return "", "", false, err
+		} else if handled {
+			return reason, message, true, nil
+		}
+	}
+
+	return "", "", false, nil
+}
+
 func requiredTLSSecretKeys(target *appsv1.StatefulSet) []string {
 	required := map[string]struct{}{
 		defaultCACertKey: {},
@@ -232,12 +323,6 @@ func requiredTLSSecretKeys(target *appsv1.StatefulSet) []string {
 
 	initContainer, err := findContainer(target.Spec.Template.Spec.InitContainers, "init-conf")
 	if err == nil {
-		for _, envName := range []string{"KEYSTORE_PASSWORD", "TRUSTSTORE_PASSWORD"} {
-			secretRef, refErr := findSecretKeyRef(initContainer.Env, envName)
-			if refErr == nil {
-				required[secretRef.Key] = struct{}{}
-			}
-		}
 		for _, propertyName := range []string{"nifi.security.keystore", "nifi.security.truststore"} {
 			if value, ok := extractReplacePropertyValue(initContainer, propertyName); ok {
 				required[path.Base(value)] = struct{}{}
@@ -246,6 +331,65 @@ func requiredTLSSecretKeys(target *appsv1.StatefulSet) []string {
 	}
 
 	return sortedKeys(required)
+}
+
+func validateTLSEnv(loadSecret secretLoader, envVar corev1.EnvVar, envName, tlsSecretName string) (string, string, bool, error) {
+	if envVar.Value != "" {
+		return "", "", false, nil
+	}
+	if envVar.ValueFrom == nil || envVar.ValueFrom.SecretKeyRef == nil {
+		return "TLSConfigurationReferenceMissing", fmt.Sprintf("TLS bootstrap env %q must come from an inline value or Secret reference", envName), true, nil
+	}
+
+	secretRef := envVar.ValueFrom.SecretKeyRef
+	secret, found, err := loadSecret(secretRef.Name)
+	if err != nil {
+		return "", "", false, err
+	}
+	if !found {
+		if secretRef.Name == tlsSecretName {
+			return "TLSSecretMissing", fmt.Sprintf("TLS Secret %q was not found", secretRef.Name), true, nil
+		}
+		return "TLSSupportSecretMissing", fmt.Sprintf("TLS support Secret %q was not found for %s", secretRef.Name, envName), true, nil
+	}
+	if len(secret.Data[secretRef.Key]) > 0 {
+		return "", "", false, nil
+	}
+	if secretRef.Name == tlsSecretName {
+		return "TLSSecretKeyMissing", fmt.Sprintf("TLS Secret %q is missing required key %q", secretRef.Name, secretRef.Key), true, nil
+	}
+	return "TLSSupportSecretKeyMissing", fmt.Sprintf("TLS support Secret %q is missing required key %q for %s", secretRef.Name, secretRef.Key, envName), true, nil
+}
+
+func validateSecretBackedEnv(loadSecret secretLoader, envVar corev1.EnvVar, description, referenceReason, secretReason, keyReason string) (string, string, bool, error) {
+	if envVar.Value != "" {
+		return "", "", false, nil
+	}
+	if envVar.ValueFrom == nil || envVar.ValueFrom.SecretKeyRef == nil {
+		return referenceReason, fmt.Sprintf("The target StatefulSet must provide %s through a Secret reference or inline value", description), true, nil
+	}
+
+	secretRef := envVar.ValueFrom.SecretKeyRef
+	secret, found, err := loadSecret(secretRef.Name)
+	if err != nil {
+		return "", "", false, err
+	}
+	if !found {
+		return secretReason, fmt.Sprintf("Secret %q was not found for %s", secretRef.Name, description), true, nil
+	}
+	if len(secret.Data[secretRef.Key]) > 0 {
+		return "", "", false, nil
+	}
+	return keyReason, fmt.Sprintf("Secret %q is missing required key %q for %s", secretRef.Name, secretRef.Key, description), true, nil
+}
+
+func findEnvVar(envVars []corev1.EnvVar, name string) (corev1.EnvVar, bool) {
+	for _, envVar := range envVars {
+		if envVar.Name == name {
+			return envVar, true
+		}
+	}
+	return corev1.EnvVar{}, false
 }
 
 func sortedKeys(values map[string]struct{}) []string {
