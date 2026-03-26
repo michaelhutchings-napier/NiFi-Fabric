@@ -78,7 +78,7 @@ Autoscaling stays intentionally conservative:
 
 For autoscaling detail, see [Autoscaling](manage/autoscaling.md) and [KEDA](keda.md).
 
-## Security, TLS, and Metrics
+## Security, TLS, Metrics, and Audit
 
 The standard production path is:
 
@@ -92,11 +92,27 @@ The controller does not create or mutate those Secrets. It only reports whether 
 
 For metrics, the primary path is direct secured scraping of the NiFi 2 Prometheus endpoint through the native API path. An optional exporter path is also available when a dedicated `/metrics` endpoint is preferred.
 
+The audit design keeps design-time flow-change audit separate from metrics and provenance.
+
+The planned audit model is:
+
+- NiFi-native local history and archive retention first
+- optional bounded external export through a `FlowActionReporter`
+- no new CRD
+- no controller-owned reconciliation loop
+
+This keeps the ownership model consistent:
+
+- NiFi keeps native runtime audit behavior
+- Helm owns future workload configuration for audit export
+- external log or audit systems own long-term retention and search
+
 For more detail, see:
 
 - [TLS and cert-manager](manage/tls-and-cert-manager.md)
 - [Authentication](manage/authentication.md)
 - [Observability and Metrics](manage/observability-metrics.md)
+- [Observability Audit Design](manage/observability-audit.md)
 
 ## Configuration Features
 

@@ -1,0 +1,27 @@
+# Optional managed-platform overlay for bounded flow-action audit export.
+# This keeps NiFi-native local history and flow archive as the primary support
+# layer, then adds the advanced log-only reporter path on top.
+#
+# Before using this overlay, build and publish or load a reporter image that
+# contains the NAR artifact, for example:
+#   make build-flow-action-audit-reporter-image
+#
+# Compose it with:
+# - examples/platform-managed-values.yaml
+nifi:
+  image:
+    repository: apache/nifi
+    tag: "2.8.0"
+    pullPolicy: IfNotPresent
+  observability:
+    audit:
+      flowActions:
+        enabled: true
+        export:
+          type: log
+          log:
+            installation:
+              image:
+                repository: nifi-flow-action-audit-reporter
+                tag: 0.0.1-SNAPSHOT
+                pullPolicy: IfNotPresent

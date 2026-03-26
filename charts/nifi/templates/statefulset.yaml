@@ -1,3 +1,11 @@
+{{- $observability := default (dict) .Values.observability -}}
+{{- $audit := default (dict) $observability.audit -}}
+{{- $flowActionAudit := default (dict) $audit.flowActions -}}
+{{- $flowActionAuditExport := default (dict) $flowActionAudit.export -}}
+{{- $flowActionAuditExportLog := default (dict) $flowActionAuditExport.log -}}
+{{- $flowActionAuditExportLogInstallation := default (dict) $flowActionAuditExportLog.installation -}}
+{{- $flowActionAuditExportLogImage := default (dict) $flowActionAuditExportLogInstallation.image -}}
+{{- $flowActionAuditReporterMountPath := "/opt/nifi/fabric/extensions/flow-action-audit" -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -375,6 +383,25 @@ spec:
           mountPath: {{ .Values.tls.additionalTrustBundle.mountPath }}
           readOnly: true
         {{- end }}
+      {{- if and $flowActionAudit.enabled (eq $flowActionAuditExport.type "log") }}
+      - name: install-flow-action-audit-reporter
+        image: "{{ $flowActionAuditExportLogImage.repository }}:{{ $flowActionAuditExportLogImage.tag }}"
+        imagePullPolicy: {{ $flowActionAuditExportLogImage.pullPolicy }}
+        command:
+        - /bin/sh
+        - -ec
+        - |
+          if [ ! -f "{{ $flowActionAuditExportLogImage.narPath }}" ]; then
+            echo "flow-action audit reporter NAR not found at {{ $flowActionAuditExportLogImage.narPath }}" >&2
+            exit 1
+          fi
+          cp "{{ $flowActionAuditExportLogImage.narPath }}" "{{ $flowActionAuditReporterMountPath }}/"
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
+        volumeMounts:
+        - name: flow-action-audit-reporter
+          mountPath: {{ $flowActionAuditReporterMountPath }}
+      {{- end }}
       {{- with .Values.extraInitContainers }}
       {{- range . }}
         {{- $container := deepCopy . }}
@@ -681,6 +708,11 @@ spec:
           mountPath: {{ .Values.versionedFlowImports.mountPath }}
           readOnly: true
         {{- end }}
+        {{- if and $flowActionAudit.enabled (eq $flowActionAuditExport.type "log") }}
+        - name: flow-action-audit-reporter
+          mountPath: {{ $flowActionAuditReporterMountPath }}
+          readOnly: true
+        {{- end }}
         {{- with .Values.extraVolumeMounts }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -784,6 +816,10 @@ spec:
       - name: versioned-flow-imports
         configMap:
           name: {{ include "nifi.versionedFlowImportsConfigName" . }}
+      {{- end }}
+      {{- if and $flowActionAudit.enabled (eq $flowActionAuditExport.type "log") }}
+      - name: flow-action-audit-reporter
+        emptyDir: {}
       {{- end }}
       {{- with .Values.extraVolumes }}
       {{- toYaml . | nindent 6 }}

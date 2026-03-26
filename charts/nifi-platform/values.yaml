@@ -248,6 +248,7 @@ keda:
 # Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/tls-and-cert-manager.md
 # Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/authentication.md
 # Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/observability-metrics.md
+# Docs: https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/manage/observability-audit.md
 # ------------------------------------------------------------------------------
 
 # -- Nested `charts/nifi` values passed through by the platform chart.
@@ -267,6 +268,7 @@ keda:
 # - `nifi.ingress.*` or `nifi.openshift.route.*`
 # - `nifi.observability.metrics.*`; the default managed recommendation here is native API metrics without a reverse-proxy sidecar
 # - `nifi.observability.metrics.*.tlsConfig.ca.useTrustManagerBundle=true` when using the optional trust-manager bundle
+# - `nifi.observability.audit.flowActions.*` for durable local audit and the bounded advanced log-export path
 nifi:
   observability:
     metrics:
