@@ -33,9 +33,7 @@ jobs:
       shell: bash
       run: |
         if [[ "${{ github.event_name }}" == "schedule" ]]; then
-          cat <<'EOF' >>"${GITHUB_OUTPUT}"
-          matrix=["kind-alpha-e2e","kind-auth-oidc-initial-admin-group-fast-e2e","kind-auth-oidc-ingress-initial-admin-group-fast-e2e"]
-          EOF
+          printf '%s\n' 'matrix=["kind-alpha-e2e","kind-auth-oidc-initial-admin-group-fast-e2e","kind-auth-oidc-ingress-initial-admin-group-fast-e2e"]' >>"${GITHUB_OUTPUT}"
         else
           printf 'matrix=["%s"]\n' "${{ github.event.inputs.target }}" >>"${GITHUB_OUTPUT}"
         fi
