@@ -204,10 +204,22 @@ type RolloutStatus struct {
 	CompletedPods              []string       `json:"completedPods,omitempty"`
 }
 
+type TLSStatusPhase string
+
+const (
+	TLSStatusPhaseIdle                   TLSStatusPhase = "Idle"
+	TLSStatusPhaseObservingAutoreload    TLSStatusPhase = "ObservingAutoreload"
+	TLSStatusPhaseResolvedWithoutRestart TLSStatusPhase = "ResolvedWithoutRestart"
+	TLSStatusPhaseRestartRequired        TLSStatusPhase = "RestartRequired"
+)
+
 type TLSStatus struct {
-	ObservationStartedAt       *metav1.Time `json:"observationStartedAt,omitempty"`
-	TargetCertificateHash      string       `json:"targetCertificateHash,omitempty"`
-	TargetTLSConfigurationHash string       `json:"targetTLSConfigurationHash,omitempty"`
+	ObservationStartedAt       *metav1.Time   `json:"observationStartedAt,omitempty"`
+	Phase                      TLSStatusPhase `json:"phase,omitempty"`
+	Reason                     string         `json:"reason,omitempty"`
+	Message                    string         `json:"message,omitempty"`
+	TargetCertificateHash      string         `json:"targetCertificateHash,omitempty"`
+	TargetTLSConfigurationHash string         `json:"targetTLSConfigurationHash,omitempty"`
 }
 
 type AutoscalingSignalStatus struct {

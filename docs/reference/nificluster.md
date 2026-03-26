@@ -135,6 +135,9 @@ Defaults in this page are shown only when they are real API defaults or fixed en
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
 | `status.tls.observationStartedAt` | timestamp | When the current TLS observation window began. | No |  |
+| `status.tls.phase` | enum | Current TLS decision state. Values: `Idle`, `ObservingAutoreload`, `ResolvedWithoutRestart`, `RestartRequired`. | No |  |
+| `status.tls.reason` | string | Short controller reason for the current TLS decision state. | No |  |
+| `status.tls.message` | string | Human-readable TLS decision summary. | No |  |
 | `status.tls.targetCertificateHash` | string | Certificate hash the controller is evaluating or has settled on. | No |  |
 | `status.tls.targetTLSConfigurationHash` | string | TLS configuration hash the controller is evaluating or has settled on. | No |  |
 

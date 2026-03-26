@@ -88,7 +88,7 @@ The standard production path is:
 
 The standard managed install uses cert-manager for workload TLS and can bootstrap the auth or parameter Secrets it needs for the quickstart path. When you later move to the explicit cert-manager path and keep the same Secret names, the chart preserves those previously generated quickstart Secrets so the handoff stays stable.
 
-The controller does not create or mutate those Secrets. It only reports whether the referenced Secret inputs are present and structurally usable before managed running-state orchestration continues.
+The controller does not create or mutate those Secrets. It only reports whether the referenced Secret inputs are present and structurally usable before managed running-state orchestration continues. For TLS drift, it also reports the current TLS decision state in `status.tls`, including whether the controller is idle, observing NiFi autoreload, or has determined that a controlled restart is required.
 
 For metrics, the primary path is direct secured scraping of the NiFi 2 Prometheus endpoint through the native API path. An optional exporter path is also available when a dedicated `/metrics` endpoint is preferred.
 

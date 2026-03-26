@@ -35,13 +35,15 @@ Signals:
 
 - `nifi_platform_tls_actions_total{action="observe_only",result="degraded"}`
 - `nifi_platform_tls_actions_total{action="restart_required",result=~"started|failed"}`
+- `status.tls.phase`
+- `status.tls.reason`
 - `status.tls.observationStartedAt`
 - `status.rollout.trigger=TLSDrift`
 
 Check:
 
 ```bash
-kubectl -n nifi get nificluster nifi -o jsonpath='{.status.tls.observationStartedAt}{"\n"}{.status.rollout.trigger}{"\n"}{.status.observedCertificateHash}{"\n"}{.status.observedTLSConfigurationHash}{"\n"}'
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.tls.phase}{" "}{.status.tls.reason}{"\n"}{.status.tls.message}{"\n"}{.status.tls.observationStartedAt}{"\n"}{.status.rollout.trigger}{"\n"}{.status.observedCertificateHash}{"\n"}{.status.observedTLSConfigurationHash}{"\n"}'
 kubectl -n nifi describe nificluster nifi
 kubectl -n nifi get secret nifi-tls -o yaml
 kubectl -n nifi-system logs deployment/nifi-controller-manager --tail=200

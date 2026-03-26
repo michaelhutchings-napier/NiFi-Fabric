@@ -1040,6 +1040,12 @@ func TestReconcileStartsTLSAutoreloadObservationForStableContentDrift(t *testing
 	if updatedCluster.Status.TLS.ObservationStartedAt == nil {
 		t.Fatalf("expected TLS observation to start")
 	}
+	if updatedCluster.Status.TLS.Phase != platformv1alpha1.TLSStatusPhaseObservingAutoreload {
+		t.Fatalf("expected TLS phase %q, got %q", platformv1alpha1.TLSStatusPhaseObservingAutoreload, updatedCluster.Status.TLS.Phase)
+	}
+	if updatedCluster.Status.TLS.Reason != "TLSAutoreloadObserving" {
+		t.Fatalf("expected TLS observing reason, got %q", updatedCluster.Status.TLS.Reason)
+	}
 	if updatedCluster.Status.Rollout.Trigger != "" {
 		t.Fatalf("expected no rollout trigger while observing TLS drift, got %q", updatedCluster.Status.Rollout.Trigger)
 	}
@@ -1109,6 +1115,12 @@ func TestReconcileResolvesTLSContentDriftWithoutRolloutAfterObservation(t *testi
 	if updatedCluster.Status.TLS.ObservationStartedAt != nil {
 		t.Fatalf("expected TLS observation to clear after resolution")
 	}
+	if updatedCluster.Status.TLS.Phase != platformv1alpha1.TLSStatusPhaseResolvedWithoutRestart {
+		t.Fatalf("expected TLS phase %q after resolution, got %q", platformv1alpha1.TLSStatusPhaseResolvedWithoutRestart, updatedCluster.Status.TLS.Phase)
+	}
+	if updatedCluster.Status.TLS.Reason != "TLSDriftResolvedWithoutRestart" {
+		t.Fatalf("expected TLS resolved reason, got %q", updatedCluster.Status.TLS.Reason)
+	}
 	progressing := updatedCluster.GetCondition(platformv1alpha1.ConditionProgressing)
 	if progressing == nil || progressing.Reason != "TLSDriftResolvedWithoutRestart" {
 		t.Fatalf("expected TLS resolved reason, got %#v", progressing)
@@ -1154,6 +1166,16 @@ func TestReconcileEscalatesTLSContentDriftWhenHealthDegrades(t *testing.T) {
 	if result.RequeueAfter != rolloutPollRequeue {
 		t.Fatalf("expected rollout requeue after TLS escalation, got %s", result.RequeueAfter)
 	}
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.TLS.Phase != platformv1alpha1.TLSStatusPhaseRestartRequired {
+		t.Fatalf("expected TLS phase %q after escalation, got %q", platformv1alpha1.TLSStatusPhaseRestartRequired, updatedCluster.Status.TLS.Phase)
+	}
+	if updatedCluster.Status.TLS.Reason != "TLSAutoreloadHealthDegraded" {
+		t.Fatalf("expected TLS restart-required reason for health degradation, got %q", updatedCluster.Status.TLS.Reason)
+	}
 	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: "nifi-2"}, &corev1.Pod{}); err == nil {
 		t.Fatalf("expected nifi-2 to be deleted for TLS rollout")
 	}
@@ -1195,6 +1217,16 @@ func TestReconcileAlwaysRestartPolicyEscalatesTLSContentDrift(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile returned error: %v", err)
 	}
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.TLS.Phase != platformv1alpha1.TLSStatusPhaseRestartRequired {
+		t.Fatalf("expected TLS phase %q for always-restart policy, got %q", platformv1alpha1.TLSStatusPhaseRestartRequired, updatedCluster.Status.TLS.Phase)
+	}
+	if updatedCluster.Status.TLS.Reason != "TLSRestartPolicyAlwaysRestart" {
+		t.Fatalf("expected TLS always-restart reason, got %q", updatedCluster.Status.TLS.Reason)
+	}
 	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: "nifi-2"}, &corev1.Pod{}); err == nil {
 		t.Fatalf("expected nifi-2 to be deleted for always-restart TLS policy")
 	}
@@ -1231,6 +1263,16 @@ func TestReconcileMaterialTLSConfigChangeTriggersRolloutImmediately(t *testing.T
 	_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(cluster)})
 	if err != nil {
 		t.Fatalf("reconcile returned error: %v", err)
+	}
+	updatedCluster := &platformv1alpha1.NiFiCluster{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), updatedCluster); err != nil {
+		t.Fatalf("get updated cluster: %v", err)
+	}
+	if updatedCluster.Status.TLS.Phase != platformv1alpha1.TLSStatusPhaseRestartRequired {
+		t.Fatalf("expected TLS phase %q for material TLS change, got %q", platformv1alpha1.TLSStatusPhaseRestartRequired, updatedCluster.Status.TLS.Phase)
+	}
+	if updatedCluster.Status.TLS.Reason != "TLSConfigurationDriftDetected" {
+		t.Fatalf("expected TLS configuration drift reason, got %q", updatedCluster.Status.TLS.Reason)
 	}
 	if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: "nifi-2"}, &corev1.Pod{}); err == nil {
 		t.Fatalf("expected nifi-2 to be deleted for material TLS config change")
@@ -1289,6 +1331,9 @@ func TestReconcileResumesTLSObservationAfterRestart(t *testing.T) {
 	}
 	if updatedCluster.Status.TLS.ObservationStartedAt == nil {
 		t.Fatalf("expected TLS observation startedAt to be preserved")
+	}
+	if updatedCluster.Status.TLS.Phase != platformv1alpha1.TLSStatusPhaseObservingAutoreload {
+		t.Fatalf("expected TLS phase %q while resuming observation, got %q", platformv1alpha1.TLSStatusPhaseObservingAutoreload, updatedCluster.Status.TLS.Phase)
 	}
 	if updatedCluster.Status.TLS.ObservationStartedAt.Time.After(startedAt.Time.Add(2 * time.Second)) {
 		t.Fatalf("expected TLS observation startedAt to be preserved")
