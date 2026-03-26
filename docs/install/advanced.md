@@ -97,6 +97,18 @@ For advanced managed installs:
 
 See [Authentication](../manage/authentication.md) for the auth-mode details and supported value shapes.
 
+Optional higher-level platform integration is also possible for OIDC:
+
+- keep the NiFi-Fabric chart contract unchanged
+- declare the OIDC client secret once
+- use that same secret in both Keycloak bootstrap and `Secret/nifi-oidc`
+- keep this as an advanced install option above `charts/nifi-platform`, not as a change to the core chart contract
+
+See:
+
+- [Integrated OIDC Install Contract](integrated-oidc.md)
+- [Keycloak OIDC Production Setup](keycloak-oidc-production.md)
+
 #### OIDC Dev Bootstrap Track
 
 Use this when you want a local, personal, or demo-friendly OIDC workflow with a small Keycloak realm bootstrap and an optional dev admin user.
@@ -144,6 +156,7 @@ helm upgrade --install nifi charts/nifi-platform \
 Use:
 
 - [values-prod-oidc.yaml](../../examples/values-prod-oidc.yaml)
+- [Keycloak OIDC Production Setup](keycloak-oidc-production.md)
 
 This is the recommended customer ownership model because Keycloak owns realm, client, user, and group administration while NiFi-Fabric only needs the matching authz scaffold ready before first login.
 
@@ -153,6 +166,33 @@ Operational note:
 - adding those users to existing seeded groups does not require a NiFi restart
 - already logged-in users should re-login after membership changes so NiFi sees fresh claims
 - new group names still require an authz overlay update and rollout
+
+#### Advanced Integrated OIDC Option
+
+Use this only when you want a higher-level install path that bootstraps both Keycloak and NiFi-Fabric together while keeping the NiFi chart contract stable.
+
+Recommended shape:
+
+1. A higher-level install layer creates or references `Secret/nifi-oidc`.
+2. That same secret value is used when bootstrapping the Keycloak OIDC client.
+3. `charts/nifi-platform` still consumes the existing OIDC values contract unchanged.
+
+This is intentionally:
+
+- advanced
+- optional
+- install-time only
+
+It is intentionally not:
+
+- a change to the core NiFi-Fabric OIDC contract
+- runtime secret discovery from Keycloak
+- Keycloak reconciliation by NiFi-Fabric
+
+See:
+
+- [Integrated OIDC Install Contract](integrated-oidc.md)
+- [integrated-keycloak-oidc-contract.yaml](../../examples/integrated-keycloak-oidc-contract.yaml)
 
 ## Generated Manifest Bundle
 
