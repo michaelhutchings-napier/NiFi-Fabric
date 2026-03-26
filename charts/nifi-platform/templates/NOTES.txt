@@ -13,6 +13,22 @@ Managed mode details:
 {{- if eq (include "nifi-platform.mode" .) "managed-cert-manager" }}
 - cert-manager is a prerequisite and is not installed by this chart
 {{- end }}
+{{- if eq (include "nifi-platform.installProfile" .) "quickstart-cert-manager" }}
+- quickstart generated `Secret/{{ include "nifi-platform.nifiAuthSecretName" . }}`
+- quickstart generated `Secret/{{ include "nifi-platform.nifiCertManagerPKCS12PasswordSecretName" . }}` for PKCS12 password and sensitive props
+- cert-manager writes `Secret/{{ include "nifi-platform.tlsSecretName" . }}`
+{{- else if eq (include "nifi-platform.installProfile" .) "quickstart-self-signed" }}
+- quickstart generated `Secret/{{ include "nifi-platform.nifiAuthSecretName" . }}`
+- quickstart generated `Secret/{{ include "nifi-platform.tlsSecretName" . }}` with PKCS12 material and sensitive props
+{{- else if eq (include "nifi-platform.nifiTLSMode" .) "certManager" }}
+- expected before install: `Secret/{{ include "nifi-platform.nifiAuthSecretName" . }}` when using single-user auth
+- expected before install: `Secret/{{ include "nifi-platform.nifiCertManagerPKCS12PasswordSecretName" . }}` for PKCS12 password and sensitive props
+- cert-manager writes `Secret/{{ include "nifi-platform.tlsSecretName" . }}`
+{{- else }}
+- expected before install: `Secret/{{ include "nifi-platform.nifiAuthSecretName" . }}` when using single-user auth
+- expected before install: `Secret/{{ include "nifi-platform.tlsSecretName" . }}` with PKCS12 material, passwords, and sensitive props
+{{- end }}
+- Secret contract examples live under `examples/secret-contracts/`
 {{- else }}
 Standalone mode details:
 
