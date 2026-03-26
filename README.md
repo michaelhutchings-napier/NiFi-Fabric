@@ -36,7 +36,7 @@ After install, continue with [First Access and Day-1 Checks](docs/first-day.md).
 - secure-by-default, cert-manager-first installation
 - safe lifecycle handling for rollout, TLS restart policy, hibernation, restore, and controller-owned autoscaling
 - advisory and enforced autoscaling, plus optional KEDA integration
-- first-class managed authentication options, including OIDC and LDAP
+- enterprise authentication paths, including Keycloak/OIDC group-based access and native LDAP support
 - runtime-managed NiFi configuration features, including Flow Registry Client catalogs, versioned-flow import, and Parameter Context management
 - OpenShift `Route` support for external HTTPS access
 - optional service mesh profiles for Linkerd, Istio sidecar mode, and Istio Ambient

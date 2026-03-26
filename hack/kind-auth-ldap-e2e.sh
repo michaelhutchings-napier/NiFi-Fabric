@@ -14,6 +14,8 @@ START_EPOCH="$(date +%s)"
 SKIP_KIND_BOOTSTRAP="${SKIP_KIND_BOOTSTRAP:-false}"
 FAST_PROFILE="${FAST_PROFILE:-false}"
 FAST_VALUES_FILE="${FAST_VALUES_FILE:-examples/test-fast-values.yaml}"
+VERSION_VALUES_FILE="${VERSION_VALUES_FILE:-}"
+LDAP_BOOTSTRAP_MODE="${LDAP_BOOTSTRAP_MODE:-identity}"
 LOCALBIN="${LOCALBIN:-${ROOT_DIR}/bin}"
 KUBECTL_VERSION="${KUBECTL_VERSION:-v1.31.0}"
 
@@ -187,6 +189,15 @@ if [[ "${FAST_PROFILE}" == "true" ]]; then
   profile_label=" with fast profile"
 fi
 
+if [[ -n "${VERSION_VALUES_FILE}" ]]; then
+  helm_values_args+=(-f "${VERSION_VALUES_FILE}")
+fi
+
+if [[ "${LDAP_BOOTSTRAP_MODE}" == "group" ]]; then
+  helm_values_args+=(-f examples/ldap-group-bootstrap-values.yaml -f examples/ldap-group-bootstrap-kind-values.yaml)
+  profile_label="${profile_label} and group bootstrap"
+fi
+
 bootstrap_ldap() {
   kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
@@ -333,6 +344,47 @@ expect_nifi_api_code() {
   fi
 }
 
+expect_no_restart() {
+  local name="$1"
+  local expected_uid="$2"
+  local expected_restarts="$3"
+
+  local actual_uid actual_restarts
+  actual_uid="$(kubectl -n "${NAMESPACE}" get pod "${name}" -o jsonpath='{.metadata.uid}')"
+  actual_restarts="$(kubectl -n "${NAMESPACE}" get pod "${name}" -o jsonpath='{.status.containerStatuses[0].restartCount}')"
+
+  [[ "${actual_uid}" == "${expected_uid}" ]] || fail "expected ${name} uid ${expected_uid}, got ${actual_uid}"
+  [[ "${actual_restarts}" == "${expected_restarts}" ]] || fail "expected ${name} restarts ${expected_restarts}, got ${actual_restarts}"
+}
+
+add_ldap_user_to_group() {
+  local username="$1"
+  local fullname="$2"
+  local surname="$3"
+  local group_cn="$4"
+
+  kubectl -n "${NAMESPACE}" exec deployment/ldap -- sh -ec '
+    cat >/tmp/nifi-add-user.ldif <<'"'"'LDIF'"'"'
+dn: uid='"${username}"',ou=People,dc=example,dc=com
+objectClass: inetOrgPerson
+cn: '"${fullname}"'
+sn: '"${surname}"'
+uid: '"${username}"'
+mail: '"${username}"'@example.com
+userPassword: '"${LDAP_USER_PASSWORD}"'
+LDIF
+    ldapadd -x -H ldap://127.0.0.1:389 -D "cn=admin,dc=example,dc=com" -w "'"${LDAP_ADMIN_PASSWORD}"'" -f /tmp/nifi-add-user.ldif
+
+    cat >/tmp/nifi-add-user-group.ldif <<'"'"'LDIF'"'"'
+dn: cn='"${group_cn}"',ou=Groups,dc=example,dc=com
+changetype: modify
+add: member
+member: uid='"${username}"',ou=People,dc=example,dc=com
+LDIF
+    ldapmodify -x -H ldap://127.0.0.1:389 -D "cn=admin,dc=example,dc=com" -w "'"${LDAP_ADMIN_PASSWORD}"'" -f /tmp/nifi-add-user-group.ldif
+  '
+}
+
 log_step "preparing cluster access for focused LDAP validation"
 require_command kind
 require_command helm
@@ -380,11 +432,17 @@ kubectl apply -f "${ROOT_DIR}/examples/managed/nificluster.yaml"
 wait_for_nifi_pod_ready
 
 log_step "verifying LDAP runtime wiring inside the NiFi pod"
-nifi_exec sh -ec '
+nifi_exec env LDAP_BOOTSTRAP_MODE="${LDAP_BOOTSTRAP_MODE}" sh -ec '
   grep -q "ldap-provider" /opt/nifi/nifi-current/conf/login-identity-providers.xml
   grep -q "ldap-user-group-provider" /opt/nifi/nifi-current/conf/authorizers.xml
-  grep -q "Initial Admin Identity\">alice<" /opt/nifi/nifi-current/conf/authorizers.xml
   grep -q "<property name=\"Identity Strategy\">USE_USERNAME</property>" /opt/nifi/nifi-current/conf/login-identity-providers.xml
+
+  if [ "${LDAP_BOOTSTRAP_MODE}" = "group" ]; then
+    grep -q "Initial Admin Group\">nifi-platform-admins<" /opt/nifi/nifi-current/conf/authorizers.xml
+    grep -q "<property name=\"User Search Filter\"></property>" /opt/nifi/nifi-current/conf/authorizers.xml
+  else
+    grep -q "Initial Admin Identity\">alice<" /opt/nifi/nifi-current/conf/authorizers.xml
+  fi
 '
 
 log_step "verifying NiFi health with LDAP credentials"
@@ -396,9 +454,27 @@ expect_nifi_api_code bob "${LDAP_USER_PASSWORD}" /nifi-api/flow/process-groups/r
 expect_nifi_api_code bob "${LDAP_USER_PASSWORD}" /nifi-api/controller/config 403
 expect_nifi_api_code charlie "${LDAP_USER_PASSWORD}" /nifi-api/flow/process-groups/root 403
 
+if [[ "${LDAP_BOOTSTRAP_MODE}" == "group" ]]; then
+  log_step "verifying post-start LDAP group sync without NiFi restarts"
+  nifi0_uid="$(kubectl -n "${NAMESPACE}" get pod "${HELM_RELEASE}-0" -o jsonpath='{.metadata.uid}')"
+  nifi1_uid="$(kubectl -n "${NAMESPACE}" get pod "${HELM_RELEASE}-1" -o jsonpath='{.metadata.uid}')"
+  nifi0_restarts="$(kubectl -n "${NAMESPACE}" get pod "${HELM_RELEASE}-0" -o jsonpath='{.status.containerStatuses[0].restartCount}')"
+  nifi1_restarts="$(kubectl -n "${NAMESPACE}" get pod "${HELM_RELEASE}-1" -o jsonpath='{.status.containerStatuses[0].restartCount}')"
+
+  add_ldap_user_to_group erin "Erin Admin" "Admin" nifi-platform-admins
+  sleep 15
+  expect_nifi_api_code erin "${LDAP_USER_PASSWORD}" /nifi-api/controller/config 200
+  expect_no_restart "${HELM_RELEASE}-0" "${nifi0_uid}" "${nifi0_restarts}"
+  expect_no_restart "${HELM_RELEASE}-1" "${nifi1_uid}" "${nifi1_restarts}"
+fi
+
 echo
 echo "PASS: focused LDAP auth workflow completed successfully in +$(elapsed)s"
 echo "  LDAP bootstrap"
 echo "  NiFi managed install in ldap + ldapSync mode"
 echo "  LDAP login provider and user-group provider wiring"
-echo "  initial admin identity bootstrap plus authenticated non-admin denial checks"
+if [[ "${LDAP_BOOTSTRAP_MODE}" == "group" ]]; then
+  echo "  initial admin group bootstrap plus post-start LDAP group sync without NiFi restarts"
+else
+  echo "  initial admin identity bootstrap plus authenticated non-admin denial checks"
+fi

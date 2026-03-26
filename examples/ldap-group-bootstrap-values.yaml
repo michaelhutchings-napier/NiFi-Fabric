@@ -1,6 +1,10 @@
-# Prepared LDAP authentication and authorization overlay.
-# Compose with examples/managed/values.yaml.
-# This path needs a real LDAP server and bind credentials before it can be validated.
+# LDAP group-bootstrap overlay for newer Apache NiFi 2.x images.
+# Compose with:
+# - examples/managed/values.yaml
+# - examples/nifi-2.8.0-values.yaml
+#
+# This keeps LDAP as the source of truth for users and group membership while
+# letting NiFi bootstrap admin access from a directory group.
 
 auth:
   mode: ldap
@@ -27,7 +31,4 @@ auth:
 authz:
   mode: ldapSync
   bootstrap:
-    # Baseline LDAP example for the default apache/nifi:2.0.0 image.
-    # For group bootstrap on newer NiFi images, use
-    # examples/ldap-group-bootstrap-values.yaml with examples/nifi-2.8.0-values.yaml.
-    initialAdminIdentity: alice
+    initialAdminGroup: nifi-platform-admins

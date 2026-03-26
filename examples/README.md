@@ -239,6 +239,11 @@ There are also authentication overlays:
 
 - [ldap-values.yaml](ldap-values.yaml)
   - Enables `auth.mode=ldap` with `authz.mode=ldapSync`.
+  - Pair it with [../docs/install/ldap-production.md](../docs/install/ldap-production.md) for the production setup steps and baseline identity-bootstrap path.
+
+- [ldap-group-bootstrap-values.yaml](ldap-group-bootstrap-values.yaml)
+  - Enables LDAP group bootstrap for newer NiFi images.
+  - Compose it with [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml) and [../docs/install/ldap-production.md](../docs/install/ldap-production.md).
 
 - [ldap-kind-values.yaml](ldap-kind-values.yaml)
   - Kind LDAP overlay.
@@ -367,10 +372,13 @@ Only one authentication mode is supported at a time. The intended thin-platform 
 Preferred bootstrap:
 
 - `authz.bootstrap.initialAdminGroup`
+  - for OIDC
+  - for LDAP on newer NiFi images when using the group-bootstrap path
 
 Fallback bootstrap:
 
 - `authz.bootstrap.initialAdminIdentity`
+  - default for the baseline LDAP path on `apache/nifi:2.0.0`
 
 Flow Registry Client notes:
 
