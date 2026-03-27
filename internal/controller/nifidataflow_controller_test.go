@@ -329,6 +329,166 @@ func TestNiFiDataflowReconcileSurfacesRetainedOwnedImportWarnings(t *testing.T) 
 	expectEventContains(t, recorder, "Warning RetainedOwnedImportsPresent", "legacy-payments")
 }
 
+func TestNiFiDataflowReconcileEmitsRetainedOwnedImportsClearedEvent(t *testing.T) {
+	cluster := &platformv1alpha1.NiFiCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},
+		Spec: platformv1alpha1.NiFiClusterSpec{
+			TargetRef:    platformv1alpha1.TargetRef{Name: "nifi"},
+			DesiredState: platformv1alpha1.DesiredStateRunning,
+		},
+	}
+	target := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{
+						{
+							Name: "nifidataflow-bridge",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{Name: "nifi-nifidataflows"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	statusConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi-nifidataflows-status", Namespace: "nifi"},
+		Data: map[string]string{
+			"status.json": `{
+  "status": "ok",
+  "imports": [
+    {
+      "name": "orders-ingest",
+      "status": "ok",
+      "action": "created",
+      "processGroupId": "pg-orders",
+      "registryClientName": "github-main",
+      "registryClientId": "registry-1",
+      "bucket": "platform-flows",
+      "bucketId": "bucket-1",
+      "flowName": "orders-ingest",
+      "flowId": "flow-1",
+      "resolvedVersion": "12",
+      "actualVersion": "12"
+    }
+  ],
+  "retainedOwnedImports": [
+    {
+      "name": "legacy-payments",
+      "targetRootProcessGroupName": "legacy-payments",
+      "processGroupId": "pg-legacy",
+      "action": "retained",
+      "status": "ok",
+      "reason": "removed imports are retained in NiFi and no longer reconciled in this slice"
+    }
+  ]
+}`,
+		},
+	}
+	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflowFixture(), cluster, target, statusConfigMap)
+
+	reconcileDataflow(t, reconciler)
+	reconcileDataflow(t, reconciler)
+	expectEventContains(t, recorder, "Warning RetainedOwnedImportsPresent", "legacy-payments")
+
+	updatedConfigMap := &corev1.ConfigMap{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: "nifi", Name: "nifi-nifidataflows-status"}, updatedConfigMap); err != nil {
+		t.Fatalf("get status configmap: %v", err)
+	}
+	updatedConfigMap.Data["status.json"] = `{
+  "status": "ok",
+  "imports": [
+    {
+      "name": "orders-ingest",
+      "status": "ok",
+      "action": "unchanged",
+      "processGroupId": "pg-orders",
+      "registryClientName": "github-main",
+      "registryClientId": "registry-1",
+      "bucket": "platform-flows",
+      "bucketId": "bucket-1",
+      "flowName": "orders-ingest",
+      "flowId": "flow-1",
+      "resolvedVersion": "12",
+      "actualVersion": "12"
+    }
+  ],
+  "retainedOwnedImports": []
+}`
+	if err := k8sClient.Update(context.Background(), updatedConfigMap); err != nil {
+		t.Fatalf("update status configmap: %v", err)
+	}
+
+	reconcileDataflow(t, reconciler)
+	expectEventContains(t, recorder, "Normal RetainedOwnedImportsCleared", "warning cleared")
+}
+
+func TestNiFiDataflowReconcileClassifiesOwnershipAdoptionConflict(t *testing.T) {
+	cluster := &platformv1alpha1.NiFiCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},
+		Spec: platformv1alpha1.NiFiClusterSpec{
+			TargetRef:    platformv1alpha1.TargetRef{Name: "nifi"},
+			DesiredState: platformv1alpha1.DesiredStateRunning,
+		},
+	}
+	target := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{
+						{
+							Name: "nifidataflow-bridge",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{Name: "nifi-nifidataflows"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	statusConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi-nifidataflows-status", Namespace: "nifi"},
+		Data: map[string]string{
+			"status.json": `{
+  "status": "blocked",
+  "imports": [
+    {
+      "name": "orders-ingest",
+      "status": "blocked",
+      "reason": "declared target root child process group \"orders-ingest\" already exists in NiFi without the product ownership marker; operator-owned targets are not adopted automatically",
+      "targetRootProcessGroupName": "orders-ingest"
+    }
+  ]
+}`,
+		},
+	}
+	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflowFixture(), cluster, target, statusConfigMap)
+
+	reconcileDataflow(t, reconciler)
+	reconcileDataflow(t, reconciler)
+
+	updated := &platformv1alpha1.NiFiDataflow{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: "nifi", Name: "orders-ingest"}, updated); err != nil {
+		t.Fatalf("get updated dataflow: %v", err)
+	}
+	if updated.Status.Phase != platformv1alpha1.DataflowPhaseBlocked {
+		t.Fatalf("expected blocked phase, got %q", updated.Status.Phase)
+	}
+	if condition := updated.GetCondition(platformv1alpha1.ConditionTargetResolved); condition == nil || condition.Reason != "AdoptionRefused" || condition.Status != metav1.ConditionFalse {
+		t.Fatalf("expected target resolved false adoption-refused condition, got %#v", condition)
+	}
+	expectEventContains(t, recorder, "Warning AdoptionRefused", "will not be adopted automatically")
+}
+
 func TestNiFiDataflowReconcileDoesNotSpamBlockedEventsWhenOnlyDetailTextChanges(t *testing.T) {
 	cluster := &platformv1alpha1.NiFiCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},

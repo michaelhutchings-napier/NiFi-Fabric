@@ -512,6 +512,11 @@ func (r *NiFiDataflowReconciler) emitStatusEventIfNeeded(original, updated *plat
 		return
 	}
 
+	if eventType, reason, message, ok := transitionEventOverride(original, updated); ok {
+		r.Recorder.Event(updated, eventType, reason, message)
+		return
+	}
+
 	eventType, reason := statusEventMetadata(updated)
 	message := statusEventMessage(updated)
 	if message == "" {
@@ -531,6 +536,14 @@ func statusEventMetadata(dataflow *platformv1alpha1.NiFiDataflow) (string, strin
 	if condition := dataflow.GetCondition(platformv1alpha1.ConditionDegraded); condition != nil && condition.Reason == "RetainedOwnedImportsPresent" {
 		return corev1.EventTypeWarning, "RetainedOwnedImportsPresent"
 	}
+	if condition := dataflow.GetCondition(platformv1alpha1.ConditionTargetResolved); condition != nil {
+		switch condition.Reason {
+		case "AdoptionRefused":
+			return corev1.EventTypeWarning, "AdoptionRefused"
+		case "OwnershipConflict":
+			return corev1.EventTypeWarning, "OwnershipConflict"
+		}
+	}
 
 	switch dataflow.Status.Phase {
 	case platformv1alpha1.DataflowPhaseReady:
@@ -544,6 +557,25 @@ func statusEventMetadata(dataflow *platformv1alpha1.NiFiDataflow) (string, strin
 	default:
 		return corev1.EventTypeNormal, "StatusUpdated"
 	}
+}
+
+func transitionEventOverride(original, updated *platformv1alpha1.NiFiDataflow) (string, string, string, bool) {
+	if retainedOwnedImportsWarningCleared(original, updated) {
+		return corev1.EventTypeNormal, "RetainedOwnedImportsCleared", fmt.Sprintf("NiFiDataflow %s warning cleared: no retained owned imports remain", updated.Name), true
+	}
+	return "", "", "", false
+}
+
+func retainedOwnedImportsWarningCleared(original, updated *platformv1alpha1.NiFiDataflow) bool {
+	if original == nil || updated == nil {
+		return false
+	}
+	originalCondition := original.GetCondition(platformv1alpha1.ConditionDegraded)
+	if originalCondition == nil || originalCondition.Reason != "RetainedOwnedImportsPresent" || originalCondition.Status != metav1.ConditionTrue {
+		return false
+	}
+	updatedCondition := updated.GetCondition(platformv1alpha1.ConditionDegraded)
+	return updatedCondition == nil || updatedCondition.Reason != "RetainedOwnedImportsPresent" || updatedCondition.Status != metav1.ConditionTrue
 }
 
 func statusEventSignature(dataflow *platformv1alpha1.NiFiDataflow) string {
@@ -614,6 +646,12 @@ func statusEventMessage(dataflow *platformv1alpha1.NiFiDataflow) string {
 		}
 		return fmt.Sprintf("NiFiDataflow %s is Progressing: bounded runtime reconcile is in progress", dataflow.Name)
 	case platformv1alpha1.DataflowPhaseBlocked:
+		if condition := dataflow.GetCondition(platformv1alpha1.ConditionTargetResolved); condition != nil && condition.Reason == "AdoptionRefused" {
+			return fmt.Sprintf("NiFiDataflow %s is Blocked: existing target is not owned by this resource and will not be adopted automatically", dataflow.Name)
+		}
+		if condition := dataflow.GetCondition(platformv1alpha1.ConditionTargetResolved); condition != nil && condition.Reason == "OwnershipConflict" {
+			return fmt.Sprintf("NiFiDataflow %s is Blocked: existing owned target conflicts with this declaration and must be deleted or renamed before ownership changes", dataflow.Name)
+		}
 		if condition := dataflow.GetCondition(platformv1alpha1.ConditionParameterContextReady); condition != nil && condition.Status == metav1.ConditionFalse {
 			if observedVersion := strings.TrimSpace(dataflow.Status.ObservedVersion); observedVersion != "" {
 				return fmt.Sprintf("NiFiDataflow %s is Blocked: bounded runtime import is blocked on Parameter Context attachment for version %s", dataflow.Name, observedVersion)
@@ -692,6 +730,18 @@ func (r *NiFiDataflowReconciler) applyRetainedOwnedImportWarnings(dataflow *plat
 		Message:            warningMessage,
 		LastTransitionTime: metav1.Now(),
 	})
+}
+
+func classifyOwnershipBlockedReason(reason string) string {
+	trimmed := strings.TrimSpace(reason)
+	switch {
+	case strings.Contains(trimmed, "operator-owned targets are not adopted automatically"):
+		return "AdoptionRefused"
+	case strings.Contains(trimmed, "is already owned by import"), strings.Contains(trimmed, "delete or rename the owned target before changing the declared source or target"):
+		return "OwnershipConflict"
+	default:
+		return ""
+	}
 }
 
 func (r *NiFiDataflowReconciler) markSuspended(dataflow *platformv1alpha1.NiFiDataflow) {
@@ -1352,6 +1402,7 @@ func (r *NiFiDataflowReconciler) markRuntimeImportBlocked(dataflow *platformv1al
 	if summary := runtimeImportSummary(runtimeImport); summary != "" {
 		reason = fmt.Sprintf("%s (%s)", reason, summary)
 	}
+	ownershipBlockedReason := classifyOwnershipBlockedReason(reason)
 	dataflow.Status.Phase = platformv1alpha1.DataflowPhaseBlocked
 	dataflow.Status.LastOperation = platformv1alpha1.LastOperation{
 		Type:        "ObserveRuntimeStatus",
@@ -1366,6 +1417,19 @@ func (r *NiFiDataflowReconciler) markRuntimeImportBlocked(dataflow *platformv1al
 		Message:            fmt.Sprintf("Referenced NiFiCluster %s is running and its target StatefulSet is wired to consume controller bridge ConfigMaps", cluster.Name),
 		LastTransitionTime: now,
 	})
+	if ownershipBlockedReason != "" {
+		targetMessage := "The bounded runtime reported an ownership policy conflict for the declared target"
+		if ownershipBlockedReason == "AdoptionRefused" {
+			targetMessage = "The bounded runtime found an existing target without the product ownership marker and refused automatic adoption"
+		}
+		dataflow.SetCondition(metav1.Condition{
+			Type:               platformv1alpha1.ConditionTargetResolved,
+			Status:             metav1.ConditionFalse,
+			Reason:             ownershipBlockedReason,
+			Message:            targetMessage,
+			LastTransitionTime: now,
+		})
+	}
 	if runtimeImportSourceResolved(runtimeImport) {
 		dataflow.SetCondition(metav1.Condition{
 			Type:               platformv1alpha1.ConditionSourceResolved,
