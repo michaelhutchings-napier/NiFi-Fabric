@@ -1,0 +1,27 @@
+# Optional managed-platform overlay for bounded flow-action audit export using
+# a customer-managed internal registry mirror of the reporter image.
+#
+# Compose it with:
+# - examples/platform-managed-values.yaml
+#
+# Also provide matching imagePullSecrets in your install values when the
+# internal registry requires authentication.
+nifi:
+  image:
+    repository: apache/nifi
+    tag: "2.8.0"
+    pullPolicy: IfNotPresent
+  imagePullSecrets:
+  - name: internal-registry-creds
+  observability:
+    audit:
+      flowActions:
+        enabled: true
+        export:
+          type: log
+          log:
+            installation:
+              image:
+                repository: registry.example.com/platform/nifi-fabric-flow-action-audit-reporter
+                tag: 0.1.0
+                pullPolicy: IfNotPresent

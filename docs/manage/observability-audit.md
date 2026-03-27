@@ -276,6 +276,48 @@ Operator-facing tag selection and first-response checks are in:
 - [Operations Runbooks](../operations/runbooks.md)
   - see `Flow-Action Audit Reporter Image Selection`
 
+## Production Rollout
+
+Use a small staged rollout for this feature.
+
+1. Start with local audit only.
+   Keep `observability.audit.flowActions.enabled=true` and `export.type=disabled` so the durable local support layer is active before adding the reporter path.
+2. Validate reporter image reachability.
+   Pick one explicit image source:
+   - published image for connected clusters
+   - mirrored internal image for restricted clusters
+   - internally built image for air-gapped clusters
+3. Enable `export.type=log` only after the init-container pull path and NAR installation path are confirmed in the target environment.
+
+Useful examples:
+
+- [platform-managed-audit-flow-actions-values.yaml](../../examples/platform-managed-audit-flow-actions-values.yaml)
+  - generic advanced overlay
+- [platform-managed-audit-flow-actions-ghcr-values.yaml](../../examples/platform-managed-audit-flow-actions-ghcr-values.yaml)
+  - connected-cluster published-image example
+- [platform-managed-audit-flow-actions-private-registry-values.yaml](../../examples/platform-managed-audit-flow-actions-private-registry-values.yaml)
+  - restricted-cluster mirrored-image example
+
+Representative install commands:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  -n nifi \
+  --create-namespace \
+  -f examples/platform-managed-values.yaml \
+  -f examples/platform-managed-audit-flow-actions-ghcr-values.yaml
+```
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  -n nifi \
+  --create-namespace \
+  -f examples/platform-managed-values.yaml \
+  -f examples/platform-managed-audit-flow-actions-private-registry-values.yaml
+```
+
+For production, pin the reporter image tag explicitly and avoid floating tags except for short-lived validation environments.
+
 ## Implementation Shape
 
 The future implementation should follow the existing chart and docs conventions:

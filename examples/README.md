@@ -177,10 +177,13 @@ Audit note:
 - it expects a reporter image containing the NAR at the configured path; build the local example image with `make build-flow-action-audit-reporter-image`, or use the release-published upstream image from `ghcr.io/<owner>/nifi-fabric-flow-action-audit-reporter`
 - it pins the NiFi workload image to `2.8.0` because FlowActionReporter is only available in published NiFi artifacts from `2.4.0` onward
 - use it together with `examples/platform-managed-values.yaml`
+- [platform-managed-audit-flow-actions-ghcr-values.yaml](platform-managed-audit-flow-actions-ghcr-values.yaml) is the connected-cluster example for using a published reporter image directly
+- [platform-managed-audit-flow-actions-private-registry-values.yaml](platform-managed-audit-flow-actions-private-registry-values.yaml) is the restricted-cluster example for using a mirrored internal reporter image plus `imagePullSecrets`
 - [platform-managed-audit-flow-actions-kind-values.yaml](platform-managed-audit-flow-actions-kind-values.yaml) is the focused local kind overlay for this proof path
 - it switches the proof to a single NiFi node and grants the bootstrap admin the bounded `mutableFlow` capability needed to create one root-child process group
 - use it together with `examples/platform-managed-values.yaml`, `examples/platform-managed-audit-flow-actions-values.yaml`, and `examples/platform-fast-values.yaml`
 - use `make kind-flow-action-audit-fast-e2e` for the focused local kind proof path
+- production rollout starts with local audit only or `export.type=disabled`, then moves to one of the explicit reporter-image overlays above once the reporter image source and pull path are validated in the target cluster
 
 KEDA note:
 
