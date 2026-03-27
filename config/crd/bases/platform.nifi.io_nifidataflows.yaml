@@ -26,6 +26,13 @@ spec:
     - jsonPath: .status.observedVersion
       name: Version
       type: string
+    - jsonPath: .status.ownership.state
+      name: Ownership
+      type: string
+    - jsonPath: .status.warnings.retainedOwnedImports[0].name
+      name: Retained
+      priority: 1
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date

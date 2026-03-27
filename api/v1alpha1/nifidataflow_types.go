@@ -118,6 +118,8 @@ type NiFiDataflowStatus struct {
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase"
 // +kubebuilder:printcolumn:name="Cluster",type="string",JSONPath=".spec.clusterRef.name"
 // +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".status.observedVersion"
+// +kubebuilder:printcolumn:name="Ownership",type="string",JSONPath=".status.ownership.state"
+// +kubebuilder:printcolumn:name="Retained",type="string",JSONPath=".status.warnings.retainedOwnedImports[0].name",priority=1
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // NiFiDataflow is a bounded declarative deployment record for one imported versioned flow target.
