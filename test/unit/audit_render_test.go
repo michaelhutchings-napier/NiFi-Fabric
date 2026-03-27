@@ -194,6 +194,26 @@ func TestPlatformManagedAuditFlowActionsPrivateRegistryExampleRendersExpectedIma
 	}
 }
 
+func TestPlatformManagedAuditFlowActionsGhcrExampleRendersExpectedImageSettings(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi-platform",
+		"-f", "examples/platform-managed-values.yaml",
+		"-f", "examples/platform-managed-audit-flow-actions-ghcr-values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		`image: "ghcr.io/example-org/nifi-fabric-flow-action-audit-reporter:0.1.0"`,
+		"nifi.flow.action.reporter.implementation=io.nifi.fabric.audit.FlowActionJsonLogReporter",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
 func TestPlatformManagedAuditFlowActionsKindOverlayKeepsSingleNodeShape(t *testing.T) {
 	output, err := helmTemplate(
 		t,

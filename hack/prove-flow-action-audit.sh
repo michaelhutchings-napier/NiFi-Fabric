@@ -6,6 +6,7 @@ namespace="nifi"
 release="nifi"
 auth_secret="nifi-auth"
 audit_archive_dir="/opt/nifi/nifi-current/database_repository/flow-audit-archive"
+expect_log_export="true"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -23,6 +24,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --audit-archive-dir)
       audit_archive_dir="$2"
+      shift 2
+      ;;
+    --expect-log-export)
+      expect_log_export="$2"
       shift 2
       ;;
     *)
@@ -324,10 +329,11 @@ if [[ -z "${process_group_id}" ]]; then
   exit 1
 fi
 
-deadline=$(( $(date +%s) + 120 ))
-while true; do
-  kubectl -n "${namespace}" logs "${pod}" -c nifi --since=10m >"${tmpdir}/nifi.log"
-if python3 - "${tmpdir}/nifi.log" "${process_group_id}" "${username}" "${proof_group_name}" >"${tmpdir}/matched-event.json" <<'PY'
+if [[ "${expect_log_export}" == "true" ]]; then
+  deadline=$(( $(date +%s) + 120 ))
+  while true; do
+    kubectl -n "${namespace}" logs "${pod}" -c nifi --since=10m >"${tmpdir}/nifi.log"
+    if python3 - "${tmpdir}/nifi.log" "${process_group_id}" "${username}" "${proof_group_name}" >"${tmpdir}/matched-event.json" <<'PY'
 import json
 import sys
 
@@ -381,18 +387,22 @@ with open(log_path, encoding="utf-8") as handle:
 
 raise SystemExit(1)
 PY
-  then
-    break
-  fi
+    then
+      break
+    fi
 
-  if (( $(date +%s) >= deadline )); then
-    echo "timed out waiting for flow-action audit event for process group ${process_group_id}" >&2
-    tail -n 120 "${tmpdir}/nifi.log" >&2 || true
-    exit 1
-  fi
+    if (( $(date +%s) >= deadline )); then
+      echo "timed out waiting for flow-action audit event for process group ${process_group_id}" >&2
+      tail -n 120 "${tmpdir}/nifi.log" >&2 || true
+      exit 1
+    fi
 
-  sleep 5
-done
+    sleep 5
+  done
+elif [[ "${expect_log_export}" != "false" ]]; then
+  echo "unsupported --expect-log-export value: ${expect_log_export}" >&2
+  exit 1
+fi
 
 archive_file="$(
   kubectl -n "${namespace}" exec -i -c nifi "${pod}" -- sh -ec \
@@ -404,7 +414,12 @@ if [[ -z "${archive_file}" ]]; then
   exit 1
 fi
 
-echo "matched flow-action audit event:"
-cat "${tmpdir}/matched-event.json"
-echo
+if [[ "${expect_log_export}" == "true" ]]; then
+  echo "matched flow-action audit event:"
+  cat "${tmpdir}/matched-event.json"
+  echo
+else
+  echo "verified local audit proof without log-export expectation"
+fi
+
 echo "archive file: ${archive_file}"

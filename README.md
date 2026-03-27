@@ -42,6 +42,7 @@ After install, continue with [First Access and Day-1 Checks](docs/first-day.md).
 - optional service mesh profiles for Linkerd, Istio sidecar mode, and Istio Ambient
 - native NiFi 2 Prometheus metrics support through direct secured API scraping, including multiple named `ServiceMonitor` profiles and per-profile URL parameters
 - optional exporter metrics and Site-to-Site delivery paths for metrics, status, and provenance
+- bounded flow-change audit with durable NiFi-native local history plus an optional log-only reporter export path
 - optional trust-manager integration for shared CA bundle distribution across workload and observability paths
 - a simpler product surface than a large NiFi-specific operator stack
 

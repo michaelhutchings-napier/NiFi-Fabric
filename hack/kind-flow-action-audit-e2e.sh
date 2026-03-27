@@ -13,6 +13,7 @@ CONTROLLER_DEPLOYMENT="${CONTROLLER_DEPLOYMENT:-${HELM_RELEASE}-controller-manag
 NIFI_IMAGE="${NIFI_IMAGE:-mirror.gcr.io/apache/nifi:2.8.0}"
 PLATFORM_VALUES_FILE="${PLATFORM_VALUES_FILE:-examples/platform-managed-values.yaml}"
 PLATFORM_FAST_VALUES_FILE="${PLATFORM_FAST_VALUES_FILE:-examples/platform-fast-values.yaml}"
+PLATFORM_AUDIT_LOCAL_ONLY_VALUES_FILE="${PLATFORM_AUDIT_LOCAL_ONLY_VALUES_FILE:-examples/platform-managed-audit-flow-actions-local-only-values.yaml}"
 PLATFORM_AUDIT_VALUES_FILE="${PLATFORM_AUDIT_VALUES_FILE:-examples/platform-managed-audit-flow-actions-values.yaml}"
 PLATFORM_AUDIT_KIND_VALUES_FILE="${PLATFORM_AUDIT_KIND_VALUES_FILE:-examples/platform-managed-audit-flow-actions-kind-values.yaml}"
 REPORTER_IMAGE_REPOSITORY="${REPORTER_IMAGE_REPOSITORY:-nifi-flow-action-audit-reporter}"
@@ -64,6 +65,26 @@ wait_for_condition_true() {
     fi
     sleep 5
   done
+}
+
+recycle_single_node_if_revision_pending() {
+  local replicas current_revision update_revision
+
+  replicas="$(kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" -o jsonpath='{.spec.replicas}')"
+  if [[ "${replicas}" != "1" ]]; then
+    return 0
+  fi
+
+  current_revision="$(kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" -o jsonpath='{.status.currentRevision}')"
+  update_revision="$(kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" -o jsonpath='{.status.updateRevision}')"
+  if [[ -z "${update_revision}" || "${current_revision}" == "${update_revision}" ]]; then
+    return 0
+  fi
+
+  phase "Recycling single-node NiFi pod to adopt upgraded audit config"
+  kubectl -n "${NAMESPACE}" delete pod "${HELM_RELEASE}-0" --wait=false
+  kubectl -n "${NAMESPACE}" wait --for=delete "pod/${HELM_RELEASE}-0" --timeout=5m
+  kubectl -n "${NAMESPACE}" wait --for=condition=Ready "pod/${HELM_RELEASE}-0" --timeout=10m
 }
 
 retry_proof() {
@@ -129,18 +150,27 @@ dump_diagnostics() {
 
 trap 'dump_diagnostics; print_failure_help "${NAMESPACE}" "${HELM_RELEASE}" "${CONTROLLER_NAMESPACE}" "${CONTROLLER_DEPLOYMENT}"; exit 1' ERR
 
-helm_values_args=(
+common_helm_values_args=(
   -f "${ROOT_DIR}/${PLATFORM_VALUES_FILE}"
-  -f "${ROOT_DIR}/${PLATFORM_AUDIT_VALUES_FILE}"
 )
 
 profile_label=""
 if [[ "${FAST_PROFILE}" == "true" ]]; then
-  helm_values_args+=(-f "${ROOT_DIR}/${PLATFORM_FAST_VALUES_FILE}")
+  common_helm_values_args+=(-f "${ROOT_DIR}/${PLATFORM_FAST_VALUES_FILE}")
   profile_label=" with fast profile"
 fi
 
-helm_values_args+=(-f "${ROOT_DIR}/${PLATFORM_AUDIT_KIND_VALUES_FILE}")
+common_helm_values_args+=(-f "${ROOT_DIR}/${PLATFORM_AUDIT_KIND_VALUES_FILE}")
+
+local_only_helm_values_args=(
+  "${common_helm_values_args[@]}"
+  -f "${ROOT_DIR}/${PLATFORM_AUDIT_LOCAL_ONLY_VALUES_FILE}"
+)
+
+log_export_helm_values_args=(
+  "${common_helm_values_args[@]}"
+  -f "${ROOT_DIR}/${PLATFORM_AUDIT_VALUES_FILE}"
+)
 
 phase "Checking prerequisites"
 check_prereqs
@@ -166,31 +196,64 @@ else
   run_make kind-load-controller KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}"
 fi
 
+phase "Building platform chart dependency"
+helm dependency build "${ROOT_DIR}/charts/nifi-platform" >/dev/null
+
+phase "Installing product chart managed release${profile_label} with local-only flow-action audit"
+helm upgrade --install "${HELM_RELEASE}" "${ROOT_DIR}/charts/nifi-platform" \
+  --namespace "${NAMESPACE}" \
+  --create-namespace \
+  "${local_only_helm_values_args[@]}" \
+  --set "nifi.image.repository=${NIFI_IMAGE_REPOSITORY}" \
+  --set "nifi.image.tag=${NIFI_IMAGE_TAG}"
+
+phase "Verifying local-only platform resources and controller rollout"
+helm -n "${NAMESPACE}" status "${HELM_RELEASE}" >/dev/null
+kubectl -n "${CONTROLLER_NAMESPACE}" rollout status deployment/"${CONTROLLER_DEPLOYMENT}" --timeout=5m
+kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" >/dev/null
+
+phase "Verifying local-only cluster health"
+run_make kind-health KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NAMESPACE="${NAMESPACE}" HELM_RELEASE="${HELM_RELEASE}"
+wait_for_condition_true TargetResolved
+wait_for_condition_true Available
+
+phase "Verifying local-only audit configuration"
+bash "${ROOT_DIR}/hack/verify-flow-action-audit-local-layer.sh" \
+  --namespace "${NAMESPACE}" \
+  --release "${HELM_RELEASE}"
+
+phase "Proving local-only fallback audit evidence"
+retry_proof "local-only flow-action audit" \
+  bash "${ROOT_DIR}/hack/prove-flow-action-audit.sh" \
+    --namespace "${NAMESPACE}" \
+    --release "${HELM_RELEASE}" \
+    --auth-secret nifi-auth \
+    --expect-log-export false
+
 phase "Building flow-action audit reporter image"
 IMAGE_TAG="${REPORTER_IMAGE_REPOSITORY}:${REPORTER_IMAGE_TAG}" bash "${ROOT_DIR}/hack/build-flow-action-audit-reporter-image.sh"
 
 phase "Loading flow-action audit reporter image into kind"
 kind load docker-image --name "${KIND_CLUSTER_NAME}" "${REPORTER_IMAGE_REPOSITORY}:${REPORTER_IMAGE_TAG}"
 
-phase "Building platform chart dependency"
-helm dependency build "${ROOT_DIR}/charts/nifi-platform" >/dev/null
-
-phase "Installing product chart managed release${profile_label}"
+phase "Upgrading product chart managed release${profile_label} to flow-action audit log export"
 helm upgrade --install "${HELM_RELEASE}" "${ROOT_DIR}/charts/nifi-platform" \
   --namespace "${NAMESPACE}" \
   --create-namespace \
-  "${helm_values_args[@]}" \
+  "${log_export_helm_values_args[@]}" \
   --set "nifi.image.repository=${NIFI_IMAGE_REPOSITORY}" \
   --set "nifi.image.tag=${NIFI_IMAGE_TAG}" \
   --set "nifi.observability.audit.flowActions.export.log.installation.image.repository=${REPORTER_IMAGE_REPOSITORY}" \
   --set "nifi.observability.audit.flowActions.export.log.installation.image.tag=${REPORTER_IMAGE_TAG}"
 
-phase "Verifying platform resources and controller rollout"
+phase "Verifying upgraded platform resources and controller rollout"
 helm -n "${NAMESPACE}" status "${HELM_RELEASE}" >/dev/null
 kubectl -n "${CONTROLLER_NAMESPACE}" rollout status deployment/"${CONTROLLER_DEPLOYMENT}" --timeout=5m
 kubectl -n "${NAMESPACE}" get statefulset "${HELM_RELEASE}" >/dev/null
 
-phase "Verifying cluster health"
+recycle_single_node_if_revision_pending
+
+phase "Verifying upgraded cluster health"
 run_make kind-health KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" NAMESPACE="${NAMESPACE}" HELM_RELEASE="${HELM_RELEASE}"
 wait_for_condition_true TargetResolved
 wait_for_condition_true Available

@@ -181,9 +181,9 @@ Audit note:
 - it pins the NiFi workload image to `2.8.0` because FlowActionReporter is only available in published NiFi artifacts from `2.4.0` onward
 - use it together with `examples/platform-managed-values.yaml`
 - [platform-managed-audit-flow-actions-kind-values.yaml](platform-managed-audit-flow-actions-kind-values.yaml) is the focused local kind overlay for this proof path
-- it switches the proof to a single NiFi node and grants the bootstrap admin the bounded `mutableFlow` capability needed to create one root-child process group
-- use it together with `examples/platform-managed-values.yaml`, `examples/platform-managed-audit-flow-actions-values.yaml`, and `examples/platform-fast-values.yaml`
-- use `make kind-flow-action-audit-fast-e2e` for the focused local kind proof path
+- it switches the proof to a single NiFi node and keeps startup on the normal path until the proof script grants one temporary root-canvas policy through the NiFi API
+- use it together with `examples/platform-managed-values.yaml`, one audit overlay, and `examples/platform-fast-values.yaml`
+- use `make kind-flow-action-audit-fast-e2e` for the focused local kind proof path that installs local-only audit first and then upgrades to `export.type=log`
 - production rollout starts with the local-only overlay above, then moves to one of the explicit reporter-image overlays once the reporter image source and pull path are validated in the target cluster
 
 KEDA note:
