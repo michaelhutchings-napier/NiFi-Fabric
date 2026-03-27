@@ -153,6 +153,9 @@ Respond:
 - use `ghcr.io/<owner>/nifi-fabric-flow-action-audit-reporter:edge` only for branch-tip validation or pre-production soak
 - use `ghcr.io/<owner>/nifi-fabric-flow-action-audit-reporter:sha-<commit>` when you need an immutable build tied to a reviewed commit
 - use `ghcr.io/<owner>/nifi-fabric-flow-action-audit-reporter:X.Y.Z` when you want the release-tagged build from `flow-action-audit-reporter-vX.Y.Z`
+- if the cluster cannot reach GHCR or public registries, mirror the reporter image into the customer registry and set `nifi.observability.audit.flowActions.export.log.installation.image.repository` and `.tag` to that internal location
+- if the customer is fully air-gapped, build the reporter image internally from the published source or release artifact and host it in the platform registry before enabling `export.type=log`
+- this export path is optional; if the reporter image is not available yet, leave `export.type=disabled` and rely on NiFi-native local history, archive, and request log evidence
 - keep the reporter image tag and the chart values pinned explicitly; do not rely on floating defaults in production
 - if the init container cannot find the NAR at the configured path, first verify the image tag and only then override `narPath`
 - if the reporter image is healthy but no audit events appear, treat local NiFi history, flow archive, and request log as the fallback evidence path

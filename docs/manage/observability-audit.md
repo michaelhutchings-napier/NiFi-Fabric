@@ -44,6 +44,15 @@ This stays separate from:
 - provenance
 - Site-to-Site observability sender paths
 
+This feature is intentionally optional.
+
+The default product posture is:
+
+- local NiFi-native audit on
+- external flow-action export off
+
+Customers who want external export opt into the bounded reporter path explicitly.
+
 ## Why This Is Not Metrics
 
 Metrics answer questions like:
@@ -135,6 +144,79 @@ Focused kind proof command:
 Minimum supported NiFi version for `export.type=log`:
 
 - `2.4.0`
+
+## Customer Connectivity And Registry Model
+
+The `export.type=log` reporter path does not require public registry access as a product assumption.
+
+The intended customer model is:
+
+- connected environments can use the published reporter image directly
+- restricted environments can mirror that image into an internal registry and point the chart at the mirrored repository and tag
+- fully air-gapped environments can build the image from the published source or NAR artifact and host it internally
+
+The public GHCR image is a convenience, not a dependency.
+
+Customers should treat these settings as normal operator-managed image coordinates:
+
+- `observability.audit.flowActions.export.log.installation.image.repository`
+- `observability.audit.flowActions.export.log.installation.image.tag`
+- `imagePullSecrets` when the selected registry requires authentication
+
+Example connected-cluster shape:
+
+```yaml
+observability:
+  audit:
+    flowActions:
+      enabled: true
+      export:
+        type: log
+        log:
+          installation:
+            image:
+              repository: ghcr.io/example-org/nifi-fabric-flow-action-audit-reporter
+              tag: 0.1.0
+```
+
+Example private-registry shape:
+
+```yaml
+imagePullSecrets:
+- name: internal-registry-creds
+
+observability:
+  audit:
+    flowActions:
+      enabled: true
+      export:
+        type: log
+        log:
+          installation:
+            image:
+              repository: registry.example.com/platform/nifi-fabric-flow-action-audit-reporter
+              tag: 0.1.0
+```
+
+For customers who do not want this path yet, keep:
+
+```yaml
+observability:
+  audit:
+    flowActions:
+      enabled: false
+```
+
+or keep export disabled while retaining the local audit layer:
+
+```yaml
+observability:
+  audit:
+    flowActions:
+      enabled: true
+      export:
+        type: disabled
+```
 
 The intent behind each area is:
 
