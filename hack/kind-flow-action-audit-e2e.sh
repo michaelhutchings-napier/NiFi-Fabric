@@ -21,6 +21,9 @@ SKIP_KIND_BOOTSTRAP="${SKIP_KIND_BOOTSTRAP:-false}"
 FAST_PROFILE="${FAST_PROFILE:-true}"
 START_EPOCH="$(date +%s)"
 
+NIFI_IMAGE_REPOSITORY="${NIFI_IMAGE%:*}"
+NIFI_IMAGE_TAG="${NIFI_IMAGE##*:}"
+
 run_make() {
   make -C "${ROOT_DIR}" "$@"
 }
@@ -148,6 +151,8 @@ helm upgrade --install "${HELM_RELEASE}" "${ROOT_DIR}/charts/nifi-platform" \
   --namespace "${NAMESPACE}" \
   --create-namespace \
   "${helm_values_args[@]}" \
+  --set "nifi.image.repository=${NIFI_IMAGE_REPOSITORY}" \
+  --set "nifi.image.tag=${NIFI_IMAGE_TAG}" \
   --set "nifi.observability.audit.flowActions.export.log.installation.image.repository=${REPORTER_IMAGE_REPOSITORY}" \
   --set "nifi.observability.audit.flowActions.export.log.installation.image.tag=${REPORTER_IMAGE_TAG}"
 
