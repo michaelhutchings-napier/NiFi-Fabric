@@ -67,8 +67,10 @@ jobs:
       run: make "${{ matrix.target }}"
     - name: Upload diagnostics
       if: failure()
+      continue-on-error: true
       uses: actions/upload-artifact@v4
       with:
-        name: platform-e2e-diagnostics-${{ matrix.target }}-${{ github.run_id }}
+        name: platform-e2e-diagnostics-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
         path: artifacts/${{ matrix.target }}
         if-no-files-found: warn
+        overwrite: true
