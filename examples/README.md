@@ -170,6 +170,7 @@ Metrics note:
 
 Audit note:
 
+- [platform-managed-audit-flow-actions-local-only-values.yaml](platform-managed-audit-flow-actions-local-only-values.yaml) is the local-only example for enabling durable NiFi-native audit while keeping external export disabled
 - [platform-managed-audit-flow-actions-ghcr-values.yaml](platform-managed-audit-flow-actions-ghcr-values.yaml) is the connected-cluster example for using a published reporter image directly
 - [platform-managed-audit-flow-actions-private-registry-values.yaml](platform-managed-audit-flow-actions-private-registry-values.yaml) is the restricted-cluster example for using a mirrored internal reporter image plus `imagePullSecrets`
 - [platform-managed-audit-flow-actions-values.yaml](platform-managed-audit-flow-actions-values.yaml) is the optional managed-platform overlay for bounded design-time flow-action audit export
@@ -183,7 +184,7 @@ Audit note:
 - it switches the proof to a single NiFi node and grants the bootstrap admin the bounded `mutableFlow` capability needed to create one root-child process group
 - use it together with `examples/platform-managed-values.yaml`, `examples/platform-managed-audit-flow-actions-values.yaml`, and `examples/platform-fast-values.yaml`
 - use `make kind-flow-action-audit-fast-e2e` for the focused local kind proof path
-- production rollout starts with local audit only or `export.type=disabled`, then moves to one of the explicit reporter-image overlays above once the reporter image source and pull path are validated in the target cluster
+- production rollout starts with the local-only overlay above, then moves to one of the explicit reporter-image overlays once the reporter image source and pull path are validated in the target cluster
 
 KEDA note:
 

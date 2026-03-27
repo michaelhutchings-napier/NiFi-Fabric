@@ -257,6 +257,8 @@ Use a small staged rollout for this feature.
 
 Useful examples:
 
+- [platform-managed-audit-flow-actions-local-only-values.yaml](../../examples/platform-managed-audit-flow-actions-local-only-values.yaml)
+  - local-only audit with external export disabled
 - [platform-managed-audit-flow-actions-values.yaml](../../examples/platform-managed-audit-flow-actions-values.yaml)
   - generic advanced overlay used in repo validation
 - [platform-managed-audit-flow-actions-ghcr-values.yaml](../../examples/platform-managed-audit-flow-actions-ghcr-values.yaml)
@@ -265,6 +267,14 @@ Useful examples:
   - restricted-cluster mirrored-image example
 
 Representative install commands:
+
+```bash
+helm upgrade --install nifi charts/nifi-platform \
+  -n nifi \
+  --create-namespace \
+  -f examples/platform-managed-values.yaml \
+  -f examples/platform-managed-audit-flow-actions-local-only-values.yaml
+```
 
 ```bash
 helm upgrade --install nifi charts/nifi-platform \
