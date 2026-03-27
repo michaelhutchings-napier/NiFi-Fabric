@@ -427,11 +427,16 @@ spec:
             /opt/nifi/nifi-current/bin/nifi.sh start
 
             root_group_id=""
-            for _ in $(seq 1 90); do
+            attempt=0
+            for _ in $(seq 1 300); do
+              attempt=$((attempt + 1))
               if root_group_id="$(
                 python3 -c 'import gzip, json, os, sys; path="/opt/nifi/nifi-current/conf/flow.json.gz"; payload=json.load(gzip.open(path, "rt")) if os.path.exists(path) else {}; root_group=payload.get("rootGroup", {}) or {}; candidates=[root_group.get("instanceIdentifier"), payload.get("rootGroupIdentifier"), payload.get("rootGroupId"), root_group.get("identifier"), root_group.get("id")]; value=next((candidate for candidate in candidates if candidate), ""); print(value) if value else sys.exit(1)' 2>/dev/null
               )" && [ -n "${root_group_id}" ]; then
                 break
+              fi
+              if [ $((attempt % 15)) -eq 0 ]; then
+                echo "waiting for NiFi root process group id during mutable flow authz bootstrap (${attempt}/300)"
               fi
               sleep 2
             done

@@ -96,6 +96,7 @@ dump_diagnostics() {
   kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 120 || true
   kubectl -n "${CONTROLLER_NAMESPACE}" logs deployment/"${CONTROLLER_DEPLOYMENT}" --tail=300 || true
   kubectl -n "${NAMESPACE}" logs "${HELM_RELEASE}-0" -c nifi --tail=300 || true
+  kubectl -n "${NAMESPACE}" logs "${HELM_RELEASE}-0" -c nifi --previous --tail=300 || true
 }
 
 trap 'dump_diagnostics; print_failure_help "${NAMESPACE}" "${HELM_RELEASE}" "${CONTROLLER_NAMESPACE}" "${CONTROLLER_DEPLOYMENT}"; exit 1' ERR
