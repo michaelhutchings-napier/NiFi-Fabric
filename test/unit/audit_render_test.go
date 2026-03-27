@@ -209,11 +209,13 @@ func TestPlatformManagedAuditFlowActionsKindOverlayKeepsSingleNodeShape(t *testi
 	for _, want := range []string{
 		"replicas: 1",
 		"nifi.flow.configuration.archive.dir=/opt/nifi/nifi-current/database_repository/flow-audit-archive",
-		"resource=\"/process-groups/__ROOT_PROCESS_GROUP_ID__\" action=\"W\"",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
 		}
+	}
+	if strings.Contains(output, `resource="/process-groups/__ROOT_PROCESS_GROUP_ID__" action="W"`) {
+		t.Fatalf("expected kind audit overlay to avoid mutable-flow root-group bootstrap policy\n%s", output)
 	}
 }
 

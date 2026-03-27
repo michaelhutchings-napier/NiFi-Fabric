@@ -2,8 +2,9 @@
 #
 # This keeps the proof bounded to the audit slice by:
 # - using a single NiFi node
-# - granting the bootstrap single-user admin the bounded mutable-flow capability
-#   needed to create one root-child process group for the audit event
+# - keeping startup on the normal path, then letting the proof script grant one
+#   temporary root-canvas policy through the NiFi API before it creates the
+#   audit-triggering child process group
 #
 # Compose it with:
 # - examples/platform-managed-values.yaml
@@ -11,8 +12,3 @@
 # - examples/platform-fast-values.yaml
 nifi:
   replicaCount: 1
-  authz:
-    capabilities:
-      mutableFlow:
-        enabled: true
-        includeInitialAdmin: true

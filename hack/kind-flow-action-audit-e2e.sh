@@ -19,6 +19,7 @@ REPORTER_IMAGE_REPOSITORY="${REPORTER_IMAGE_REPOSITORY:-nifi-flow-action-audit-r
 REPORTER_IMAGE_TAG="${REPORTER_IMAGE_TAG:-0.0.1-SNAPSHOT}"
 SKIP_KIND_BOOTSTRAP="${SKIP_KIND_BOOTSTRAP:-false}"
 FAST_PROFILE="${FAST_PROFILE:-true}"
+ARTIFACT_DIR="${ARTIFACT_DIR:-}"
 START_EPOCH="$(date +%s)"
 
 NIFI_IMAGE_REPOSITORY="${NIFI_IMAGE%:*}"
@@ -82,21 +83,48 @@ retry_proof() {
   done
 }
 
+capture_cmd() {
+  local name="$1"
+  shift
+
+  if [[ -z "${ARTIFACT_DIR}" ]]; then
+    return 0
+  fi
+
+  mkdir -p "${ARTIFACT_DIR}"
+  {
+    echo "### ${name}"
+    "$@"
+  } >"${ARTIFACT_DIR}/${name}.log" 2>&1 || true
+}
+
 dump_diagnostics() {
   set +e
   echo
   echo "==> flow-action audit diagnostics after failure at +$(elapsed)s"
   kubectl config use-context "kind-${KIND_CLUSTER_NAME}" >/dev/null 2>&1 || true
   kubectl config current-context || true
+  capture_cmd current-context kubectl config current-context
   helm -n "${NAMESPACE}" status "${HELM_RELEASE}" || true
+  capture_cmd helm-status helm -n "${NAMESPACE}" status "${HELM_RELEASE}"
   kubectl -n "${CONTROLLER_NAMESPACE}" get deployment,pod || true
+  capture_cmd controller-get kubectl -n "${CONTROLLER_NAMESPACE}" get deployment,pod
   kubectl -n "${NAMESPACE}" get nificluster,statefulset,pod,configmap,secret || true
+  capture_cmd workload-get kubectl -n "${NAMESPACE}" get nificluster,statefulset,pod,configmap,secret
   kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o yaml || true
+  capture_cmd nificluster-yaml kubectl -n "${NAMESPACE}" get nificluster "${HELM_RELEASE}" -o yaml
   kubectl -n "${NAMESPACE}" describe nificluster "${HELM_RELEASE}" || true
+  capture_cmd nificluster-describe kubectl -n "${NAMESPACE}" describe nificluster "${HELM_RELEASE}"
+  kubectl -n "${NAMESPACE}" describe pod "${HELM_RELEASE}-0" || true
+  capture_cmd nifi-pod-describe kubectl -n "${NAMESPACE}" describe pod "${HELM_RELEASE}-0"
   kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 120 || true
+  capture_cmd events sh -ec "kubectl -n '${NAMESPACE}' get events --sort-by=.lastTimestamp | tail -n 120"
   kubectl -n "${CONTROLLER_NAMESPACE}" logs deployment/"${CONTROLLER_DEPLOYMENT}" --tail=300 || true
+  capture_cmd controller-logs kubectl -n "${CONTROLLER_NAMESPACE}" logs deployment/"${CONTROLLER_DEPLOYMENT}" --tail=300
   kubectl -n "${NAMESPACE}" logs "${HELM_RELEASE}-0" -c nifi --tail=300 || true
+  capture_cmd nifi-logs kubectl -n "${NAMESPACE}" logs "${HELM_RELEASE}-0" -c nifi --tail=300
   kubectl -n "${NAMESPACE}" logs "${HELM_RELEASE}-0" -c nifi --previous --tail=300 || true
+  capture_cmd nifi-logs-previous kubectl -n "${NAMESPACE}" logs "${HELM_RELEASE}-0" -c nifi --previous --tail=300
 }
 
 trap 'dump_diagnostics; print_failure_help "${NAMESPACE}" "${HELM_RELEASE}" "${CONTROLLER_NAMESPACE}" "${CONTROLLER_DEPLOYMENT}"; exit 1' ERR

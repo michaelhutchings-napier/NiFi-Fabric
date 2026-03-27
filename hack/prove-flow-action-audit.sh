@@ -126,6 +126,167 @@ nifi_request() {
   printf '%s' "${LAST_HTTP_BODY}"
 }
 
+nifi_request_retry() {
+  local method="$1"
+  local path="$2"
+  local body="${3:-}"
+  local attempts="${4:-20}"
+  local delay_seconds="${5:-2}"
+
+  for _ in $(seq 1 "${attempts}"); do
+    if nifi_request "${method}" "${path}" "${body}"; then
+      return 0
+    fi
+    sleep "${delay_seconds}"
+  done
+
+  return 1
+}
+
+policy_payload() {
+  local action="$1"
+  local resource="$2"
+  python3 - "${action}" "${resource}" "${admin_user_id}" <<'PY'
+import json
+import sys
+
+payload = {
+    "revision": {
+        "clientId": "flow-action-audit-proof",
+        "version": 0,
+    },
+    "component": {
+        "action": sys.argv[1],
+        "resource": sys.argv[2],
+        "users": [{"id": sys.argv[3]}],
+    },
+}
+json.dump(payload, sys.stdout)
+PY
+}
+
+policy_id_for() {
+  local action="$1"
+  local resource="$2"
+  local policy_action=""
+
+  case "${action}" in
+    read) policy_action="R" ;;
+    write) policy_action="W" ;;
+    *)
+      echo "unsupported policy action lookup: ${action}" >&2
+      return 1
+      ;;
+  esac
+
+  kubectl -n "${namespace}" exec -i -c nifi "${pod}" -- env \
+    POLICY_ACTION="${policy_action}" \
+    POLICY_RESOURCE="${resource}" \
+    python3 - <<'PY'
+import os
+import xml.etree.ElementTree as ET
+
+root = ET.parse("/opt/nifi/nifi-current/conf/authorizations.xml").getroot()
+for policy in root.findall(".//policy"):
+    if (
+        policy.get("action") == os.environ["POLICY_ACTION"]
+        and policy.get("resource") == os.environ["POLICY_RESOURCE"]
+    ):
+        print(policy.get("identifier", ""))
+        break
+PY
+}
+
+ensure_policy_user_binding() {
+  local action="$1"
+  local resource="$2"
+  local policy_id=""
+
+  policy_id="$(policy_id_for "${action}" "${resource}")"
+  if [[ -z "${policy_id}" ]]; then
+    nifi_request_retry POST /policies "$(policy_payload "${action}" "${resource}")" 20 2 >/dev/null
+    return 0
+  fi
+
+  nifi_request_retry GET "/policies/${policy_id}" "" 20 2 >"${tmpdir}/policy-${policy_id}.json"
+  if python3 - "${tmpdir}/policy-${policy_id}.json" "${admin_user_id}" >"${tmpdir}/policy-${policy_id}-update.json" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+user_id = sys.argv[2]
+component = payload.get("component", {})
+users = component.get("users", [])
+user_ids = {user.get("id") for user in users}
+if user_id in user_ids:
+    raise SystemExit(1)
+
+users.append({"id": user_id})
+update = {
+    "revision": {
+        "clientId": "flow-action-audit-proof",
+        "version": payload.get("revision", {}).get("version", 0),
+    },
+    "component": {
+        "id": component.get("id"),
+        "resource": component.get("resource"),
+        "action": component.get("action"),
+        "users": [{"id": user.get("id")} for user in users],
+        "userGroups": [{"id": group.get("id")} for group in component.get("userGroups", [])],
+    },
+}
+json.dump(update, sys.stdout)
+PY
+  then
+    nifi_request_retry PUT "/policies/${policy_id}" "$(tr -d '\n' < "${tmpdir}/policy-${policy_id}-update.json")" 20 2 >/dev/null
+  fi
+}
+
+root_flow_json="${tmpdir}/root-flow.json"
+nifi_request_retry GET /flow/process-groups/root "" 30 2 >"${root_flow_json}"
+root_group_id="$(
+  python3 - "${root_flow_json}" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+flow = payload.get("processGroupFlow", {})
+component = flow.get("breadcrumb", {}).get("breadcrumb", {}) or {}
+group = flow.get("id") or component.get("id") or component.get("groupId") or ""
+print(group)
+PY
+)"
+
+if [[ -z "${root_group_id}" ]]; then
+  echo "failed to resolve root process group id from NiFi" >&2
+  cat "${root_flow_json}" >&2
+  exit 1
+fi
+
+kubectl -n "${namespace}" exec -i -c nifi "${pod}" -- cat /opt/nifi/nifi-current/conf/users.xml >"${tmpdir}/users.xml"
+admin_user_id="$(
+  python3 - "${tmpdir}/users.xml" "${username}" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[1]).getroot()
+target = sys.argv[2]
+for user in root.findall(".//user"):
+    if user.get("identity") == target:
+        print(user.get("identifier", ""))
+        break
+PY
+)"
+
+if [[ -z "${admin_user_id}" ]]; then
+  echo "failed to resolve NiFi user id for ${username}" >&2
+  cat "${tmpdir}/users.xml" >&2
+  exit 1
+fi
+
+ensure_policy_user_binding read "/process-groups/${root_group_id}"
+ensure_policy_user_binding write "/process-groups/${root_group_id}"
+
 proof_group_name="flow-action-audit-proof-$(date +%s)"
 
 python3 - "${proof_group_name}" >"${tmpdir}/create-process-group.json" <<'PY'
