@@ -163,11 +163,26 @@ The repository also now contains the reporter source scaffold:
 - standalone Maven and NAR packaging files
 - a helper build script under `hack/build-flow-action-audit-reporter-nar.sh`
 - a focused kind proof path under `hack/kind-flow-action-audit-e2e.sh`
+- CI and release plumbing that builds the reporter NAR and image predictably
 
 The current implementation does not yet include:
 
 - non-log sinks such as HTTP or Kafka
-- release-published reporter images
+- anything beyond the bounded log-only reporter path
+
+## Reporter Artifact Build And Release
+
+The reporter is now treated as a first-class repository artifact rather than an ad hoc local build:
+
+- `ci` builds the reporter NAR and the minimal reporter image on ordinary validation runs
+- `.github/workflows/flow-action-audit-reporter-release.yaml` uploads the built NAR as a workflow artifact on pull requests
+- pushes to `main` or `master` publish a GHCR image at `ghcr.io/<owner>/nifi-fabric-flow-action-audit-reporter:edge` plus `:sha-<commit>`
+- a tag named `flow-action-audit-reporter-vX.Y.Z` publishes the image tag `ghcr.io/<owner>/nifi-fabric-flow-action-audit-reporter:X.Y.Z` and a matching GitHub release asset containing the built NAR
+
+Useful helper commands:
+
+- `make print-flow-action-audit-reporter-version`
+- `make build-flow-action-audit-reporter-dist`
 
 ## Implementation Shape
 

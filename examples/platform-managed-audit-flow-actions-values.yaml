@@ -5,6 +5,8 @@
 # Before using this overlay, build and publish or load a reporter image that
 # contains the NAR artifact, for example:
 #   make build-flow-action-audit-reporter-image
+# or use the upstream GHCR-published image from:
+#   ghcr.io/<owner>/nifi-fabric-flow-action-audit-reporter:<tag>
 #
 # Compose it with:
 # - examples/platform-managed-values.yaml

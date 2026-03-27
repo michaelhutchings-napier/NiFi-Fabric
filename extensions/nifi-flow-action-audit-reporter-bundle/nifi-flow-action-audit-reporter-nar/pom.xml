@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.nifi.fabric</groupId>
         <artifactId>nifi-flow-action-audit-reporter-bundle</artifactId>
-        <version>0.0.1-SNAPSHOT</version>
+        <version>${revision}</version>
     </parent>
 
     <artifactId>nifi-flow-action-audit-reporter-nar</artifactId>

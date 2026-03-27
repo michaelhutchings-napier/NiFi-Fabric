@@ -174,7 +174,7 @@ Audit note:
 - it enables `nifi.observability.audit.flowActions.enabled=true`
 - it keeps durable local history, request log, and flow archive as the primary support layer
 - it adds only the advanced `export.type=log` path; HTTP and Kafka sinks are intentionally not part of this shape
-- it expects a reporter image containing the NAR at the configured path; build the local example image with `make build-flow-action-audit-reporter-image`
+- it expects a reporter image containing the NAR at the configured path; build the local example image with `make build-flow-action-audit-reporter-image`, or use the release-published upstream image from `ghcr.io/<owner>/nifi-fabric-flow-action-audit-reporter`
 - it pins the NiFi workload image to `2.8.0` because FlowActionReporter is only available in published NiFi artifacts from `2.4.0` onward
 - use it together with `examples/platform-managed-values.yaml`
 - [platform-managed-audit-flow-actions-kind-values.yaml](platform-managed-audit-flow-actions-kind-values.yaml) is the focused local kind overlay for this proof path

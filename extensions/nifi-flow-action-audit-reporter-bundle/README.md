@@ -41,6 +41,27 @@ Default image tag:
 
 - `nifi-flow-action-audit-reporter:0.0.1-SNAPSHOT`
 
+To print the currently resolved artifact version:
+
+```bash
+make print-flow-action-audit-reporter-version
+```
+
+To copy the built NAR into `dist/flow-action-audit-reporter/` for CI or release packaging:
+
+```bash
+make build-flow-action-audit-reporter-dist
+```
+
+## CI And Release
+
+The repository now treats the reporter as a first-class build artifact:
+
+- the main `ci` workflow builds the reporter NAR and the minimal reporter image on every normal validation run
+- the dedicated `Flow Action Audit Reporter Artifact` workflow uploads the built NAR as a workflow artifact on pull requests
+- pushes to `main` or `master` publish the reporter image to `ghcr.io/<owner>/nifi-fabric-flow-action-audit-reporter:edge` and `:sha-<commit>`
+- pushing a tag named `flow-action-audit-reporter-vX.Y.Z` publishes the image tag `ghcr.io/<owner>/nifi-fabric-flow-action-audit-reporter:X.Y.Z` and attaches the matching NAR to the GitHub release for that tag
+
 ## Current Status
 
 The repository now contains the reporter source and NAR scaffold.

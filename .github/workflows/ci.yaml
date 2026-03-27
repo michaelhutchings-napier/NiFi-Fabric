@@ -15,6 +15,11 @@ jobs:
     - uses: actions/setup-go@v6
       with:
         go-version-file: go.mod
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '21'
+        cache: maven
     - uses: azure/setup-helm@v5
       with:
         version: v3.20.0
@@ -22,6 +27,10 @@ jobs:
       run: helm dependency build --skip-refresh charts/nifi-platform
     - name: Go test
       run: go test ./...
+    - name: Build flow-action audit reporter NAR
+      run: make build-flow-action-audit-reporter-dist
+    - name: Build flow-action audit reporter image
+      run: IMAGE_TAG=nifi-flow-action-audit-reporter:ci make build-flow-action-audit-reporter-image
     - name: Helm lint
       run: helm lint charts/nifi
     - name: Authz tool generated overlays are fresh
