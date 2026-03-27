@@ -189,6 +189,11 @@ Useful helper commands:
 - `make print-flow-action-audit-reporter-version`
 - `make build-flow-action-audit-reporter-dist`
 
+Operator-facing tag selection and first-response checks are in:
+
+- [Operations Runbooks](../operations/runbooks.md)
+  - see `Flow-Action Audit Reporter Image Selection`
+
 ## Implementation Shape
 
 The future implementation should follow the existing chart and docs conventions:

@@ -130,6 +130,33 @@ Respond:
 - for exporter mode, verify upstream reachability, mounted auth and CA material, and exporter self-metrics
 - remember that exporter is GA but intentionally smaller in scope; if you are missing JVM or broader system-diagnostics families, that is outside the current GA claim rather than a scrape failure
 
+## Flow-Action Audit Reporter Image Selection
+
+Signals:
+
+- `nifi.observability.audit.flowActions.export.type=log`
+- chart values for `nifi.observability.audit.flowActions.export.log.installation.image.*`
+- NiFi pod init-container failures around reporter installation
+- missing `nifi.flowAction` events in the NiFi log stream
+
+Check:
+
+```bash
+kubectl -n nifi get statefulset nifi -o jsonpath='{.spec.template.spec.initContainers[?(@.name=="install-flow-action-audit-reporter")].image}{"\n"}'
+kubectl -n nifi get configmap nifi-config -o yaml | rg 'flow.action.reporter|nar.library.directory.flow.action.audit'
+kubectl -n nifi logs nifi-0 -c install-flow-action-audit-reporter --tail=100
+kubectl -n nifi logs nifi-0 -c nifi --tail=200 | rg 'nifi.flowAction|flow-action audit'
+```
+
+Respond:
+
+- use `ghcr.io/<owner>/nifi-fabric-flow-action-audit-reporter:edge` only for branch-tip validation or pre-production soak
+- use `ghcr.io/<owner>/nifi-fabric-flow-action-audit-reporter:sha-<commit>` when you need an immutable build tied to a reviewed commit
+- use `ghcr.io/<owner>/nifi-fabric-flow-action-audit-reporter:X.Y.Z` when you want the release-tagged build from `flow-action-audit-reporter-vX.Y.Z`
+- keep the reporter image tag and the chart values pinned explicitly; do not rely on floating defaults in production
+- if the init container cannot find the NAR at the configured path, first verify the image tag and only then override `narPath`
+- if the reporter image is healthy but no audit events appear, treat local NiFi history, flow archive, and request log as the fallback evidence path
+
 ## KEDA Wants X, Controller Did Y
 
 Signals:
