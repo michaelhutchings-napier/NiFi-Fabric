@@ -105,6 +105,7 @@ Manual UI edits outside the managed import scope are unsupported. The product do
 - retained owned imports reported by the bounded runtime are surfaced as warnings on otherwise healthy `NiFiDataflow` resources so operators can see stale retained targets without widening the feature into a deletion controller
 - operator-owned targets without the product ownership marker are surfaced as explicit adoption-refused blocked status and events; this path does not auto-adopt them
 - when retained owned imports disappear from the bounded runtime status, the controller emits a normalized warning-cleared event so the signal is visible without repeated warning spam
+- the same bridge path also projects a small queryable status summary under `status.ownership` and `status.warnings.retainedOwnedImports[]` so automation can inspect ownership and retained-warning state without parsing condition text
 - ongoing automatic synchronization to newer registry versions is out of scope
 
 ## Runtime Coverage

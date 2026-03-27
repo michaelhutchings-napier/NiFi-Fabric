@@ -203,6 +203,19 @@ spec:
                 type: integer
               observedVersion:
                 type: string
+              ownership:
+                properties:
+                  message:
+                    type: string
+                  reason:
+                    type: string
+                  state:
+                    enum:
+                    - Managed
+                    - AdoptionRefused
+                    - OwnershipConflict
+                    type: string
+                type: object
               phase:
                 enum:
                 - Pending
@@ -214,6 +227,22 @@ spec:
                 type: string
               processGroupId:
                 type: string
+              warnings:
+                properties:
+                  retainedOwnedImports:
+                    items:
+                      properties:
+                        name:
+                          type: string
+                        processGroupId:
+                          type: string
+                        reason:
+                          type: string
+                        targetRootProcessGroupName:
+                          type: string
+                      type: object
+                    type: array
+                type: object
             type: object
         type: object
     served: true

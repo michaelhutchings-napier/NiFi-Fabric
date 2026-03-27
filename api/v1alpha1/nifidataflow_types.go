@@ -36,6 +36,15 @@ type NiFiClusterRef struct {
 	Name string `json:"name"`
 }
 
+// +kubebuilder:validation:Enum=Managed;AdoptionRefused;OwnershipConflict
+type DataflowOwnershipState string
+
+const (
+	DataflowOwnershipStateManaged           DataflowOwnershipState = "Managed"
+	DataflowOwnershipStateAdoptionRefused   DataflowOwnershipState = "AdoptionRefused"
+	DataflowOwnershipStateOwnershipConflict DataflowOwnershipState = "OwnershipConflict"
+)
+
 type RegistryClientRef struct {
 	Name string `json:"name"`
 }
@@ -65,6 +74,23 @@ type DataflowSyncPolicy struct {
 	Mode DataflowSyncMode `json:"mode,omitempty"`
 }
 
+type RetainedOwnedImportStatus struct {
+	Name                       string `json:"name,omitempty"`
+	TargetRootProcessGroupName string `json:"targetRootProcessGroupName,omitempty"`
+	ProcessGroupID             string `json:"processGroupId,omitempty"`
+	Reason                     string `json:"reason,omitempty"`
+}
+
+type DataflowWarningsStatus struct {
+	RetainedOwnedImports []RetainedOwnedImportStatus `json:"retainedOwnedImports,omitempty"`
+}
+
+type DataflowOwnershipStatus struct {
+	State   DataflowOwnershipState `json:"state,omitempty"`
+	Reason  string                 `json:"reason,omitempty"`
+	Message string                 `json:"message,omitempty"`
+}
+
 type NiFiDataflowSpec struct {
 	ClusterRef NiFiClusterRef        `json:"clusterRef"`
 	Source     DataflowSource        `json:"source"`
@@ -75,13 +101,15 @@ type NiFiDataflowSpec struct {
 }
 
 type NiFiDataflowStatus struct {
-	ObservedGeneration    int64              `json:"observedGeneration,omitempty"`
-	Phase                 DataflowPhase      `json:"phase,omitempty"`
-	ProcessGroupID        string             `json:"processGroupId,omitempty"`
-	ObservedVersion       string             `json:"observedVersion,omitempty"`
-	LastSuccessfulVersion string             `json:"lastSuccessfulVersion,omitempty"`
-	LastOperation         LastOperation      `json:"lastOperation,omitempty"`
-	Conditions            []metav1.Condition `json:"conditions,omitempty"`
+	ObservedGeneration    int64                   `json:"observedGeneration,omitempty"`
+	Phase                 DataflowPhase           `json:"phase,omitempty"`
+	ProcessGroupID        string                  `json:"processGroupId,omitempty"`
+	ObservedVersion       string                  `json:"observedVersion,omitempty"`
+	LastSuccessfulVersion string                  `json:"lastSuccessfulVersion,omitempty"`
+	Warnings              DataflowWarningsStatus  `json:"warnings,omitempty"`
+	Ownership             DataflowOwnershipStatus `json:"ownership,omitempty"`
+	LastOperation         LastOperation           `json:"lastOperation,omitempty"`
+	Conditions            []metav1.Condition      `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true

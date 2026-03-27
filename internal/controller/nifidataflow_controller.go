@@ -37,6 +37,7 @@ type bridgeRuntimeImportRef struct {
 	Status               string `json:"status"`
 	Reason               string `json:"reason"`
 	Action               string `json:"action"`
+	OwnershipState       string `json:"ownershipState"`
 	ProcessGroupID       string `json:"processGroupId"`
 	RegistryClientName   string `json:"registryClientName"`
 	RegistryClientID     string `json:"registryClientId"`
@@ -98,6 +99,8 @@ func (r *NiFiDataflowReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	original := dataflow.DeepCopy()
 	dataflow.InitializeConditions()
 	dataflow.Status.ObservedGeneration = dataflow.Generation
+	dataflow.Status.Warnings = platformv1alpha1.DataflowWarningsStatus{}
+	dataflow.Status.Ownership = platformv1alpha1.DataflowOwnershipStatus{}
 
 	result, reconcileErr := r.reconcileDataflow(ctx, dataflow)
 	if patchErr := r.patchStatus(ctx, original, dataflow); patchErr != nil {
@@ -493,6 +496,8 @@ func (r *NiFiDataflowReconciler) patchStatus(ctx context.Context, original, upda
 		original.Status.ProcessGroupID == updated.Status.ProcessGroupID &&
 		original.Status.ObservedVersion == updated.Status.ObservedVersion &&
 		original.Status.LastSuccessfulVersion == updated.Status.LastSuccessfulVersion &&
+		equality.Semantic.DeepEqual(original.Status.Warnings, updated.Status.Warnings) &&
+		equality.Semantic.DeepEqual(original.Status.Ownership, updated.Status.Ownership) &&
 		original.Status.LastOperation == updated.Status.LastOperation &&
 		equality.Semantic.DeepEqual(original.Status.Conditions, updated.Status.Conditions) {
 		return nil
@@ -710,10 +715,40 @@ func retainedOwnedImportWarning(runtimeStatus *bridgeRuntimeStatus) string {
 	return fmt.Sprintf("bounded runtime reports retained owned imports no longer declared: %s", strings.Join(summaries, ", "))
 }
 
+func retainedOwnedImportStatuses(runtimeStatus *bridgeRuntimeStatus) []platformv1alpha1.RetainedOwnedImportStatus {
+	if runtimeStatus == nil || len(runtimeStatus.RetainedOwnedImports) == 0 {
+		return nil
+	}
+
+	statuses := make([]platformv1alpha1.RetainedOwnedImportStatus, 0, len(runtimeStatus.RetainedOwnedImports))
+	for _, entry := range runtimeStatus.RetainedOwnedImports {
+		statuses = append(statuses, platformv1alpha1.RetainedOwnedImportStatus{
+			Name:                       strings.TrimSpace(entry.Name),
+			TargetRootProcessGroupName: strings.TrimSpace(entry.TargetRootProcessGroupName),
+			ProcessGroupID:             strings.TrimSpace(entry.ProcessGroupID),
+			Reason:                     strings.TrimSpace(entry.Reason),
+		})
+	}
+
+	sort.Slice(statuses, func(i, j int) bool {
+		left := statuses[i].Name
+		if left == "" {
+			left = statuses[i].TargetRootProcessGroupName
+		}
+		right := statuses[j].Name
+		if right == "" {
+			right = statuses[j].TargetRootProcessGroupName
+		}
+		return left < right
+	})
+	return statuses
+}
+
 func (r *NiFiDataflowReconciler) applyRetainedOwnedImportWarnings(dataflow *platformv1alpha1.NiFiDataflow, runtimeStatus *bridgeRuntimeStatus) {
 	if dataflow == nil {
 		return
 	}
+	dataflow.Status.Warnings.RetainedOwnedImports = retainedOwnedImportStatuses(runtimeStatus)
 	if dataflow.Status.Phase != platformv1alpha1.DataflowPhaseReady && dataflow.Status.Phase != platformv1alpha1.DataflowPhaseProgressing {
 		return
 	}
@@ -741,6 +776,17 @@ func classifyOwnershipBlockedReason(reason string) string {
 		return "OwnershipConflict"
 	default:
 		return ""
+	}
+}
+
+func setOwnershipStatus(dataflow *platformv1alpha1.NiFiDataflow, state platformv1alpha1.DataflowOwnershipState, reason, message string) {
+	if dataflow == nil {
+		return
+	}
+	dataflow.Status.Ownership = platformv1alpha1.DataflowOwnershipStatus{
+		State:   state,
+		Reason:  strings.TrimSpace(reason),
+		Message: strings.TrimSpace(message),
 	}
 }
 
@@ -1223,6 +1269,9 @@ func (r *NiFiDataflowReconciler) markRuntimeImportProgressing(dataflow *platform
 	if observedVersion := runtimeImportObservedVersion(runtimeImport); observedVersion != "" {
 		dataflow.Status.ObservedVersion = observedVersion
 	}
+	if strings.TrimSpace(runtimeImport.OwnershipState) == "owned" {
+		setOwnershipStatus(dataflow, platformv1alpha1.DataflowOwnershipStateManaged, "OwnedTargetTracked", "The bounded runtime is reconciling an existing owned target")
+	}
 	dataflow.Status.LastOperation = platformv1alpha1.LastOperation{
 		Type:        "ObserveRuntimeStatus",
 		Phase:       platformv1alpha1.OperationPhaseRunning,
@@ -1319,6 +1368,7 @@ func (r *NiFiDataflowReconciler) markRuntimeImportReady(dataflow *platformv1alph
 	if summary := runtimeImportSummary(runtimeImport); summary != "" {
 		message = fmt.Sprintf("%s with %s", message, summary)
 	}
+	setOwnershipStatus(dataflow, platformv1alpha1.DataflowOwnershipStateManaged, "OwnedTargetReconciled", "The bounded runtime reconciled the owned target for this NiFiDataflow")
 	dataflow.Status.LastOperation = platformv1alpha1.LastOperation{
 		Type:        "ObserveRuntimeStatus",
 		Phase:       platformv1alpha1.OperationPhaseSucceeded,
@@ -1422,6 +1472,11 @@ func (r *NiFiDataflowReconciler) markRuntimeImportBlocked(dataflow *platformv1al
 		if ownershipBlockedReason == "AdoptionRefused" {
 			targetMessage = "The bounded runtime found an existing target without the product ownership marker and refused automatic adoption"
 		}
+		ownershipMessage := "The declared target conflicts with the current ownership metadata and cannot be adopted automatically"
+		if ownershipBlockedReason == "AdoptionRefused" {
+			ownershipMessage = "An existing target without the product ownership marker was found, and automatic adoption is intentionally refused"
+		}
+		setOwnershipStatus(dataflow, platformv1alpha1.DataflowOwnershipState(ownershipBlockedReason), ownershipBlockedReason, ownershipMessage)
 		dataflow.SetCondition(metav1.Condition{
 			Type:               platformv1alpha1.ConditionTargetResolved,
 			Status:             metav1.ConditionFalse,

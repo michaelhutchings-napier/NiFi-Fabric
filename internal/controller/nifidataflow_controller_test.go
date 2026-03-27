@@ -162,6 +162,9 @@ func TestNiFiDataflowReconcileProjectsReadyRuntimeStatus(t *testing.T) {
 	if updated.Status.LastSuccessfulVersion != "12" {
 		t.Fatalf("expected last successful version to be projected from runtime status, got %q", updated.Status.LastSuccessfulVersion)
 	}
+	if updated.Status.Ownership.State != platformv1alpha1.DataflowOwnershipStateManaged {
+		t.Fatalf("expected ownership state Managed, got %q", updated.Status.Ownership.State)
+	}
 	if !strings.Contains(updated.Status.LastOperation.Message, "process group pg-orders") {
 		t.Fatalf("expected last operation to include projected process group details, got %q", updated.Status.LastOperation.Message)
 	}
@@ -326,6 +329,9 @@ func TestNiFiDataflowReconcileSurfacesRetainedOwnedImportWarnings(t *testing.T) 
 	} else if !strings.Contains(condition.Message, "legacy-payments") {
 		t.Fatalf("expected retained import warning to mention legacy-payments, got %q", condition.Message)
 	}
+	if len(updated.Status.Warnings.RetainedOwnedImports) != 1 || updated.Status.Warnings.RetainedOwnedImports[0].Name != "legacy-payments" {
+		t.Fatalf("expected retained-owned-import warning summary in status, got %#v", updated.Status.Warnings.RetainedOwnedImports)
+	}
 	expectEventContains(t, recorder, "Warning RetainedOwnedImportsPresent", "legacy-payments")
 }
 
@@ -426,6 +432,14 @@ func TestNiFiDataflowReconcileEmitsRetainedOwnedImportsClearedEvent(t *testing.T
 
 	reconcileDataflow(t, reconciler)
 	expectEventContains(t, recorder, "Normal RetainedOwnedImportsCleared", "warning cleared")
+
+	updated := &platformv1alpha1.NiFiDataflow{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: "nifi", Name: "orders-ingest"}, updated); err != nil {
+		t.Fatalf("get updated dataflow: %v", err)
+	}
+	if len(updated.Status.Warnings.RetainedOwnedImports) != 0 {
+		t.Fatalf("expected retained-owned-import warnings to clear from status, got %#v", updated.Status.Warnings.RetainedOwnedImports)
+	}
 }
 
 func TestNiFiDataflowReconcileClassifiesOwnershipAdoptionConflict(t *testing.T) {
@@ -485,6 +499,9 @@ func TestNiFiDataflowReconcileClassifiesOwnershipAdoptionConflict(t *testing.T) 
 	}
 	if condition := updated.GetCondition(platformv1alpha1.ConditionTargetResolved); condition == nil || condition.Reason != "AdoptionRefused" || condition.Status != metav1.ConditionFalse {
 		t.Fatalf("expected target resolved false adoption-refused condition, got %#v", condition)
+	}
+	if updated.Status.Ownership.State != platformv1alpha1.DataflowOwnershipStateAdoptionRefused {
+		t.Fatalf("expected ownership state AdoptionRefused, got %q", updated.Status.Ownership.State)
 	}
 	expectEventContains(t, recorder, "Warning AdoptionRefused", "will not be adopted automatically")
 }
