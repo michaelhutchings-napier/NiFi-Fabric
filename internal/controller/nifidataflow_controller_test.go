@@ -248,6 +248,87 @@ func TestNiFiDataflowReconcileProjectsBlockedRuntimeStatus(t *testing.T) {
 	expectEventContains(t, recorder, "Warning RuntimeImportBlocked", "Parameter Context attachment", "version 12")
 }
 
+func TestNiFiDataflowReconcileSurfacesRetainedOwnedImportWarnings(t *testing.T) {
+	cluster := &platformv1alpha1.NiFiCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},
+		Spec: platformv1alpha1.NiFiClusterSpec{
+			TargetRef:    platformv1alpha1.TargetRef{Name: "nifi"},
+			DesiredState: platformv1alpha1.DesiredStateRunning,
+		},
+	}
+	target := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{
+						{
+							Name: "nifidataflow-bridge",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{Name: "nifi-nifidataflows"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	statusConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi-nifidataflows-status", Namespace: "nifi"},
+		Data: map[string]string{
+			"status.json": `{
+  "status": "ok",
+  "imports": [
+    {
+      "name": "orders-ingest",
+      "status": "ok",
+      "action": "created",
+      "processGroupId": "pg-orders",
+      "registryClientName": "github-main",
+      "registryClientId": "registry-1",
+      "bucket": "platform-flows",
+      "bucketId": "bucket-1",
+      "flowName": "orders-ingest",
+      "flowId": "flow-1",
+      "resolvedVersion": "12",
+      "actualVersion": "12"
+    }
+  ],
+  "retainedOwnedImports": [
+    {
+      "name": "legacy-payments",
+      "targetRootProcessGroupName": "legacy-payments",
+      "processGroupId": "pg-legacy",
+      "action": "retained",
+      "status": "ok",
+      "reason": "removed imports are retained in NiFi and no longer reconciled in this slice"
+    }
+  ]
+}`,
+		},
+	}
+	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflowFixture(), cluster, target, statusConfigMap)
+
+	reconcileDataflow(t, reconciler)
+	reconcileDataflow(t, reconciler)
+
+	updated := &platformv1alpha1.NiFiDataflow{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: "nifi", Name: "orders-ingest"}, updated); err != nil {
+		t.Fatalf("get updated dataflow: %v", err)
+	}
+	if updated.Status.Phase != platformv1alpha1.DataflowPhaseReady {
+		t.Fatalf("expected ready phase, got %q", updated.Status.Phase)
+	}
+	if condition := updated.GetCondition(platformv1alpha1.ConditionDegraded); condition == nil || condition.Reason != "RetainedOwnedImportsPresent" || condition.Status != metav1.ConditionTrue {
+		t.Fatalf("expected degraded warning for retained owned imports, got %#v", condition)
+	} else if !strings.Contains(condition.Message, "legacy-payments") {
+		t.Fatalf("expected retained import warning to mention legacy-payments, got %q", condition.Message)
+	}
+	expectEventContains(t, recorder, "Warning RetainedOwnedImportsPresent", "legacy-payments")
+}
+
 func TestNiFiDataflowReconcileDoesNotSpamBlockedEventsWhenOnlyDetailTextChanges(t *testing.T) {
 	cluster := &platformv1alpha1.NiFiCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},

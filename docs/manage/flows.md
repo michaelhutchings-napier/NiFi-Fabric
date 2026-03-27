@@ -102,6 +102,7 @@ Manual UI edits outside the managed import scope are unsupported. The product do
 - missing live client, missing selected flow content, or unsupported manual drift is reported as `blocked` in the runtime status file instead of widening the feature into a generic recovery loop
 - when the optional controller bridge is enabled, the same runtime result is surfaced back into `NiFiDataflow.status` from the controller-observed status `ConfigMap`
 - when the optional controller bridge is enabled, the controller also emits Kubernetes events for meaningful bounded-runtime transitions such as `Ready`, `Blocked`, and `Failed`
+- retained owned imports reported by the bounded runtime are surfaced as warnings on otherwise healthy `NiFiDataflow` resources so operators can see stale retained targets without widening the feature into a deletion controller
 - ongoing automatic synchronization to newer registry versions is out of scope
 
 ## Runtime Coverage

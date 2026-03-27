@@ -26,9 +26,10 @@ import (
 const nifiDataflowFinalizer = "platform.nifi.io/nifidataflow-finalizer"
 
 type bridgeRuntimeStatus struct {
-	Status  string                   `json:"status"`
-	Reason  string                   `json:"reason"`
-	Imports []bridgeRuntimeImportRef `json:"imports"`
+	Status               string                      `json:"status"`
+	Reason               string                      `json:"reason"`
+	Imports              []bridgeRuntimeImportRef    `json:"imports"`
+	RetainedOwnedImports []bridgeRetainedOwnedImport `json:"retainedOwnedImports"`
 }
 
 type bridgeRuntimeImportRef struct {
@@ -47,6 +48,15 @@ type bridgeRuntimeImportRef struct {
 	ActualVersion        string `json:"actualVersion"`
 	ParameterContextName string `json:"parameterContextName"`
 	ParameterContextID   string `json:"parameterContextId"`
+}
+
+type bridgeRetainedOwnedImport struct {
+	Name                       string `json:"name"`
+	TargetRootProcessGroupName string `json:"targetRootProcessGroupName"`
+	ProcessGroupID             string `json:"processGroupId"`
+	Action                     string `json:"action"`
+	Status                     string `json:"status"`
+	Reason                     string `json:"reason"`
 }
 
 // NiFiDataflowReconciler keeps the initial dataflow API thin and status-focused.
@@ -159,10 +169,12 @@ func (r *NiFiDataflowReconciler) reconcileDataflow(ctx context.Context, dataflow
 
 	if runtimeImport := findBridgeRuntimeImport(runtimeStatus, dataflow.Name); runtimeImport != nil {
 		r.applyRuntimeImportStatus(dataflow, cluster, configMapName, statusConfigMapName, runtimeImport)
+		r.applyRetainedOwnedImportWarnings(dataflow, runtimeStatus)
 		return ctrl.Result{}, nil
 	}
 
 	r.markBridgePublished(dataflow, cluster, configMapName, importCount)
+	r.applyRetainedOwnedImportWarnings(dataflow, runtimeStatus)
 	return ctrl.Result{}, nil
 }
 
@@ -516,6 +528,9 @@ func statusEventMetadata(dataflow *platformv1alpha1.NiFiDataflow) (string, strin
 	if dataflow == nil {
 		return corev1.EventTypeNormal, "StatusUpdated"
 	}
+	if condition := dataflow.GetCondition(platformv1alpha1.ConditionDegraded); condition != nil && condition.Reason == "RetainedOwnedImportsPresent" {
+		return corev1.EventTypeWarning, "RetainedOwnedImportsPresent"
+	}
 
 	switch dataflow.Status.Phase {
 	case platformv1alpha1.DataflowPhaseReady:
@@ -565,12 +580,19 @@ func conditionSignaturePart(condition *metav1.Condition) string {
 	if condition == nil {
 		return ""
 	}
-	return strings.Join([]string{condition.Type, string(condition.Status), condition.Reason}, ":")
+	parts := []string{condition.Type, string(condition.Status), condition.Reason}
+	if condition.Reason == "RetainedOwnedImportsPresent" {
+		parts = append(parts, condition.Message)
+	}
+	return strings.Join(parts, ":")
 }
 
 func statusEventMessage(dataflow *platformv1alpha1.NiFiDataflow) string {
 	if dataflow == nil {
 		return ""
+	}
+	if condition := dataflow.GetCondition(platformv1alpha1.ConditionDegraded); condition != nil && condition.Reason == "RetainedOwnedImportsPresent" {
+		return fmt.Sprintf("NiFiDataflow %s warning: %s", dataflow.Name, condition.Message)
 	}
 
 	switch dataflow.Status.Phase {
@@ -610,6 +632,66 @@ func statusEventMessage(dataflow *platformv1alpha1.NiFiDataflow) string {
 	default:
 		return strings.TrimSpace(dataflow.Status.LastOperation.Message)
 	}
+}
+
+func retainedOwnedImportWarning(runtimeStatus *bridgeRuntimeStatus) string {
+	if runtimeStatus == nil || len(runtimeStatus.RetainedOwnedImports) == 0 {
+		return ""
+	}
+
+	summaries := make([]string, 0, len(runtimeStatus.RetainedOwnedImports))
+	for _, entry := range runtimeStatus.RetainedOwnedImports {
+		name := strings.TrimSpace(entry.Name)
+		target := strings.TrimSpace(entry.TargetRootProcessGroupName)
+		processGroupID := strings.TrimSpace(entry.ProcessGroupID)
+
+		summary := name
+		if summary == "" {
+			summary = target
+		}
+		if summary == "" {
+			summary = processGroupID
+		}
+		if summary == "" {
+			continue
+		}
+
+		if target != "" && target != summary {
+			summary = fmt.Sprintf("%s (target %s)", summary, target)
+		} else if processGroupID != "" && processGroupID != summary {
+			summary = fmt.Sprintf("%s (process group %s)", summary, processGroupID)
+		}
+		summaries = append(summaries, summary)
+	}
+
+	if len(summaries) == 0 {
+		return ""
+	}
+
+	sort.Strings(summaries)
+	return fmt.Sprintf("bounded runtime reports retained owned imports no longer declared: %s", strings.Join(summaries, ", "))
+}
+
+func (r *NiFiDataflowReconciler) applyRetainedOwnedImportWarnings(dataflow *platformv1alpha1.NiFiDataflow, runtimeStatus *bridgeRuntimeStatus) {
+	if dataflow == nil {
+		return
+	}
+	if dataflow.Status.Phase != platformv1alpha1.DataflowPhaseReady && dataflow.Status.Phase != platformv1alpha1.DataflowPhaseProgressing {
+		return
+	}
+
+	warningMessage := retainedOwnedImportWarning(runtimeStatus)
+	if warningMessage == "" {
+		return
+	}
+
+	dataflow.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionDegraded,
+		Status:             metav1.ConditionTrue,
+		Reason:             "RetainedOwnedImportsPresent",
+		Message:            warningMessage,
+		LastTransitionTime: metav1.Now(),
+	})
 }
 
 func (r *NiFiDataflowReconciler) markSuspended(dataflow *platformv1alpha1.NiFiDataflow) {
