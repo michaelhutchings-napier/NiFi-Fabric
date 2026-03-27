@@ -22,9 +22,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.TreeMap;
 
 /**
@@ -41,6 +43,15 @@ public class FlowActionJsonLogReporter implements FlowActionReporter {
     private static final String SCHEMA_VERSION = "v1";
 
     private static final String EVENT_TYPE = "nifi.flowAction";
+
+    private static final String REDACTED_VALUE = "[redacted]";
+
+    private static final String[] PROCESS_GROUP_PATH_KEYS = {
+            "actionDetails.groupPath",
+            "processGroup.path"
+    };
+
+    private static final Set<String> STABLE_ATTRIBUTE_KEYS = stableAttributeKeys();
 
     @Override
     public void reportFlowActions(final Collection<FlowAction> actions) {
@@ -82,6 +93,7 @@ public class FlowActionJsonLogReporter implements FlowActionReporter {
         final Map<String, Object> processGroup = new LinkedHashMap<>();
         putIfPresent(processGroup, "id", attribute(attributes, FlowActionAttribute.ACTION_DETAILS_GROUP_ID));
         putIfPresent(processGroup, "previousId", attribute(attributes, FlowActionAttribute.ACTION_DETAILS_PREVIOUS_GROUP_ID));
+        putIfPresent(processGroup, "path", firstPresent(attributes, PROCESS_GROUP_PATH_KEYS));
         putIfNotEmpty(event, "processGroup", processGroup);
 
         final Map<String, Object> change = new LinkedHashMap<>();
@@ -106,14 +118,46 @@ public class FlowActionJsonLogReporter implements FlowActionReporter {
         putIfNotEmpty(event, "request", request);
 
         if (!attributes.isEmpty()) {
-            event.put("attributes", attributes);
+            event.put("attributes", sanitizeAttributes(attributes));
         }
 
         return event;
     }
 
+    private static Map<String, String> sanitizeAttributes(final Map<String, String> attributes) {
+        final Map<String, String> sanitized = new TreeMap<>();
+        for (final Map.Entry<String, String> entry : attributes.entrySet()) {
+            final String key = entry.getKey();
+            final String value = entry.getValue();
+            if (STABLE_ATTRIBUTE_KEYS.contains(key)) {
+                sanitized.put(key, value);
+            } else {
+                sanitized.put(key, REDACTED_VALUE);
+            }
+        }
+        return sanitized;
+    }
+
     private static String attribute(final Map<String, String> attributes, final FlowActionAttribute attribute) {
         return attributes.get(attribute.key());
+    }
+
+    private static String firstPresent(final Map<String, String> attributes, final String... keys) {
+        for (final String key : keys) {
+            final String value = attributes.get(key);
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static Set<String> stableAttributeKeys() {
+        final Set<String> keys = new HashSet<>();
+        for (final FlowActionAttribute attribute : FlowActionAttribute.values()) {
+            keys.add(attribute.key());
+        }
+        return keys;
     }
 
     private static void putIfPresent(final Map<String, Object> target, final String key, final String value) {

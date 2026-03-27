@@ -23,6 +23,20 @@ if docker exec "${cluster_name}-control-plane" ctr -n k8s.io images ls -q | grep
   exit 0
 fi
 
+for local_ref in "${image_ref}" "${image}"; do
+  if docker image inspect "${local_ref}" >/dev/null 2>&1; then
+    kind load docker-image --name "${cluster_name}" "${local_ref}" >/dev/null
+    echo "loaded ${local_ref} into kind cluster ${cluster_name} from local docker cache"
+    exit 0
+  fi
+done
+
+if docker pull "${image_ref}" >/dev/null 2>&1; then
+  kind load docker-image --name "${cluster_name}" "${image_ref}" >/dev/null
+  echo "pulled ${image_ref} into local docker cache and loaded it into kind cluster ${cluster_name}"
+  exit 0
+fi
+
 for attempt in $(seq 1 "${attempts}"); do
   if docker exec "${cluster_name}-control-plane" ctr -n k8s.io images pull --platform linux/amd64 "${image_ref}"; then
     exit 0

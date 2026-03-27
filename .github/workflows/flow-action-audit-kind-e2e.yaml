@@ -80,6 +80,12 @@ jobs:
         chmod +x ./kind
         sudo mv ./kind /usr/local/bin/kind
         kind --version
+    - name: Pre-pull mirrored kind and NiFi images
+      shell: bash
+      run: |
+        set -euo pipefail
+        docker pull "${KIND_NODE_IMAGE}"
+        docker pull "${NIFI_IMAGE}"
     - name: Run flow-action audit fast kind proof
       shell: bash
       run: make kind-flow-action-audit-fast-e2e

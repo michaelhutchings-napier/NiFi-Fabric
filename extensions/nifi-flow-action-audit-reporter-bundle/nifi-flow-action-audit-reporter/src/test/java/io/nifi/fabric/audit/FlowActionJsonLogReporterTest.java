@@ -37,6 +37,8 @@ class FlowActionJsonLogReporterTest {
         attributes.put(FlowActionAttribute.REQUEST_DETAILS_REMOTE_ADDRESS.key(), "10.0.0.15");
         attributes.put(FlowActionAttribute.REQUEST_DETAILS_FORWARDED_FOR.key(), "203.0.113.9");
         attributes.put(FlowActionAttribute.REQUEST_DETAILS_USER_AGENT.key(), "curl/8.5.0");
+        attributes.put("actionDetails.groupPath", "/Root/Ingest");
+        attributes.put("actionDetails.sensitiveValue", "secret");
 
         final Map<String, Object> event = reporter.buildEvent(flowAction(attributes));
 
@@ -61,6 +63,7 @@ class FlowActionJsonLogReporterTest {
         final Map<?, ?> processGroup = nestedMap(event, "processGroup");
         assertEquals("root-group", processGroup.get("id"));
         assertEquals("previous-group", processGroup.get("previousId"));
+        assertEquals("/Root/Ingest", processGroup.get("path"));
 
         final Map<?, ?> change = nestedMap(event, "change");
         assertEquals("success", change.get("relationship"));
@@ -78,6 +81,8 @@ class FlowActionJsonLogReporterTest {
         @SuppressWarnings("unchecked")
         final Map<String, String> rawAttributes = (Map<String, String>) event.get("attributes");
         assertEquals(attributes.get(FlowActionAttribute.ACTION_DETAILS_NAME.key()), rawAttributes.get(FlowActionAttribute.ACTION_DETAILS_NAME.key()));
+        assertEquals("[redacted]", rawAttributes.get("actionDetails.groupPath"));
+        assertEquals("[redacted]", rawAttributes.get("actionDetails.sensitiveValue"));
     }
 
     @Test

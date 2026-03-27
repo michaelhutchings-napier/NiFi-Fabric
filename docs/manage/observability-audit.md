@@ -312,6 +312,7 @@ The exported event is intentionally minimal and stable:
 - `component.name` when NiFi provides `ACTION_DETAILS_NAME`
 - `processGroup.id`
 - `processGroup.previousId` when an action moves across groups
+- `processGroup.path` only when NiFi provides a path-like raw attribute
 - `request.remoteAddress`
 - `request.forwardedFor`
 - `request.userAgent`
@@ -323,6 +324,9 @@ The exported event is intentionally minimal and stable:
 - raw `attributes` for support correlation
 
 Property values should be redacted by default.
+
+The current reporter keeps standard NiFi flow-action attributes visible in the raw
+`attributes` map and redacts non-standard raw fields by default.
 
 Any future non-redacted export should be explicit and allowlist-based.
 
