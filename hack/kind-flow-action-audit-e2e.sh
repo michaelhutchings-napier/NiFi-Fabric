@@ -140,6 +140,9 @@ IMAGE_TAG="${REPORTER_IMAGE_REPOSITORY}:${REPORTER_IMAGE_TAG}" bash "${ROOT_DIR}
 phase "Loading flow-action audit reporter image into kind"
 kind load docker-image --name "${KIND_CLUSTER_NAME}" "${REPORTER_IMAGE_REPOSITORY}:${REPORTER_IMAGE_TAG}"
 
+phase "Building platform chart dependency"
+helm dependency build "${ROOT_DIR}/charts/nifi-platform" >/dev/null
+
 phase "Installing product chart managed release${profile_label}"
 helm upgrade --install "${HELM_RELEASE}" "${ROOT_DIR}/charts/nifi-platform" \
   --namespace "${NAMESPACE}" \
