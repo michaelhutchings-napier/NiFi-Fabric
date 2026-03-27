@@ -179,6 +179,11 @@ The reporter is now treated as a first-class repository artifact rather than an 
 - pushes to `main` or `master` publish a GHCR image at `ghcr.io/<owner>/nifi-fabric-flow-action-audit-reporter:edge` plus `:sha-<commit>`
 - a tag named `flow-action-audit-reporter-vX.Y.Z` publishes the image tag `ghcr.io/<owner>/nifi-fabric-flow-action-audit-reporter:X.Y.Z` and a matching GitHub release asset containing the built NAR
 
+The focused runtime proof is now also separated into its own CI lane:
+
+- `.github/workflows/flow-action-audit-kind-e2e.yaml` runs `make kind-flow-action-audit-fast-e2e`
+- it is triggered only when the audit path or its shared runtime/build inputs change, so it stays targeted instead of inflating the generic kind matrix
+
 Useful helper commands:
 
 - `make print-flow-action-audit-reporter-version`
