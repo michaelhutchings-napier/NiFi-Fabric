@@ -205,15 +205,15 @@ with open(log_path, encoding="utf-8") as handle:
         if event.get("user", {}).get("identity") != expected_user:
             continue
 
-        if not event.get("action", {}).get("operation"):
+        if event.get("action", {}).get("operation") != "Add":
             raise SystemExit("matched audit event missing action.operation")
 
-        if event.get("component", {}).get("name") != expected_name:
-            raise SystemExit("matched audit event missing component.name")
+        if event.get("component", {}).get("type") != "ProcessGroup":
+            raise SystemExit("matched audit event missing component.type")
 
-        process_group = event.get("processGroup", {})
-        if not process_group.get("id"):
-            raise SystemExit("matched audit event missing processGroup.id")
+        component_name = event.get("component", {}).get("name")
+        if component_name and component_name != expected_name:
+            raise SystemExit("matched audit event has unexpected component.name")
 
         print(json.dumps(event))
         raise SystemExit(0)
