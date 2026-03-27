@@ -369,22 +369,63 @@ The planned exported event should stay minimal and stable:
 - `action.operation`
 - `component.id`
 - `component.type`
-- `component.name`
+- `component.name` when NiFi provides `ACTION_DETAILS_NAME`
 - `processGroup.id`
-- `processGroup.path` when derivable
-- `cluster.fabricCluster`
-- `cluster.nodeId`
+- `processGroup.previousId` when an action moves across groups
 - `request.remoteAddress`
 - `request.forwardedFor`
 - `request.userAgent`
-- `change.field`
-- `change.oldValue`
-- `change.newValue`
-- `change.redacted`
+- `change.source.id`
+- `change.source.type`
+- `change.destination.id`
+- `change.destination.type`
+- `change.relationship`
+- raw `attributes` for support correlation
 
 Property values should be redacted by default.
 
 Any future non-redacted export should be explicit and allowlist-based.
+
+The current reporter implementation now emits the following cleaner structure on top of the raw NiFi attributes:
+
+```json
+{
+  "schemaVersion": "v1",
+  "eventType": "nifi.flowAction",
+  "timestamp": "2026-03-27T16:00:00Z",
+  "actionId": "1234",
+  "user": {
+    "identity": "admin"
+  },
+  "action": {
+    "operation": "Add"
+  },
+  "component": {
+    "id": "component-1",
+    "type": "ProcessGroup",
+    "name": "Ingest"
+  },
+  "processGroup": {
+    "id": "root-group"
+  },
+  "change": {
+    "source": {
+      "id": "source-1",
+      "type": "PROCESSOR"
+    },
+    "destination": {
+      "id": "destination-1",
+      "type": "PROCESS_GROUP"
+    },
+    "relationship": "success"
+  },
+  "request": {
+    "remoteAddress": "10.0.0.15"
+  }
+}
+```
+
+This is still intentionally not a full before/after diff engine.
 
 ## Failure Model
 

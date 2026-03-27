@@ -12,6 +12,21 @@ The reporter writes one JSON event per flow action to the dedicated SLF4J logger
 
 - `org.apache.nifi.flowaudit`
 
+Current event shape stays intentionally small but now includes cleaner structured sections:
+
+- `user.identity`
+- `action.operation`
+- `component.id`
+- `component.type`
+- `component.name` when NiFi provides `ACTION_DETAILS_NAME`
+- `processGroup.id`
+- `processGroup.previousId` when the action moved across groups
+- `change.source.*`
+- `change.destination.*`
+- `change.relationship`
+- `request.*`
+- raw `attributes` retained for support correlation
+
 ## Build
 
 If `mvn` is available locally:

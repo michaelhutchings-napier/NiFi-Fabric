@@ -166,11 +166,11 @@ fi
 deadline=$(( $(date +%s) + 120 ))
 while true; do
   kubectl -n "${namespace}" logs "${pod}" -c nifi --since=10m >"${tmpdir}/nifi.log"
-if python3 - "${tmpdir}/nifi.log" "${process_group_id}" "${username}" >"${tmpdir}/matched-event.json" <<'PY'
+if python3 - "${tmpdir}/nifi.log" "${process_group_id}" "${username}" "${proof_group_name}" >"${tmpdir}/matched-event.json" <<'PY'
 import json
 import sys
 
-log_path, target_id, expected_user = sys.argv[1:4]
+log_path, target_id, expected_user, expected_name = sys.argv[1:5]
 
 with open(log_path, encoding="utf-8") as handle:
     for raw_line in handle:
@@ -207,6 +207,13 @@ with open(log_path, encoding="utf-8") as handle:
 
         if not event.get("action", {}).get("operation"):
             raise SystemExit("matched audit event missing action.operation")
+
+        if event.get("component", {}).get("name") != expected_name:
+            raise SystemExit("matched audit event missing component.name")
+
+        process_group = event.get("processGroup", {})
+        if not process_group.get("id"):
+            raise SystemExit("matched audit event missing processGroup.id")
 
         print(json.dumps(event))
         raise SystemExit(0)

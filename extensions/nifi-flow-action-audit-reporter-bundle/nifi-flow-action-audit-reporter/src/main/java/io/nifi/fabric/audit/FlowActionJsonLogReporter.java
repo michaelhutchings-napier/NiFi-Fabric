@@ -55,7 +55,7 @@ public class FlowActionJsonLogReporter implements FlowActionReporter {
         }
     }
 
-    private Map<String, Object> buildEvent(final FlowAction action) {
+    Map<String, Object> buildEvent(final FlowAction action) {
         final Map<String, String> attributes = new TreeMap<>(action.getAttributes());
         final Map<String, Object> event = new LinkedHashMap<>();
         event.put("schemaVersion", SCHEMA_VERSION);
@@ -74,9 +74,30 @@ public class FlowActionJsonLogReporter implements FlowActionReporter {
         final Map<String, Object> component = new LinkedHashMap<>();
         putIfPresent(component, "id", attribute(attributes, FlowActionAttribute.ACTION_SOURCE_ID));
         putIfPresent(component, "type", attribute(attributes, FlowActionAttribute.ACTION_SOURCE_TYPE));
+        putIfPresent(component, "name", attribute(attributes, FlowActionAttribute.ACTION_DETAILS_NAME));
         putIfPresent(component, "uri", attribute(attributes, FlowActionAttribute.COMPONENT_DETAILS_URI));
         putIfPresent(component, "detailsType", attribute(attributes, FlowActionAttribute.COMPONENT_DETAILS_TYPE));
         putIfNotEmpty(event, "component", component);
+
+        final Map<String, Object> processGroup = new LinkedHashMap<>();
+        putIfPresent(processGroup, "id", attribute(attributes, FlowActionAttribute.ACTION_DETAILS_GROUP_ID));
+        putIfPresent(processGroup, "previousId", attribute(attributes, FlowActionAttribute.ACTION_DETAILS_PREVIOUS_GROUP_ID));
+        putIfNotEmpty(event, "processGroup", processGroup);
+
+        final Map<String, Object> change = new LinkedHashMap<>();
+        final Map<String, Object> source = new LinkedHashMap<>();
+        putIfPresent(source, "id", attribute(attributes, FlowActionAttribute.ACTION_DETAILS_SOURCE_ID));
+        putIfPresent(source, "type", attribute(attributes, FlowActionAttribute.ACTION_DETAILS_SOURCE_TYPE));
+        putIfNotEmpty(change, "source", source);
+
+        final Map<String, Object> destination = new LinkedHashMap<>();
+        putIfPresent(destination, "id", attribute(attributes, FlowActionAttribute.ACTION_DETAILS_DESTINATION_ID));
+        putIfPresent(destination, "type", attribute(attributes, FlowActionAttribute.ACTION_DETAILS_DESTINATION_TYPE));
+        putIfNotEmpty(change, "destination", destination);
+
+        putIfPresent(change, "relationship", attribute(attributes, FlowActionAttribute.ACTION_DETAILS_RELATIONSHIP));
+        putIfPresent(change, "endDate", attribute(attributes, FlowActionAttribute.ACTION_DETAILS_END_DATE));
+        putIfNotEmpty(event, "change", change);
 
         final Map<String, Object> request = new LinkedHashMap<>();
         putIfPresent(request, "remoteAddress", attribute(attributes, FlowActionAttribute.REQUEST_DETAILS_REMOTE_ADDRESS));
@@ -107,7 +128,7 @@ public class FlowActionJsonLogReporter implements FlowActionReporter {
         }
     }
 
-    private static String serialize(final Object value) {
+    static String serialize(final Object value) {
         if (value == null) {
             return "null";
         }

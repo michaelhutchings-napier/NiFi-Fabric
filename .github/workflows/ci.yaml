@@ -27,6 +27,8 @@ jobs:
       run: helm dependency build --skip-refresh charts/nifi-platform
     - name: Go test
       run: go test ./...
+    - name: Flow-action audit reporter unit tests
+      run: make test-flow-action-audit-reporter
     - name: Build flow-action audit reporter NAR
       run: make build-flow-action-audit-reporter-dist
     - name: Build flow-action audit reporter image
