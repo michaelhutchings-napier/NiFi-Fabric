@@ -627,10 +627,12 @@ observability:
               narPath: /opt/nifi-fabric-audit/nifi-flow-action-audit-reporter.nar
       content:
         # -- Bounded enrichment and redaction settings for the reporter-based export slice.
+        # The current supported implementation keeps strict redaction enabled.
         includeRequestDetails: true
         includeProcessGroupPath: true
         propertyValues:
           mode: redacted
+          # -- Reserved placeholder for a future explicit allowlist-based mode.
           allowlistedProperties: []
 
 # ------------------------------------------------------------------------------

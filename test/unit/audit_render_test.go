@@ -144,6 +144,56 @@ func TestPlatformManagedAuditFlowActionsExampleRendersReporterWiring(t *testing.
 	}
 }
 
+func TestPlatformManagedAuditFlowActionsLocalOnlyExampleOmitsReporterWiring(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi-platform",
+		"-f", "examples/platform-managed-values.yaml",
+		"-f", "examples/platform-managed-audit-flow-actions-local-only-values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		"nifi.flow.configuration.archive.dir=/opt/nifi/nifi-current/database_repository/flow-audit-archive",
+		"nifi.web.request.log.format=",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+	for _, unexpected := range []string{
+		"nifi.flow.action.reporter.implementation=io.nifi.fabric.audit.FlowActionJsonLogReporter",
+		"name: install-flow-action-audit-reporter",
+		"name: flow-action-audit-reporter",
+	} {
+		if strings.Contains(output, unexpected) {
+			t.Fatalf("expected rendered output to omit %q\n%s", unexpected, output)
+		}
+	}
+}
+
+func TestPlatformManagedAuditFlowActionsPrivateRegistryExampleRendersExpectedImageSettings(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi-platform",
+		"-f", "examples/platform-managed-values.yaml",
+		"-f", "examples/platform-managed-audit-flow-actions-private-registry-values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		`image: "registry.example.com/platform/nifi-fabric-flow-action-audit-reporter:0.1.0"`,
+		"- name: internal-registry-creds",
+		"nifi.flow.action.reporter.implementation=io.nifi.fabric.audit.FlowActionJsonLogReporter",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
 func TestPlatformManagedAuditFlowActionsKindOverlayKeepsSingleNodeShape(t *testing.T) {
 	output, err := helmTemplate(
 		t,
@@ -194,8 +244,22 @@ func TestFlowActionAuditValidationFailsForInvalidPropertyValuesMode(t *testing.T
 	if err == nil {
 		t.Fatalf("expected helm template to fail for invalid flow-action audit propertyValues mode\n%s", output)
 	}
-	if !strings.Contains(output, "observability.audit.flowActions.content.propertyValues.mode must be one of: redacted, allowlisted") {
+	if !strings.Contains(output, "observability.audit.flowActions.content.propertyValues.mode must be redacted in the current supported implementation") {
 		t.Fatalf("expected propertyValues mode validation error\n%s", output)
+	}
+}
+
+func TestFlowActionAuditValidationFailsForAllowlistedPropertyValuesMode(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.audit.flowActions.content.propertyValues.mode=allowlisted",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail for unsupported allowlisted propertyValues mode\n%s", output)
+	}
+	if !strings.Contains(output, "observability.audit.flowActions.content.propertyValues.mode must be redacted in the current supported implementation") {
+		t.Fatalf("expected strict redaction validation error\n%s", output)
 	}
 }
 

@@ -44,3 +44,6 @@ jobs:
         helm template nifi charts/nifi -f examples/standalone/values.yaml >/tmp/nifi-standalone.yaml
         helm template nifi charts/nifi -f examples/managed/values.yaml >/tmp/nifi-managed.yaml
         helm template nifi charts/nifi -f examples/managed/values.yaml -f examples/cert-manager-values.yaml >/tmp/nifi-managed-cert-manager.yaml
+        helm template nifi charts/nifi-platform -f examples/platform-managed-values.yaml -f examples/platform-managed-audit-flow-actions-local-only-values.yaml >/tmp/nifi-platform-audit-local-only.yaml
+        helm template nifi charts/nifi-platform -f examples/platform-managed-values.yaml -f examples/platform-managed-audit-flow-actions-ghcr-values.yaml >/tmp/nifi-platform-audit-ghcr.yaml
+        helm template nifi charts/nifi-platform -f examples/platform-managed-values.yaml -f examples/platform-managed-audit-flow-actions-private-registry-values.yaml >/tmp/nifi-platform-audit-private.yaml

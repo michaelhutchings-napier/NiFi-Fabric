@@ -564,8 +564,8 @@ app.kubernetes.io/component: metrics
 {{- end -}}
 {{- end -}}
 {{- end -}}
-{{- if and (ne $flowActionAuditPropertyValues.mode "") (ne $flowActionAuditPropertyValues.mode "redacted") (ne $flowActionAuditPropertyValues.mode "allowlisted") -}}
-{{- fail "observability.audit.flowActions.content.propertyValues.mode must be one of: redacted, allowlisted" -}}
+{{- if and (ne $flowActionAuditPropertyValues.mode "") (ne $flowActionAuditPropertyValues.mode "redacted") -}}
+{{- fail "observability.audit.flowActions.content.propertyValues.mode must be redacted in the current supported implementation" -}}
 {{- end -}}
 {{- if $route.enabled -}}
 {{- if not $route.host -}}

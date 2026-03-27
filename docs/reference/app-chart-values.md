@@ -207,8 +207,8 @@ See also:
 | `observability.audit.flowActions.export.log.installation.image.narPath` | string | Absolute path to the built reporter NAR inside the reporter image. | No | `/opt/nifi-fabric-audit/nifi-flow-action-audit-reporter.nar` |
 | `observability.audit.flowActions.content.includeRequestDetails` | boolean | Reserved bounded enrichment switch for the reporter-based export slice. | No | `true` |
 | `observability.audit.flowActions.content.includeProcessGroupPath` | boolean | Reserved bounded enrichment switch for the reporter-based export slice. | No | `true` |
-| `observability.audit.flowActions.content.propertyValues.mode` | enum | Export redaction mode. Values: `redacted`, `allowlisted`. | No | `redacted` |
-| `observability.audit.flowActions.content.propertyValues.allowlistedProperties[]` | string list | Reserved allowlist for future non-redacted export fields. | No | `[]` |
+| `observability.audit.flowActions.content.propertyValues.mode` | enum | Export redaction mode. The current supported implementation requires `redacted`. | No | `redacted` |
+| `observability.audit.flowActions.content.propertyValues.allowlistedProperties[]` | string list | Reserved placeholder for a future explicit allowlist-based mode. The current supported implementation does not use it. | No | `[]` |
 
 ## Flow Registry Clients
 
