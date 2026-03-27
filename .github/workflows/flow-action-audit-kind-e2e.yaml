@@ -59,6 +59,8 @@ jobs:
     timeout-minutes: 75
     env:
       ARTIFACT_DIR: ${{ github.workspace }}/artifacts/flow-action-audit-kind-e2e
+      KIND_NODE_IMAGE: mirror.gcr.io/kindest/node:v1.31.0
+      NIFI_IMAGE: mirror.gcr.io/apache/nifi:2.8.0
     steps:
     - uses: actions/checkout@v6
     - uses: actions/setup-go@v6

@@ -14,6 +14,7 @@ CLUSTER_NAME ?= $(HELM_RELEASE)
 SERVICE_NAME ?= $(HELM_RELEASE)
 
 KIND_CLUSTER_NAME ?= nifi-fabric
+KIND_NODE_IMAGE ?= kindest/node:v1.31.0
 NAMESPACE ?= nifi
 HELM_RELEASE ?= nifi
 LOCALBIN ?= $(PWD)/bin
@@ -101,7 +102,7 @@ envtest-use: setup-envtest
 	@echo "export KUBEBUILDER_ASSETS=$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)"
 
 kind-up:
-	$(KIND) create cluster --name $(KIND_CLUSTER_NAME) --config hack/kind-cluster.yaml
+	$(KIND) create cluster --name $(KIND_CLUSTER_NAME) --image $(KIND_NODE_IMAGE) --config hack/kind-cluster.yaml
 
 kind-down:
 	$(KIND) delete cluster --name $(KIND_CLUSTER_NAME)

@@ -64,8 +64,14 @@ jobs:
         FLOW_ACTION_AUDIT_REPORTER_OUTPUT_DIR="${GITHUB_WORKSPACE}/dist/flow-action-audit-reporter" \
         make build-flow-action-audit-reporter-nar
     - name: Build flow-action audit reporter image
+      shell: bash
       run: |
+        set -euo pipefail
+        target_dir="extensions/nifi-flow-action-audit-reporter-bundle/nifi-flow-action-audit-reporter-nar/target"
+        mkdir -p "${target_dir}"
+        cp dist/flow-action-audit-reporter/*.nar "${target_dir}/"
         FLOW_ACTION_AUDIT_REPORTER_VERSION="${{ steps.meta.outputs.artifact_version }}" \
+        FLOW_ACTION_AUDIT_REPORTER_SKIP_NAR_BUILD=true \
         IMAGE_TAG="${{ steps.meta.outputs.image_repository }}:build-${{ github.sha }}" \
         make build-flow-action-audit-reporter-image
     - name: Upload flow-action audit reporter NAR
