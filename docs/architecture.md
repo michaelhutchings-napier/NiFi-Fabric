@@ -94,7 +94,7 @@ For metrics, the primary path is direct secured scraping of the NiFi 2 Prometheu
 
 The audit design keeps design-time flow-change audit separate from metrics and provenance.
 
-The planned audit model is:
+The audit model is:
 
 - NiFi-native local history and archive retention first
 - optional bounded external export through a `FlowActionReporter`
@@ -104,7 +104,7 @@ The planned audit model is:
 This keeps the ownership model consistent:
 
 - NiFi keeps native runtime audit behavior
-- Helm owns future workload configuration for audit export
+- Helm owns workload configuration for audit export
 - external log or audit systems own long-term retention and search
 
 For more detail, see:
@@ -112,7 +112,7 @@ For more detail, see:
 - [TLS and cert-manager](manage/tls-and-cert-manager.md)
 - [Authentication](manage/authentication.md)
 - [Observability and Metrics](manage/observability-metrics.md)
-- [Observability Audit Design](manage/observability-audit.md)
+- [Flow-Change Audit](manage/observability-audit.md)
 
 ## Configuration Features
 

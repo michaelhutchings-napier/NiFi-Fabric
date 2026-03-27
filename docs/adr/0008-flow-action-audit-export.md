@@ -1,13 +1,13 @@
 # ADR 0008: Flow-Action Audit Export
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-03-26
 
 ## Context
 
 NiFi-Fabric already has a clear observability split for metrics, status, and provenance-oriented export paths.
 
-It does not yet have a productized answer for design-time audit of user-made flow changes such as:
+It needed a productized answer for design-time audit of user-made flow changes such as:
 
 - creating, updating, moving, connecting, or deleting processors
 - editing process groups
@@ -42,7 +42,7 @@ NiFi-native local audit remains the base layer:
 NiFi-Fabric adds one bounded external export path:
 
 - a custom `FlowActionReporter`
-- surfaced as a sibling capability under a future `observability.audit.flowActions` values tree
+- surfaced as a sibling capability under `observability.audit.flowActions`
 
 The audit capability is intentionally separate from:
 
@@ -52,14 +52,14 @@ The audit capability is intentionally separate from:
 
 The controller does not own this feature.
 
-Helm and the workload chart own the future wiring for:
+Helm and the workload chart own the wiring for:
 
 - reporter configuration
 - archive directory configuration
 - archive retention settings
 - optional export sink settings
 
-The first supported export mode should be a structured JSON log sink.
+The first supported export mode is a structured JSON log sink.
 
 That keeps the product bounded:
 
@@ -68,7 +68,7 @@ That keeps the product bounded:
 
 ## Design Boundaries
 
-The future audit feature should:
+The audit feature should:
 
 - stay NiFi-native first
 - fail open when export sinks are unhealthy
@@ -76,7 +76,7 @@ The future audit feature should:
 - redact property values by default
 - keep cluster and node identity visible in the exported event
 
-The future audit feature should not:
+The audit feature should not:
 
 - become a generic replay or backfill system
 - promise exactly-once delivery
@@ -88,9 +88,9 @@ The future audit feature should not:
 
 The default NiFi flow archive directory is under `./conf/archive`.
 
-In the current app chart, `conf` is mounted from `emptyDir`, so a future implementation must not rely on that default path for durable support workflows.
+In the current app chart, `conf` is mounted from `emptyDir`, so the implementation must not rely on that default path for durable support workflows.
 
-The future implementation should point the archive at a persisted location, most likely under the database repository or another PVC-backed path.
+The implementation points the archive at a persisted location under the database repository.
 
 Request logs remain supplemental:
 

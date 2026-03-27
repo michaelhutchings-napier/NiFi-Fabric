@@ -21,7 +21,7 @@ Use this documentation set as the customer-facing guide for installing, operatin
 - [Authentication](manage/authentication.md)
 - [Autoscaling](manage/autoscaling.md)
 - [Observability and Metrics](manage/observability-metrics.md)
-- [Observability Audit Design](manage/observability-audit.md)
+- [Flow-Change Audit](manage/observability-audit.md)
 - [Hibernation and Restore](manage/hibernation-and-restore.md)
 - [Parameter Contexts](manage/parameters.md)
 - [Flows](manage/flows.md)

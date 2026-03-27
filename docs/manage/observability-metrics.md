@@ -2,8 +2,8 @@
 
 Observability is a first-class part of NiFi-Fabric.
 
-Design-time flow-change audit is a separate planned capability and is not part of `observability.metrics`.
-See [Observability Audit Design](observability-audit.md).
+Design-time flow-change audit is a separate capability and is not part of `observability.metrics`.
+See [Flow-Change Audit](observability-audit.md).
 
 ## Metrics Modes
 
@@ -74,7 +74,7 @@ Both `nativeApi` and `exporter` metrics paths can consume a trust-manager-provid
 
 ## Related Docs
 
-- [Observability Audit Design](observability-audit.md)
+- [Flow-Change Audit](observability-audit.md)
 - [TLS and cert-manager](tls-and-cert-manager.md)
 - [Operations and Troubleshooting](../operations.md)
 - [Compatibility](../compatibility.md)

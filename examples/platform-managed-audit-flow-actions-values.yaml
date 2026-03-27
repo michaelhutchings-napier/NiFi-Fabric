@@ -2,6 +2,13 @@
 # This keeps NiFi-native local history and flow archive as the primary support
 # layer, then adds the advanced log-only reporter path on top.
 #
+# For customer installs, prefer the more explicit overlays:
+# - examples/platform-managed-audit-flow-actions-ghcr-values.yaml
+# - examples/platform-managed-audit-flow-actions-private-registry-values.yaml
+#
+# This generic overlay is most useful for repo-local validation and custom
+# image overrides.
+#
 # Before using this overlay, build and publish or load a reporter image that
 # contains the NAR artifact, for example:
 #   make build-flow-action-audit-reporter-image
