@@ -500,10 +500,72 @@ app.kubernetes.io/component: metrics
 {{- $siteToSiteMetrics := default (dict) $metrics.siteToSite -}}
 {{- $siteToSiteStatus := default (dict) $observability.siteToSiteStatus -}}
 {{- $siteToSiteProvenance := default (dict) $observability.siteToSiteProvenance -}}
+{{- $audit := default (dict) $observability.audit -}}
+{{- $flowActionAudit := default (dict) $audit.flowActions -}}
+{{- $flowActionAuditLocal := default (dict) $flowActionAudit.local -}}
+{{- $flowActionAuditHistory := default (dict) $flowActionAuditLocal.history -}}
+{{- $flowActionAuditArchive := default (dict) $flowActionAuditLocal.archive -}}
+{{- $flowActionAuditArchiveRetention := default (dict) $flowActionAuditArchive.retention -}}
+{{- $flowActionAuditRequestLog := default (dict) $flowActionAuditLocal.requestLog -}}
+{{- $flowActionAuditExport := default (dict) $flowActionAudit.export -}}
+{{- $flowActionAuditExportLog := default (dict) $flowActionAuditExport.log -}}
+{{- $flowActionAuditExportLogInstallation := default (dict) $flowActionAuditExportLog.installation -}}
+{{- $flowActionAuditExportLogImage := default (dict) $flowActionAuditExportLogInstallation.image -}}
+{{- $flowActionAuditContent := default (dict) $flowActionAudit.content -}}
+{{- $flowActionAuditPropertyValues := default (dict) $flowActionAuditContent.propertyValues -}}
 {{- $parameterContexts := default (dict) .Values.parameterContexts -}}
 {{- $versionedFlowImports := default (dict) .Values.versionedFlowImports -}}
 {{- if or (and $linkerd.enabled $istio.enabled) (and $linkerd.enabled $ambient.enabled) (and $istio.enabled $ambient.enabled) -}}
 {{- fail "linkerd.enabled, istio.enabled, and ambient.enabled are mutually exclusive; choose one bounded service-mesh compatibility profile" -}}
+{{- end -}}
+{{- if $flowActionAudit.enabled -}}
+{{- if not $flowActionAuditHistory.enabled -}}
+{{- fail "observability.audit.flowActions.enabled=true currently requires local.history.enabled=true so NiFi-native flow configuration history remains the primary support layer" -}}
+{{- end -}}
+{{- if not $flowActionAuditArchive.enabled -}}
+{{- fail "observability.audit.flowActions.enabled=true currently requires local.archive.enabled=true so durable flow archives remain available for support workflows" -}}
+{{- end -}}
+{{- if not $flowActionAuditArchive.directory -}}
+{{- fail "observability.audit.flowActions.local.archive.directory is required when flowActions audit is enabled" -}}
+{{- end -}}
+{{- if not $flowActionAuditArchiveRetention.maxAge -}}
+{{- fail "observability.audit.flowActions.local.archive.retention.maxAge is required when flowActions audit is enabled" -}}
+{{- end -}}
+{{- if not $flowActionAuditArchiveRetention.maxStorage -}}
+{{- fail "observability.audit.flowActions.local.archive.retention.maxStorage is required when flowActions audit is enabled" -}}
+{{- end -}}
+{{- if lt (int $flowActionAuditArchiveRetention.maxCount) 1 -}}
+{{- fail "observability.audit.flowActions.local.archive.retention.maxCount must be greater than zero when flowActions audit is enabled" -}}
+{{- end -}}
+{{- if and $flowActionAuditRequestLog.enabled (not $flowActionAuditRequestLog.format) -}}
+{{- fail "observability.audit.flowActions.local.requestLog.format is required when requestLog.enabled=true" -}}
+{{- end -}}
+{{- if and (ne $flowActionAuditExport.type "") (ne $flowActionAuditExport.type "disabled") (ne $flowActionAuditExport.type "log") -}}
+{{- fail "observability.audit.flowActions.export.type must be one of: disabled, log" -}}
+{{- end -}}
+{{- if and (eq $flowActionAuditExport.type "log") (not $flowActionAudit.enabled) -}}
+{{- fail "observability.audit.flowActions.export.type=log requires observability.audit.flowActions.enabled=true" -}}
+{{- end -}}
+{{- if eq $flowActionAuditExport.type "log" -}}
+{{- if not (regexMatch "^v?[0-9]+\\.[0-9]+\\.[0-9]+$" .Values.image.tag) -}}
+{{- fail "observability.audit.flowActions.export.type=log requires image.tag to be an explicit NiFi semver at or above 2.4.0 because FlowActionReporter is not available in earlier published NiFi artifacts" -}}
+{{- end -}}
+{{- if semverCompare "<2.4.0-0" (trimPrefix "v" .Values.image.tag) -}}
+{{- fail "observability.audit.flowActions.export.type=log requires image.tag >= 2.4.0 because FlowActionReporter is not available in earlier published NiFi artifacts" -}}
+{{- end -}}
+{{- if not $flowActionAuditExportLogImage.repository -}}
+{{- fail "observability.audit.flowActions.export.log.installation.image.repository is required when export.type=log" -}}
+{{- end -}}
+{{- if not $flowActionAuditExportLogImage.tag -}}
+{{- fail "observability.audit.flowActions.export.log.installation.image.tag is required when export.type=log" -}}
+{{- end -}}
+{{- if not $flowActionAuditExportLogImage.narPath -}}
+{{- fail "observability.audit.flowActions.export.log.installation.image.narPath is required when export.type=log" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if and (ne $flowActionAuditPropertyValues.mode "") (ne $flowActionAuditPropertyValues.mode "redacted") -}}
+{{- fail "observability.audit.flowActions.content.propertyValues.mode must be redacted in the current supported implementation" -}}
 {{- end -}}
 {{- if $route.enabled -}}
 {{- if not $route.host -}}

@@ -1,0 +1,112 @@
+name: Flow Action Audit End-to-End Validation
+
+on:
+  pull_request:
+    paths:
+    - '.github/workflows/flow-action-audit-kind-e2e.yaml'
+    - '.github/workflows/flow-action-audit-reporter-release.yaml'
+    - '.github/workflows/ci.yaml'
+    - 'Makefile'
+    - 'charts/nifi/**'
+    - 'charts/nifi-platform/**'
+    - 'examples/platform-managed-values.yaml'
+    - 'examples/platform-fast-values.yaml'
+    - 'examples/platform-managed-audit-flow-actions-local-only-values.yaml'
+    - 'examples/platform-managed-audit-flow-actions-ghcr-values.yaml'
+    - 'examples/platform-managed-audit-flow-actions-private-registry-values.yaml'
+    - 'examples/platform-managed-audit-flow-actions-values.yaml'
+    - 'examples/platform-managed-audit-flow-actions-kind-values.yaml'
+    - 'extensions/nifi-flow-action-audit-reporter-bundle/**'
+    - 'hack/build-flow-action-audit-reporter-*.sh'
+    - 'hack/flow-action-audit-reporter-version.sh'
+    - 'hack/kind-flow-action-audit-e2e.sh'
+    - 'hack/prove-flow-action-audit.sh'
+    - 'hack/install-common.sh'
+    - 'hack/create-kind-secrets.sh'
+    - 'hack/load-kind-image.sh'
+    - 'hack/check-nifi-health.sh'
+    - 'hack/kind-cluster.yaml'
+  push:
+    branches:
+    - main
+    - master
+    paths:
+    - '.github/workflows/flow-action-audit-kind-e2e.yaml'
+    - '.github/workflows/flow-action-audit-reporter-release.yaml'
+    - '.github/workflows/ci.yaml'
+    - 'Makefile'
+    - 'charts/nifi/**'
+    - 'charts/nifi-platform/**'
+    - 'examples/platform-managed-values.yaml'
+    - 'examples/platform-fast-values.yaml'
+    - 'examples/platform-managed-audit-flow-actions-local-only-values.yaml'
+    - 'examples/platform-managed-audit-flow-actions-ghcr-values.yaml'
+    - 'examples/platform-managed-audit-flow-actions-private-registry-values.yaml'
+    - 'examples/platform-managed-audit-flow-actions-values.yaml'
+    - 'examples/platform-managed-audit-flow-actions-kind-values.yaml'
+    - 'extensions/nifi-flow-action-audit-reporter-bundle/**'
+    - 'hack/build-flow-action-audit-reporter-*.sh'
+    - 'hack/flow-action-audit-reporter-version.sh'
+    - 'hack/kind-flow-action-audit-e2e.sh'
+    - 'hack/prove-flow-action-audit.sh'
+    - 'hack/install-common.sh'
+    - 'hack/create-kind-secrets.sh'
+    - 'hack/load-kind-image.sh'
+    - 'hack/check-nifi-health.sh'
+    - 'hack/kind-cluster.yaml'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      ARTIFACT_DIR: ${{ github.workspace }}/artifacts/flow-action-audit-kind-e2e
+      KIND_NODE_IMAGE: mirror.gcr.io/kindest/node:v1.31.0
+      NIFI_IMAGE: mirror.gcr.io/apache/nifi:2.8.0
+    steps:
+    - uses: actions/checkout@v6
+    - uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '21'
+        cache: maven
+    - uses: azure/setup-helm@v5
+      with:
+        version: v3.20.0
+    - uses: azure/setup-kubectl@v4
+      with:
+        version: v1.31.0
+    - name: Install kind
+      shell: bash
+      run: |
+        set -euo pipefail
+        curl -fsSL -o ./kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64
+        chmod +x ./kind
+        sudo mv ./kind /usr/local/bin/kind
+        kind --version
+    - name: Pre-pull mirrored kind and NiFi images
+      shell: bash
+      run: |
+        set -euo pipefail
+        docker pull "${KIND_NODE_IMAGE}"
+        docker pull "${NIFI_IMAGE}"
+    - name: Build flow-action audit reporter NAR
+      shell: bash
+      run: make build-flow-action-audit-reporter-dist
+    - name: Run flow-action audit fast kind proof
+      shell: bash
+      run: FLOW_ACTION_AUDIT_REPORTER_SKIP_NAR_BUILD=true make kind-flow-action-audit-fast-e2e
+    - name: Upload diagnostics
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: flow-action-audit-kind-e2e-${{ github.run_id }}
+        path: artifacts/flow-action-audit-kind-e2e
+        if-no-files-found: warn

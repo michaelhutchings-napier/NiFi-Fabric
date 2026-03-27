@@ -168,6 +168,24 @@ Metrics note:
 - [platform-managed-site-to-site-provenance-kind-values.yaml](platform-managed-site-to-site-provenance-kind-values.yaml) points that typed feature at a cluster-local kind URL for local kind use
 - [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is reused as the kind receiver harness for that command
 
+Audit note:
+
+- [platform-managed-audit-flow-actions-local-only-values.yaml](platform-managed-audit-flow-actions-local-only-values.yaml) is the local-only example for enabling durable NiFi-native audit while keeping external export disabled
+- [platform-managed-audit-flow-actions-ghcr-values.yaml](platform-managed-audit-flow-actions-ghcr-values.yaml) is the connected-cluster example for using a published reporter image directly
+- [platform-managed-audit-flow-actions-private-registry-values.yaml](platform-managed-audit-flow-actions-private-registry-values.yaml) is the restricted-cluster example for using a mirrored internal reporter image plus `imagePullSecrets`
+- [platform-managed-audit-flow-actions-values.yaml](platform-managed-audit-flow-actions-values.yaml) is the optional managed-platform overlay for bounded design-time flow-action audit export
+- it enables `nifi.observability.audit.flowActions.enabled=true`
+- it keeps durable local history, request log, and flow archive as the primary support layer
+- it adds only the advanced `export.type=log` path; HTTP and Kafka sinks are intentionally not part of this shape
+- it expects a reporter image containing the NAR at the configured path; build the local example image with `make build-flow-action-audit-reporter-image`, or use the release-published upstream image from `ghcr.io/<owner>/nifi-fabric-flow-action-audit-reporter`
+- it pins the NiFi workload image to `2.8.0` because FlowActionReporter is only available in published NiFi artifacts from `2.4.0` onward
+- use it together with `examples/platform-managed-values.yaml`
+- [platform-managed-audit-flow-actions-kind-values.yaml](platform-managed-audit-flow-actions-kind-values.yaml) is the focused local kind overlay for this proof path
+- it switches the proof to a single NiFi node and grants the bootstrap admin the bounded `mutableFlow` capability needed to create one root-child process group
+- use it together with `examples/platform-managed-values.yaml`, `examples/platform-managed-audit-flow-actions-values.yaml`, and `examples/platform-fast-values.yaml`
+- use `make kind-flow-action-audit-fast-e2e` for the focused local kind proof path
+- production rollout starts with the local-only overlay above, then moves to one of the explicit reporter-image overlays once the reporter image source and pull path are validated in the target cluster
+
 KEDA note:
 
 - [platform-managed-keda-values.yaml](platform-managed-keda-values.yaml) is the optional GA overlay for KEDA-triggered external scale-up intent in managed mode

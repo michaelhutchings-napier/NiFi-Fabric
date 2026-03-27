@@ -1,0 +1,36 @@
+# Optional managed-platform overlay for bounded flow-action audit export.
+# This keeps NiFi-native local history and flow archive as the primary support
+# layer, then adds the advanced log-only reporter path on top.
+#
+# For customer installs, prefer the more explicit overlays:
+# - examples/platform-managed-audit-flow-actions-ghcr-values.yaml
+# - examples/platform-managed-audit-flow-actions-private-registry-values.yaml
+#
+# This generic overlay is most useful for repo-local validation and custom
+# image overrides.
+#
+# Before using this overlay, build and publish or load a reporter image that
+# contains the NAR artifact, for example:
+#   make build-flow-action-audit-reporter-image
+# or use the upstream GHCR-published image from:
+#   ghcr.io/<owner>/nifi-fabric-flow-action-audit-reporter:<tag>
+#
+# Compose it with:
+# - examples/platform-managed-values.yaml
+nifi:
+  image:
+    repository: apache/nifi
+    tag: "2.8.0"
+    pullPolicy: IfNotPresent
+  observability:
+    audit:
+      flowActions:
+        enabled: true
+        export:
+          type: log
+          log:
+            installation:
+              image:
+                repository: nifi-flow-action-audit-reporter
+                tag: 0.0.1-SNAPSHOT
+                pullPolicy: IfNotPresent

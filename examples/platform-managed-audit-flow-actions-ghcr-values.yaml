@@ -1,0 +1,25 @@
+# Optional managed-platform overlay for bounded flow-action audit export using
+# the published reporter image path.
+#
+# Compose it with:
+# - examples/platform-managed-values.yaml
+#
+# Replace the example repository and tag with the published reporter image that
+# matches the reviewed branch, commit, or release you want to deploy.
+nifi:
+  image:
+    repository: apache/nifi
+    tag: "2.8.0"
+    pullPolicy: IfNotPresent
+  observability:
+    audit:
+      flowActions:
+        enabled: true
+        export:
+          type: log
+          log:
+            installation:
+              image:
+                repository: ghcr.io/example-org/nifi-fabric-flow-action-audit-reporter
+                tag: 0.1.0
+                pullPolicy: IfNotPresent

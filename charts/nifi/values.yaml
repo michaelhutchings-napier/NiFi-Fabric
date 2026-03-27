@@ -581,6 +581,59 @@ observability:
       # `endOfStream` avoids replaying historical provenance on first start.
       # `beginningOfStream` allows an explicit one-time historical backfill instead.
       startPosition: endOfStream
+  audit:
+    flowActions:
+      # -- Enables the bounded flow-action audit layer.
+      # This implementation slice configures durable local history support:
+      # persisted database repository history, durable flow archive settings,
+      # optional request-log formatting, and the bounded `export.type=log`
+      # reporter path for operators who supply the reporter image.
+      enabled: false
+      local:
+        history:
+          # -- Keeps the NiFi-native flow configuration history database explicit.
+          # The first supported slice requires this to stay enabled.
+          enabled: true
+        archive:
+          # -- Keeps automatic flow archive creation enabled on durable storage.
+          # The archive directory must not rely on `./conf/archive` because the chart
+          # mounts `conf` from `emptyDir`.
+          enabled: true
+          directory: /opt/nifi/nifi-current/database_repository/flow-audit-archive
+          retention:
+            maxAge: 30 days
+            maxStorage: 2 GB
+            maxCount: 1000
+        requestLog:
+          # -- Optional request-log formatting retained as secondary evidence.
+          enabled: true
+          format: '%{client}a - %u %t "%r" %s %O "%{Referer}i" "%{User-Agent}i"'
+      export:
+        # -- Supported values: `disabled`, `log`.
+        # `log` is the bounded advanced option: the chart wires the FlowActionReporter
+        # and installs the reporter NAR from a dedicated image into a separate
+        # extension directory. Durable local audit remains the default support layer.
+        # `log` requires a NiFi image tag at or above `2.4.0`.
+        type: disabled
+        log:
+          installation:
+            # -- Reporter NAR image copied by a chart-managed init container when
+            # `export.type=log` is enabled. The image must contain the built NAR
+            # at `image.narPath`.
+            image:
+              repository: ""
+              tag: ""
+              pullPolicy: IfNotPresent
+              narPath: /opt/nifi-fabric-audit/nifi-flow-action-audit-reporter.nar
+      content:
+        # -- Bounded enrichment and redaction settings for the reporter-based export slice.
+        # The current supported implementation keeps strict redaction enabled.
+        includeRequestDetails: true
+        includeProcessGroupPath: true
+        propertyValues:
+          mode: redacted
+          # -- Reserved placeholder for a future explicit allowlist-based mode.
+          allowlistedProperties: []
 
 # ------------------------------------------------------------------------------
 # Flow Registry Clients

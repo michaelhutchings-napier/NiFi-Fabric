@@ -1,0 +1,137 @@
+name: Flow Action Audit Reporter Artifact
+
+on:
+  pull_request:
+    paths:
+    - '.github/workflows/ci.yaml'
+    - '.github/workflows/flow-action-audit-reporter-release.yaml'
+    - 'Makefile'
+    - 'hack/build-flow-action-audit-reporter-*.sh'
+    - 'hack/flow-action-audit-reporter-version.sh'
+    - 'extensions/nifi-flow-action-audit-reporter-bundle/**'
+  push:
+    branches:
+    - main
+    - master
+    tags:
+    - 'flow-action-audit-reporter-v*'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_version: ${{ steps.meta.outputs.artifact_version }}
+      release_version: ${{ steps.meta.outputs.release_version }}
+      image_repository: ${{ steps.meta.outputs.image_repository }}
+      artifact_name: ${{ steps.meta.outputs.artifact_name }}
+    steps:
+    - uses: actions/checkout@v6
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '21'
+        cache: maven
+    - name: Resolve reporter artifact metadata
+      id: meta
+      shell: bash
+      run: |
+        set -euo pipefail
+        owner="${GITHUB_REPOSITORY_OWNER,,}"
+        image_repository="ghcr.io/${owner}/nifi-fabric-flow-action-audit-reporter"
+        artifact_version="$(bash hack/flow-action-audit-reporter-version.sh)"
+        release_version=""
+        if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" =~ ^flow-action-audit-reporter-v(.+)$ ]]; then
+          release_version="${BASH_REMATCH[1]}"
+          artifact_version="${release_version}"
+        fi
+        artifact_name="flow-action-audit-reporter-${artifact_version}"
+        {
+          printf 'artifact_version=%s\n' "${artifact_version}"
+          printf 'release_version=%s\n' "${release_version}"
+          printf 'image_repository=%s\n' "${image_repository}"
+          printf 'artifact_name=%s\n' "${artifact_name}"
+        } >>"${GITHUB_OUTPUT}"
+    - name: Build flow-action audit reporter NAR
+      run: |
+        FLOW_ACTION_AUDIT_REPORTER_VERSION="${{ steps.meta.outputs.artifact_version }}" \
+        FLOW_ACTION_AUDIT_REPORTER_OUTPUT_DIR="${GITHUB_WORKSPACE}/dist/flow-action-audit-reporter" \
+        make build-flow-action-audit-reporter-nar
+    - name: Build flow-action audit reporter image
+      shell: bash
+      run: |
+        set -euo pipefail
+        target_dir="extensions/nifi-flow-action-audit-reporter-bundle/nifi-flow-action-audit-reporter-nar/target"
+        mkdir -p "${target_dir}"
+        cp dist/flow-action-audit-reporter/*.nar "${target_dir}/"
+        FLOW_ACTION_AUDIT_REPORTER_VERSION="${{ steps.meta.outputs.artifact_version }}" \
+        FLOW_ACTION_AUDIT_REPORTER_SKIP_NAR_BUILD=true \
+        IMAGE_TAG="${{ steps.meta.outputs.image_repository }}:build-${{ github.sha }}" \
+        make build-flow-action-audit-reporter-image
+    - name: Upload flow-action audit reporter NAR
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.meta.outputs.artifact_name }}
+        path: dist/flow-action-audit-reporter/*.nar
+        if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+    - uses: actions/checkout@v6
+    - uses: actions/download-artifact@v5
+      with:
+        name: ${{ needs.build.outputs.artifact_name }}
+        path: dist/flow-action-audit-reporter
+    - uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Stage NAR into image build context
+      shell: bash
+      run: |
+        set -euo pipefail
+        target_dir="extensions/nifi-flow-action-audit-reporter-bundle/nifi-flow-action-audit-reporter-nar/target"
+        mkdir -p "${target_dir}"
+        cp dist/flow-action-audit-reporter/*.nar "${target_dir}/"
+    - name: Build publishable flow-action audit reporter image
+      run: |
+        FLOW_ACTION_AUDIT_REPORTER_VERSION="${{ needs.build.outputs.artifact_version }}" \
+        FLOW_ACTION_AUDIT_REPORTER_SKIP_NAR_BUILD=true \
+        IMAGE_TAG="${{ needs.build.outputs.image_repository }}:build-${{ github.sha }}" \
+        make build-flow-action-audit-reporter-image
+    - name: Tag and push flow-action audit reporter image
+      shell: bash
+      run: |
+        set -euo pipefail
+        base_tag="${{ needs.build.outputs.image_repository }}:build-${{ github.sha }}"
+        short_sha="${GITHUB_SHA::12}"
+        publish_tags=("${{ needs.build.outputs.image_repository }}:sha-${short_sha}")
+        if [[ "${GITHUB_REF_TYPE}" == "branch" ]]; then
+          publish_tags+=("${{ needs.build.outputs.image_repository }}:edge")
+        fi
+        if [[ -n "${{ needs.build.outputs.release_version }}" ]]; then
+          publish_tags+=("${{ needs.build.outputs.image_repository }}:${{ needs.build.outputs.release_version }}")
+        fi
+        for tag in "${publish_tags[@]}"; do
+          docker tag "${base_tag}" "${tag}"
+          docker push "${tag}"
+        done
+    - name: Publish tagged NAR release asset
+      if: needs.build.outputs.release_version != ''
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ github.ref_name }}
+        files: dist/flow-action-audit-reporter/*.nar

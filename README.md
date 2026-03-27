@@ -70,6 +70,7 @@ Manage NiFi:
 - [TLS and cert-manager](docs/manage/tls-and-cert-manager.md)
 - [Authentication](docs/manage/authentication.md)
 - [Observability and Metrics](docs/manage/observability-metrics.md)
+- [Flow-Change Audit](docs/manage/observability-audit.md)
 - [Autoscaling](docs/manage/autoscaling.md)
 - [Optional Service Mesh Profiles](docs/install/service-mesh.md)
 - [Parameter Contexts](docs/manage/parameters.md)

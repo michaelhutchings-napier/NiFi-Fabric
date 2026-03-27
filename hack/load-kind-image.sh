@@ -5,10 +5,35 @@ set -euo pipefail
 cluster_name="${1:?cluster name is required}"
 image="${2:?image is required}"
 attempts="${3:-3}"
-image_ref="docker.io/${image}"
+
+if [[ "${image}" == *"/"* ]]; then
+  first_component="${image%%/*}"
+else
+  first_component="${image}"
+fi
+
+if [[ "${first_component}" == "localhost" || "${first_component}" == *.* || "${first_component}" == *:* ]]; then
+  image_ref="${image}"
+else
+  image_ref="docker.io/${image}"
+fi
 
 if docker exec "${cluster_name}-control-plane" ctr -n k8s.io images ls -q | grep -Fx "${image_ref}" >/dev/null 2>&1; then
   echo "kind cluster ${cluster_name} already has ${image_ref}"
+  exit 0
+fi
+
+for local_ref in "${image_ref}" "${image}"; do
+  if docker image inspect "${local_ref}" >/dev/null 2>&1; then
+    kind load docker-image --name "${cluster_name}" "${local_ref}" >/dev/null
+    echo "loaded ${local_ref} into kind cluster ${cluster_name} from local docker cache"
+    exit 0
+  fi
+done
+
+if docker pull "${image_ref}" >/dev/null 2>&1; then
+  kind load docker-image --name "${cluster_name}" "${image_ref}" >/dev/null
+  echo "pulled ${image_ref} into local docker cache and loaded it into kind cluster ${cluster_name}"
   exit 0
 fi
 

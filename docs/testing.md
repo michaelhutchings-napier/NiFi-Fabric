@@ -50,6 +50,11 @@ When a feature needs more nuance, the detailed guidance belongs on that feature 
 
 The project also contains narrower engineering checks and verification workflows used during development and release work.
 
+Examples include:
+
+- the dedicated flow-action audit kind proof lane in `.github/workflows/flow-action-audit-kind-e2e.yaml`
+- focused artifact publication lanes for secondary runtime components when those components are part of a supported product path
+
 Those engineering details are useful for maintainers, but they are not the main customer entrypoint. Customer-facing docs should prefer:
 
 - what is supported
