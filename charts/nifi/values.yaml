@@ -583,11 +583,11 @@ observability:
       startPosition: endOfStream
   audit:
     flowActions:
-      # -- Enables the bounded local flow-action audit layer.
-      # This first implementation slice configures durable local history support:
-      # persisted database repository history, durable flow archive settings, and
-      # optional request-log formatting. External flow-action export stays reserved
-      # for a later slice once the reporter runtime artifact exists.
+      # -- Enables the bounded flow-action audit layer.
+      # This implementation slice configures durable local history support:
+      # persisted database repository history, durable flow archive settings,
+      # optional request-log formatting, and the bounded `export.type=log`
+      # reporter path for operators who supply the reporter image.
       enabled: false
       local:
         history:

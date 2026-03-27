@@ -129,7 +129,7 @@ Example managed overlay:
 Focused kind proof overlay:
 
 - `examples/platform-managed-audit-flow-actions-kind-values.yaml`
-- this keeps the local proof on one NiFi node and grants the bootstrap admin only the bounded mutable-flow capability needed to create one root-child process group
+- this keeps the local proof on one NiFi node and leaves the root canvas locked down until the proof script grants a temporary API policy needed to create one root-child process group
 
 Helper build command for the example image:
 
@@ -222,7 +222,7 @@ The intent behind each area is:
 - `local.history.enabled`: keeps the NiFi-native history path explicit in the product surface
 - `local.archive.*`: makes the archive durable and operator-visible instead of relying on the NiFi default under `./conf/archive`
 - `local.requestLog.*`: keeps request logging available as secondary evidence
-- `export.type`: reserved for the later external export slice
+- `export.type`: keeps external export disabled by default or enables the bounded `log` reporter path
 - `content.*`: controls bounded enrichment and redaction behavior
 
 ## What Is Included Today
