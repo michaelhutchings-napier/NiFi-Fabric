@@ -1432,6 +1432,9 @@ if [[ "${SKIP_KIND_BOOTSTRAP}" == "true" ]]; then
   kubectl -n "${NAMESPACE}" delete configmap "${HELM_RELEASE}-nifidataflows-status" --ignore-not-found
 fi
 
+phase "Preparing platform chart dependency"
+helm dependency build "${ROOT_DIR}/charts/nifi-platform" >/dev/null
+
 phase "Installing product chart managed release with NiFiDataflow bridge enabled"
 helm upgrade --install "${HELM_RELEASE}" "${ROOT_DIR}/charts/nifi-platform" \
   --namespace "${NAMESPACE}" \
