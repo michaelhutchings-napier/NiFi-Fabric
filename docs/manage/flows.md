@@ -148,6 +148,57 @@ Column meaning:
 - `Retained` shows the first retained owned-import warning name when the runtime
   reports stale retained targets under `status.warnings.retainedOwnedImports[]`
 
+## Status Examples
+
+Managed target with no ownership conflict:
+
+```yaml
+apiVersion: platform.nifi.io/v1alpha1
+kind: NiFiDataflow
+metadata:
+  name: orders-ingest
+spec:
+  clusterRef:
+    name: nifi
+status:
+  phase: Ready
+  observedVersion: "12"
+  ownership:
+    state: Managed
+    reason: OwnedTargetReconciled
+    message: bounded runtime reconciled owned target orders-ingest at version 12
+  warnings: {}
+```
+
+Operator-owned target with the same name but without the product ownership
+marker:
+
+```yaml
+apiVersion: platform.nifi.io/v1alpha1
+kind: NiFiDataflow
+metadata:
+  name: payments-sync
+spec:
+  clusterRef:
+    name: nifi
+status:
+  phase: Blocked
+  observedVersion: "8"
+  ownership:
+    state: AdoptionRefused
+    reason: AdoptionRefused
+    message: bounded runtime refused to adopt existing target payments-sync without an ownership marker
+  conditions:
+  - type: Degraded
+    status: "True"
+    reason: AdoptionRefused
+```
+
+Those examples line up with the `kubectl get nifidataflows` output above:
+
+- `Managed` becomes the `Ownership` column value for a product-owned target the bounded runtime can keep reconciling
+- `AdoptionRefused` becomes the `Ownership` column value when a same-name target exists but NiFi-Fabric refuses to auto-adopt it
+
 ## Runtime Coverage
 
 - status: `Runtime-managed`
