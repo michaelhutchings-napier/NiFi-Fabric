@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -60,10 +61,18 @@ type bridgeRetainedOwnedImport struct {
 	Reason                     string `json:"reason"`
 }
 
+type missingBridgeConfigMapError struct {
+	Name string
+}
+
+func (e *missingBridgeConfigMapError) Error() string {
+	return fmt.Sprintf("required NiFiDataflow bridge ConfigMap %s is missing", e.Name)
+}
+
 // NiFiDataflowReconciler keeps the initial dataflow API thin and status-focused.
-// This slice publishes aggregated NiFiDataflow import declarations into a
-// controller-owned ConfigMap that the existing in-pod bounded import runner can
-// consume.
+// This slice publishes aggregated NiFiDataflow import declarations into the
+// chart-rendered bridge ConfigMap that the existing in-pod bounded import runner
+// can consume.
 type NiFiDataflowReconciler struct {
 	client.Client
 	Scheme    *runtime.Scheme
@@ -119,6 +128,9 @@ func (r *NiFiDataflowReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 func (r *NiFiDataflowReconciler) reconcileDataflow(ctx context.Context, dataflow *platformv1alpha1.NiFiDataflow) (ctrl.Result, error) {
 	if dataflow.Spec.Suspend {
+		if err := r.publishSuspendedBridgeConfigMap(ctx, dataflow); err != nil {
+			return ctrl.Result{}, err
+		}
 		r.markSuspended(dataflow)
 		return ctrl.Result{}, nil
 	}
@@ -148,14 +160,21 @@ func (r *NiFiDataflowReconciler) reconcileDataflow(ctx context.Context, dataflow
 		return ctrl.Result{}, fmt.Errorf("get target StatefulSet: %w", err)
 	}
 
-	configMapName, importCount, err := r.publishBridgeConfigMap(ctx, cluster, "")
-	if err != nil {
-		return ctrl.Result{}, err
-	}
+	configMapName := bridgeConfigMapName(cluster.Spec.TargetRef.Name)
 
 	if !statefulSetSupportsDataflowBridge(target, configMapName) {
-		r.markBridgeUnsupported(dataflow, cluster, target, configMapName, importCount)
+		r.markBridgeUnsupported(dataflow, cluster, target, configMapName)
 		return ctrl.Result{}, nil
+	}
+
+	configMapName, importCount, err := r.publishBridgeConfigMap(ctx, cluster, "")
+	if err != nil {
+		var missingErr *missingBridgeConfigMapError
+		if errors.As(err, &missingErr) {
+			r.markBridgeConfigMapMissing(dataflow, cluster, target, missingErr.Name)
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, err
 	}
 
 	statusConfigMapName := bridgeStatusConfigMapName(cluster.Spec.TargetRef.Name)
@@ -181,6 +200,21 @@ func (r *NiFiDataflowReconciler) reconcileDataflow(ctx context.Context, dataflow
 	return ctrl.Result{}, nil
 }
 
+func (r *NiFiDataflowReconciler) publishSuspendedBridgeConfigMap(ctx context.Context, dataflow *platformv1alpha1.NiFiDataflow) error {
+	cluster := &platformv1alpha1.NiFiCluster{}
+	clusterKey := types.NamespacedName{Namespace: dataflow.Namespace, Name: dataflow.Spec.ClusterRef.Name}
+	if err := r.Get(ctx, clusterKey, cluster); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("get referenced NiFiCluster while publishing suspended bridge config: %w", err)
+	}
+	if _, _, err := r.publishBridgeConfigMap(ctx, cluster, ""); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (r *NiFiDataflowReconciler) finalizeDataflow(ctx context.Context, dataflow *platformv1alpha1.NiFiDataflow) (bool, error) {
 	if !controllerutil.ContainsFinalizer(dataflow, nifiDataflowFinalizer) {
 		return false, nil
@@ -189,7 +223,14 @@ func (r *NiFiDataflowReconciler) finalizeDataflow(ctx context.Context, dataflow 
 	cluster := &platformv1alpha1.NiFiCluster{}
 	clusterKey := types.NamespacedName{Namespace: dataflow.Namespace, Name: dataflow.Spec.ClusterRef.Name}
 	if err := r.Get(ctx, clusterKey, cluster); err == nil {
-		if _, _, publishErr := r.publishBridgeConfigMap(ctx, cluster, string(dataflow.UID)); publishErr != nil {
+		_, _, publishErr := r.publishBridgeConfigMap(ctx, cluster, string(dataflow.UID))
+		if publishErr != nil {
+			var missingErr *missingBridgeConfigMapError
+			if errors.As(publishErr, &missingErr) {
+				publishErr = nil
+			}
+		}
+		if publishErr != nil {
 			return false, publishErr
 		}
 	} else if !apierrors.IsNotFound(err) {
@@ -228,17 +269,11 @@ func (r *NiFiDataflowReconciler) publishBridgeConfigMap(ctx context.Context, clu
 	configMapName := bridgeConfigMapName(cluster.Spec.TargetRef.Name)
 	configMapKey := types.NamespacedName{Namespace: cluster.Namespace, Name: configMapName}
 	if len(dataflows) == 0 {
-		configMap := &corev1.ConfigMap{}
-		if err := r.Get(ctx, configMapKey, configMap); err != nil {
-			if apierrors.IsNotFound(err) {
-				return configMapName, 0, nil
-			}
-			return "", 0, fmt.Errorf("get bridge ConfigMap for cleanup: %w", err)
+		importsData, err := bridgeImportsJSON(cluster, dataflows)
+		if err != nil {
+			return "", 0, err
 		}
-		if err := r.Delete(ctx, configMap); err != nil && !apierrors.IsNotFound(err) {
-			return "", 0, fmt.Errorf("delete empty bridge ConfigMap: %w", err)
-		}
-		return configMapName, 0, nil
+		return r.upsertBridgeConfigMap(ctx, configMapKey, importsData, 0)
 	}
 
 	importsData, err := bridgeImportsJSON(cluster, dataflows)
@@ -246,62 +281,33 @@ func (r *NiFiDataflowReconciler) publishBridgeConfigMap(ctx context.Context, clu
 		return "", 0, err
 	}
 
+	return r.upsertBridgeConfigMap(ctx, configMapKey, importsData, len(dataflows))
+}
+
+func (r *NiFiDataflowReconciler) upsertBridgeConfigMap(ctx context.Context, configMapKey types.NamespacedName, importsData string, importCount int) (string, int, error) {
+	configMapName := configMapKey.Name
 	configMap := &corev1.ConfigMap{}
 	if err := r.Get(ctx, configMapKey, configMap); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return "", 0, fmt.Errorf("get bridge ConfigMap: %w", err)
 		}
-
-		configMap = &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      configMapName,
-				Namespace: cluster.Namespace,
-				Labels: map[string]string{
-					"app.kubernetes.io/managed-by": "nifi-fabric-controller",
-					"app.kubernetes.io/component":  "nifidataflow-bridge",
-					"platform.nifi.io/cluster":     cluster.Name,
-					"platform.nifi.io/target-ref":  cluster.Spec.TargetRef.Name,
-				},
-			},
-			Data: map[string]string{
-				"imports.json": importsData,
-				"README.txt":   "Controller-owned NiFiDataflow bridge catalog consumed by the bounded versioned-flow import runtime bundle.\n",
-			},
-		}
-		if err := controllerutil.SetControllerReference(cluster, configMap, r.Scheme); err != nil {
-			return "", 0, fmt.Errorf("set bridge ConfigMap owner reference: %w", err)
-		}
-		if err := r.Create(ctx, configMap); err != nil {
-			return "", 0, fmt.Errorf("create bridge ConfigMap: %w", err)
-		}
-		return configMapName, len(dataflows), nil
+		return "", 0, &missingBridgeConfigMapError{Name: configMapName}
 	}
 
 	updated := configMap.DeepCopy()
-	if updated.Labels == nil {
-		updated.Labels = map[string]string{}
-	}
-	updated.Labels["app.kubernetes.io/managed-by"] = "nifi-fabric-controller"
-	updated.Labels["app.kubernetes.io/component"] = "nifidataflow-bridge"
-	updated.Labels["platform.nifi.io/cluster"] = cluster.Name
-	updated.Labels["platform.nifi.io/target-ref"] = cluster.Spec.TargetRef.Name
 	if updated.Data == nil {
 		updated.Data = map[string]string{}
 	}
 	updated.Data["imports.json"] = importsData
-	updated.Data["README.txt"] = "Controller-owned NiFiDataflow bridge catalog consumed by the bounded versioned-flow import runtime bundle.\n"
-	if err := controllerutil.SetControllerReference(cluster, updated, r.Scheme); err != nil {
-		return "", 0, fmt.Errorf("set bridge ConfigMap owner reference: %w", err)
-	}
 
-	if equality.Semantic.DeepEqual(configMap.Labels, updated.Labels) && equality.Semantic.DeepEqual(configMap.Data, updated.Data) {
-		return configMapName, len(dataflows), nil
+	if equality.Semantic.DeepEqual(configMap.Data, updated.Data) {
+		return configMapName, importCount, nil
 	}
 	if err := r.Patch(ctx, updated, client.MergeFrom(configMap)); err != nil {
 		return "", 0, fmt.Errorf("patch bridge ConfigMap: %w", err)
 	}
 
-	return configMapName, len(dataflows), nil
+	return configMapName, importCount, nil
 }
 
 func (r *NiFiDataflowReconciler) activeDataflowsForCluster(ctx context.Context, cluster *platformv1alpha1.NiFiCluster, excludeUID string) ([]platformv1alpha1.NiFiDataflow, error) {
@@ -336,6 +342,7 @@ func bridgeImportsJSON(cluster *platformv1alpha1.NiFiCluster, dataflows []platfo
 	for _, dataflow := range dataflows {
 		entry := map[string]any{
 			"name":          dataflow.Name,
+			"suspend":       dataflow.Spec.Suspend,
 			"bootstrapMode": "runtime-managed",
 			"driftPolicy": map[string]any{
 				"createdByProduct":             true,
@@ -359,6 +366,19 @@ func bridgeImportsJSON(cluster *platformv1alpha1.NiFiCluster, dataflows []platfo
 			"clusterRef": map[string]string{
 				"name": cluster.Name,
 			},
+		}
+		if mode := strings.TrimSpace(string(dataflow.Spec.SyncPolicy.Mode)); mode != "" {
+			entry["syncPolicy"] = map[string]string{"mode": mode}
+		}
+		rollout := map[string]string{}
+		if strategy := strings.TrimSpace(string(dataflow.Spec.Rollout.Strategy)); strategy != "" {
+			rollout["strategy"] = strategy
+		}
+		if timeout := strings.TrimSpace(dataflow.Spec.Rollout.Timeout.Duration.String()); timeout != "" && timeout != "0s" {
+			rollout["timeout"] = timeout
+		}
+		if len(rollout) > 0 {
+			entry["rollout"] = rollout
 		}
 		if dataflow.Spec.Target.ParameterContextRef != nil {
 			entry["parameterContextRefs"] = []map[string]string{{"name": dataflow.Spec.Target.ParameterContextRef.Name}}
@@ -994,12 +1014,12 @@ func (r *NiFiDataflowReconciler) markTargetStatefulSetMissing(dataflow *platform
 	})
 }
 
-func (r *NiFiDataflowReconciler) markBridgeUnsupported(dataflow *platformv1alpha1.NiFiDataflow, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, configMapName string, importCount int) {
+func (r *NiFiDataflowReconciler) markBridgeUnsupported(dataflow *platformv1alpha1.NiFiDataflow, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, configMapName string) {
 	dataflow.Status.Phase = platformv1alpha1.DataflowPhaseBlocked
 	dataflow.Status.LastOperation = platformv1alpha1.LastOperation{
-		Type:    "PublishBridgeConfig",
+		Type:    "ValidateBridgeConfig",
 		Phase:   platformv1alpha1.OperationPhaseSucceeded,
-		Message: fmt.Sprintf("Published %d bridged import declarations to ConfigMap %s, but target StatefulSet %s is not wired for the NiFiDataflow bridge", importCount, configMapName, target.Name),
+		Message: fmt.Sprintf("Target StatefulSet %s is not wired to consume the NiFiDataflow bridge ConfigMap %s", target.Name, configMapName),
 	}
 	dataflow.SetCondition(metav1.Condition{
 		Type:               platformv1alpha1.ConditionTargetResolved,
@@ -1052,6 +1072,69 @@ func (r *NiFiDataflowReconciler) markBridgeUnsupported(dataflow *platformv1alpha
 		Reason:             "BridgeNotMounted",
 		Message:            "The resource is blocked on workload wiring, not a failed live import operation",
 		LastTransitionTime: metav1.Now(),
+	})
+}
+
+func (r *NiFiDataflowReconciler) markBridgeConfigMapMissing(dataflow *platformv1alpha1.NiFiDataflow, cluster *platformv1alpha1.NiFiCluster, target *appsv1.StatefulSet, configMapName string) {
+	now := metav1.Now()
+	dataflow.Status.Phase = platformv1alpha1.DataflowPhaseBlocked
+	dataflow.Status.LastOperation = platformv1alpha1.LastOperation{
+		Type:        "PublishBridgeConfig",
+		Phase:       platformv1alpha1.OperationPhaseFailed,
+		CompletedAt: &now,
+		Message:     fmt.Sprintf("Required chart-rendered bridge ConfigMap %s is missing for target StatefulSet %s", configMapName, target.Name),
+	}
+	dataflow.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionTargetResolved,
+		Status:             metav1.ConditionFalse,
+		Reason:             "BridgeConfigMapMissing",
+		Message:            fmt.Sprintf("Referenced NiFiCluster %s is running, but the chart-rendered bridge ConfigMap %s is missing", cluster.Name, configMapName),
+		LastTransitionTime: now,
+	})
+	dataflow.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionSourceResolved,
+		Status:             metav1.ConditionUnknown,
+		Reason:             "WaitingForRuntimeBridge",
+		Message:            "Live source resolution is paused until the chart-rendered NiFiDataflow bridge ConfigMap exists",
+		LastTransitionTime: now,
+	})
+	if dataflow.Spec.Target.ParameterContextRef == nil {
+		dataflow.SetCondition(metav1.Condition{
+			Type:               platformv1alpha1.ConditionParameterContextReady,
+			Status:             metav1.ConditionTrue,
+			Reason:             "NotRequested",
+			Message:            "No direct Parameter Context attachment was requested",
+			LastTransitionTime: now,
+		})
+	} else {
+		dataflow.SetCondition(metav1.Condition{
+			Type:               platformv1alpha1.ConditionParameterContextReady,
+			Status:             metav1.ConditionUnknown,
+			Reason:             "WaitingForRuntimeBridge",
+			Message:            "Direct Parameter Context attachment is paused until the chart-rendered NiFiDataflow bridge ConfigMap exists",
+			LastTransitionTime: now,
+		})
+	}
+	dataflow.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionProgressing,
+		Status:             metav1.ConditionFalse,
+		Reason:             "BridgeConfigMapMissing",
+		Message:            "The controller cannot publish bridge declarations until the chart-rendered bridge ConfigMap exists",
+		LastTransitionTime: now,
+	})
+	dataflow.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionAvailable,
+		Status:             metav1.ConditionFalse,
+		Reason:             "BridgeConfigMapMissing",
+		Message:            "The chart-managed workload must render the NiFiDataflow bridge ConfigMap before runtime reconciliation can begin",
+		LastTransitionTime: now,
+	})
+	dataflow.SetCondition(metav1.Condition{
+		Type:               platformv1alpha1.ConditionDegraded,
+		Status:             metav1.ConditionTrue,
+		Reason:             "BridgeConfigMapMissing",
+		Message:            "The bounded runtime bridge is misconfigured and needs an app-chart reconcile before NiFiDataflow can proceed",
+		LastTransitionTime: now,
 	})
 }
 

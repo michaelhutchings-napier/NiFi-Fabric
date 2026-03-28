@@ -47,3 +47,34 @@ jobs:
         helm template nifi charts/nifi-platform -f examples/platform-managed-values.yaml -f examples/platform-managed-audit-flow-actions-local-only-values.yaml >/tmp/nifi-platform-audit-local-only.yaml
         helm template nifi charts/nifi-platform -f examples/platform-managed-values.yaml -f examples/platform-managed-audit-flow-actions-ghcr-values.yaml >/tmp/nifi-platform-audit-ghcr.yaml
         helm template nifi charts/nifi-platform -f examples/platform-managed-values.yaml -f examples/platform-managed-audit-flow-actions-private-registry-values.yaml >/tmp/nifi-platform-audit-private.yaml
+
+  nifidataflow-e2e:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      ARTIFACT_DIR: ${{ github.workspace }}/artifacts/kind-nifidataflow-fast-e2e
+    steps:
+    - uses: actions/checkout@v6
+    - uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+    - uses: azure/setup-helm@v5
+      with:
+        version: v3.20.0
+    - uses: azure/setup-kubectl@v4
+      with:
+        version: v1.31.0
+    - uses: engineerd/setup-kind@v0.6.2
+      with:
+        version: v0.24.0
+    - name: Run fresh-cluster NiFiDataflow end-to-end workflow
+      shell: bash
+      run: make kind-nifidataflow-fast-e2e
+    - name: Upload NiFiDataflow diagnostics
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: nifidataflow-e2e-diagnostics-${{ github.run_id }}
+        path: artifacts/kind-nifidataflow-fast-e2e
+        if-no-files-found: warn

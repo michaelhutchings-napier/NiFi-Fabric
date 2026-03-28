@@ -1,8 +1,6 @@
-# NiFiDataflow Proposal Reference
+# NiFiDataflow Reference
 
-This page describes a proposed `NiFiDataflow` CRD for NiFi-Fabric.
-
-It is a design sketch, not an accepted or implemented API.
+This page describes the `NiFiDataflow` CRD for NiFi-Fabric.
 
 See also:
 
@@ -12,7 +10,7 @@ See also:
 
 ## Intent
 
-The proposed `NiFiDataflow` resource is a bounded declarative deployment record for one imported versioned flow target.
+The `NiFiDataflow` resource is a declarative deployment record for one imported versioned flow target.
 
 It is meant to cover:
 
@@ -30,7 +28,7 @@ It is not meant to cover:
 - multi-step promotion workflow orchestration
 - full continuous drift correction of live UI edits
 
-## Proposed Resource
+## Resource
 
 ```yaml
 apiVersion: platform.nifi.io/v1alpha1
@@ -68,7 +66,7 @@ status:
     message: Imported target is present and matches the declared version.
 ```
 
-## Proposed Spec
+## Spec
 
 ### NiFiDataflow
 
@@ -84,7 +82,7 @@ status:
 
 | Field | Type | Description | Required |
 | --- | --- | --- | --- |
-| `spec.clusterRef` | object | Managed cluster reference. Initial proposal uses name-only same-namespace reference to a managed `NiFiCluster`. | Yes |
+| `spec.clusterRef` | object | Managed cluster reference. Uses a name-only same-namespace reference to a managed `NiFiCluster`. | Yes |
 | `spec.source` | object | Selected flow source and version. | Yes |
 | `spec.target` | object | Owned deployment target for this flow. | Yes |
 | `spec.rollout` | object | Conservative typed rollout behavior for version changes. | No |
@@ -104,7 +102,7 @@ status:
 | `spec.source.registryClient` | object | Named Flow Registry Client reference. | Yes |
 | `spec.source.bucket` | string | Registry bucket name. | Yes |
 | `spec.source.flow` | string | Registry flow name. | Yes |
-| `spec.source.version` | string | Selected flow version. Proposed values are an explicit provider-native identifier or `latest` on initial create only. | Yes |
+| `spec.source.version` | string | Selected flow version. Supported values are an explicit provider-native identifier or `latest`. | Yes |
 
 ### RegistryClientRef
 
@@ -129,22 +127,22 @@ status:
 
 | Field | Type | Description | Required |
 | --- | --- | --- | --- |
-| `spec.rollout.strategy` | enum | Proposed values: `Replace`, `DrainAndReplace`. | No |
+| `spec.rollout.strategy` | enum | Supported values: `Replace`, `DrainAndReplace`. | No |
 | `spec.rollout.timeout` | duration | Maximum time allowed for pre-change drain and post-change settle work. | No |
 
 ### SyncPolicy
 
 | Field | Type | Description | Required |
 | --- | --- | --- | --- |
-| `spec.syncPolicy.mode` | enum | Proposed values: `Once`, `OnChange`. | No |
+| `spec.syncPolicy.mode` | enum | Supported values: `Once`, `OnChange`. | No |
 
-## Proposed Status
+## Status
 
 ### NiFiDataflowStatus
 
 | Field | Type | Description | Required |
 | --- | --- | --- | --- |
-| `status.phase` | enum | Proposed values: `Pending`, `Importing`, `Ready`, `Progressing`, `Blocked`, `Failed`. | No |
+| `status.phase` | enum | Supported values: `Pending`, `Importing`, `Ready`, `Progressing`, `Blocked`, `Failed`. | No |
 | `status.processGroupId` | string | Process group ID for the owned target when resolved. | No |
 | `status.observedVersion` | string | Last observed version attached to the owned target. | No |
 | `status.lastSuccessfulVersion` | string | Last version the controller observed as successfully reconciled. | No |
@@ -156,14 +154,14 @@ status:
 | Field | Type | Description | Required |
 | --- | --- | --- | --- |
 | `status.lastOperation.type` | string | Operation type such as `Import`, `Upgrade`, `Rollback`, or `AttachParameterContext`. | No |
-| `status.lastOperation.phase` | enum | Proposed values: `Pending`, `Running`, `Succeeded`, `Failed`. | No |
+| `status.lastOperation.phase` | enum | Supported values: `Pending`, `Running`, `Succeeded`, `Failed`. | No |
 | `status.lastOperation.startedAt` | timestamp | When the operation started. | No |
 | `status.lastOperation.completedAt` | timestamp | When the operation completed. | No |
 | `status.lastOperation.message` | string | Human-readable summary for operators. | No |
 
 ### Conditions
 
-Suggested condition types:
+Condition types:
 
 - `SourceResolved`
 - `TargetResolved`
@@ -172,7 +170,7 @@ Suggested condition types:
 - `Available`
 - `Degraded`
 
-## Proposed Reconcile Boundaries
+## Reconcile Scope
 
 The controller would:
 
@@ -190,9 +188,9 @@ The controller would not:
 - delete live targets by default on resource deletion
 - reconcile unrelated live drift in the surrounding graph
 
-## Failure Handling Expectations
+## Failure Handling
 
-The design should document and test at least these cases:
+The implementation documents and tests at least these cases:
 
 - missing registry client
 - missing bucket, flow, or version
@@ -200,11 +198,11 @@ The design should document and test at least these cases:
 - Parameter Context missing or invalid
 - rollout drain timeout
 - attached version fails to settle cleanly
-- rollback requested after a failed version change
+- delete without removing the live process group by default
 
 ## Testing Notes
 
-If implemented, the first test bar should cover:
+Current coverage includes:
 
 - import create
 - import update to a new declared version

@@ -43,7 +43,7 @@ Use this documentation set as the customer-facing guide for installing, operatin
 
 - [Architecture Summary](architecture.md)
 - [NiFiCluster Reference](reference/nificluster.md)
-- [NiFiDataflow Proposal Reference](reference/nifidataflow-proposal.md)
+- [NiFiDataflow Reference](reference/nifidataflow.md)
 - [Platform Chart Values Reference](reference/nifi-platform-values.md)
 - [App Chart Values Reference](reference/app-chart-values.md)
 - [Roadmap](roadmap.md)

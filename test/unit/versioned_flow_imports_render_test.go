@@ -69,10 +69,169 @@ func TestVersionedFlowImportsAllowsControllerBridgeWithoutInlineImports(t *testi
 		`name: nifidataflow-bridge`,
 		`name: test-nifi-nifidataflows`,
 		`name: test-nifi-nifidataflows-status`,
+		`"kind": "NiFiDataflowBridgeCatalog"`,
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
 		}
+	}
+}
+
+func TestVersionedFlowImportsBootstrapSerializesBackgroundLoopAndOnceRuns(t *testing.T) {
+	args := append(
+		preparedGitHubFlowRegistryClientArgs(),
+		"--set", "auth.mode=singleUser",
+		"--set", "authz.bundles.flowVersionManager.includeInitialAdmin=true",
+		"--set", "versionedFlowImports.enabled=true",
+		"--set", "versionedFlowImports.imports[0].name=payments",
+		"--set", "versionedFlowImports.imports[0].registryClientName=github-flows",
+		"--set", "versionedFlowImports.imports[0].bucket=team-a",
+		"--set", "versionedFlowImports.imports[0].flowName=payments-api",
+		"--set", "versionedFlowImports.imports[0].version=latest",
+		"--set", "versionedFlowImports.imports[0].target.rootProcessGroupName=payments-root",
+	)
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		args...,
+	)
+	if err != nil {
+		t.Fatalf("expected helm template to render versionedFlowImports bootstrap script: %v\n%s", err, output)
+	}
+
+	for _, want := range []string{
+		`import fcntl`,
+		`LOCK_PATH = "/opt/nifi/nifi-current/logs/versioned-flow-imports-bootstrap.lock"`,
+		`with open(LOCK_PATH, "w", encoding="utf-8") as lock_handle:`,
+		`fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered bootstrap.py to contain %q\n%s", want, output)
+		}
+	}
+
+	lockIndex := strings.Index(output, `fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)`)
+	reconcileIndex := strings.Index(output, `status = reconcile_once(config)`)
+	if lockIndex == -1 || reconcileIndex == -1 || lockIndex > reconcileIndex {
+		t.Fatalf("expected bootstrap.py to acquire its exclusive lock before reconcile_once(config)\n%s", output)
+	}
+}
+
+func TestVersionedFlowImportsBootstrapSupportsOnceSyncPolicyDriftSkip(t *testing.T) {
+	args := append(
+		preparedGitHubFlowRegistryClientArgs(),
+		"--set", "controllerManaged.enabled=true",
+		"--set", "auth.mode=singleUser",
+		"--set", "authz.bundles.flowVersionManager.includeInitialAdmin=true",
+		"--set", "versionedFlowImports.enabled=true",
+		"--set", "versionedFlowImports.controllerBridge.enabled=true",
+	)
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		args...,
+	)
+	if err != nil {
+		t.Fatalf("expected helm template to render versionedFlowImports bootstrap script with controller bridge enabled: %v\n%s", err, output)
+	}
+
+	for _, want := range []string{
+		`def import_sync_mode(import_entry):`,
+		`return mode or "OnChange"`,
+		`def should_skip_version_drift_reconcile(import_entry, previous_entry, ownership_metadata, import_status):`,
+		`if import_sync_mode(import_entry) != "Once":`,
+		`if previous_entry.get("status") == "ok" and previous_entry.get("observedHash") == observed_hash:`,
+		`return ownership_metadata.get("observedHash") == observed_hash`,
+		`if actual_version and actual_version != resolved_version and not skip_version_drift_reconcile:`,
+		`import_status["versionDriftReconcileSkipped"] = True`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered bootstrap.py to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestVersionedFlowImportsBootstrapSupportsBoundedRolloutStrategies(t *testing.T) {
+	args := append(
+		preparedGitHubFlowRegistryClientArgs(),
+		"--set", "controllerManaged.enabled=true",
+		"--set", "auth.mode=singleUser",
+		"--set", "authz.bundles.flowVersionManager.includeInitialAdmin=true",
+		"--set", "versionedFlowImports.enabled=true",
+		"--set", "versionedFlowImports.controllerBridge.enabled=true",
+	)
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		args...,
+	)
+	if err != nil {
+		t.Fatalf("expected helm template to render versionedFlowImports bootstrap script with rollout support: %v\n%s", err, output)
+	}
+
+	for _, want := range []string{
+		`def import_rollout_strategy(import_entry):`,
+		`return strategy or "Replace"`,
+		`def import_rollout_timeout_seconds(import_entry):`,
+		`return 20 * 60`,
+		`def component_run_state(source):`,
+		`def running_components_in_flow(flow_source):`,
+		`def schedule_process_group_components(opener, base_url, proxied_identity, process_group_id, state):`,
+		`def wait_for_process_group_quiescent(opener, base_url, proxied_identity, process_group_id, timeout_seconds):`,
+		`def wait_for_process_group_resumed(opener, base_url, proxied_identity, process_group_id, timeout_seconds):`,
+		`process_group_running_count(component_payload, component, process_group_flow, flow_payload)`,
+		`import_status["rolloutStrategy"] = rollout_strategy`,
+		`import_status["drainedBeforeVersionUpdate"] = bool((previous_entry or {}).get("drainedBeforeVersionUpdate", False))`,
+		`import_status["resumedAfterVersionUpdate"] = bool((previous_entry or {}).get("resumedAfterVersionUpdate", False))`,
+		`desired_comments = managed_comments(`,
+		`if rollout_strategy == "DrainAndReplace":`,
+		`import_status["drainedBeforeVersionUpdate"] = True`,
+		`import_status["resumedAfterVersionUpdate"] = True`,
+		`f"/flow/process-groups/{process_group_id}/status?recursive=true"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered bootstrap.py to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestVersionedFlowImportsBootstrapMarksOwnershipBeforeParameterContextMutation(t *testing.T) {
+	args := append(
+		preparedGitHubFlowRegistryClientArgs(),
+		"--set", "controllerManaged.enabled=true",
+		"--set", "auth.mode=singleUser",
+		"--set", "authz.bundles.flowVersionManager.includeInitialAdmin=true",
+		"--set", "versionedFlowImports.enabled=true",
+		"--set", "versionedFlowImports.controllerBridge.enabled=true",
+	)
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		args...,
+	)
+	if err != nil {
+		t.Fatalf("expected helm template to render versionedFlowImports bootstrap script with controller bridge enabled: %v\n%s", err, output)
+	}
+
+	ensureImportIndex := strings.Index(output, `def ensure_import(`)
+	if ensureImportIndex == -1 {
+		t.Fatalf("expected rendered bootstrap.py to contain ensure_import()\n%s", output)
+	}
+	ensureImportBody := output[ensureImportIndex:]
+
+	commentsBlockIndex := strings.Index(ensureImportBody, `desired_comments = managed_comments(`)
+	updateCommentsCallIndex := strings.Index(ensureImportBody, "if (component.get(\"comments\", \"\") or \"\") != desired_comments:\n            update_process_group_comments(")
+	bindParameterContextCallIndex := strings.Index(ensureImportBody, "if parameter_context_id:\n                if actual_parameter_context_id != parameter_context_id:\n                    bind_parameter_context(")
+	clearParameterContextCallIndex := strings.Index(ensureImportBody, "elif actual_parameter_context_id:\n                clear_parameter_context(")
+
+	if commentsBlockIndex == -1 || updateCommentsCallIndex == -1 || bindParameterContextCallIndex == -1 || clearParameterContextCallIndex == -1 {
+		t.Fatalf("expected rendered bootstrap.py to contain ownership-comment and parameter-context update paths\n%s", output)
+	}
+	if commentsBlockIndex > bindParameterContextCallIndex || updateCommentsCallIndex > bindParameterContextCallIndex {
+		t.Fatalf("expected ownership marker update to be prepared before parameter context attachment logic\n%s", output)
+	}
+	if commentsBlockIndex > clearParameterContextCallIndex || updateCommentsCallIndex > clearParameterContextCallIndex {
+		t.Fatalf("expected ownership marker update to be prepared before parameter context removal logic\n%s", output)
 	}
 }
 

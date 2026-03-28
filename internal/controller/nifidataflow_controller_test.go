@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -64,7 +65,7 @@ func TestNiFiDataflowReconcilePublishesBridgeConfigMapWhenTargetSupportsBridge(t
 			},
 		},
 	}
-	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflowFixture(), cluster, target)
+	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflowFixture(), cluster, target, bridgeConfigMapFixture())
 
 	reconcileDataflow(t, reconciler)
 	reconcileDataflow(t, reconciler)
@@ -88,6 +89,150 @@ func TestNiFiDataflowReconcilePublishesBridgeConfigMapWhenTargetSupportsBridge(t
 		t.Fatalf("expected bridge configmap imports.json to contain dataflow entry\n%s", configMap.Data["imports.json"])
 	}
 	expectEventContains(t, recorder, "Normal RuntimeImportProgressing", "controller bridge is published")
+}
+
+func TestNiFiDataflowReconcilePublishesSuspendedBridgeEntry(t *testing.T) {
+	cluster := &platformv1alpha1.NiFiCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},
+		Spec: platformv1alpha1.NiFiClusterSpec{
+			TargetRef:    platformv1alpha1.TargetRef{Name: "nifi"},
+			DesiredState: platformv1alpha1.DesiredStateRunning,
+		},
+	}
+	target := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{
+						{
+							Name: "nifidataflow-bridge",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{Name: "nifi-nifidataflows"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	dataflow := dataflowFixture()
+	dataflow.Spec.Suspend = true
+	reconciler, k8sClient, _ := newTestDataflowReconciler(t, dataflow, cluster, target, bridgeConfigMapFixture())
+
+	reconcileDataflow(t, reconciler)
+	reconcileDataflow(t, reconciler)
+
+	updated := &platformv1alpha1.NiFiDataflow{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: "nifi", Name: "orders-ingest"}, updated); err != nil {
+		t.Fatalf("get updated dataflow: %v", err)
+	}
+	if updated.Status.Phase != platformv1alpha1.DataflowPhasePending {
+		t.Fatalf("expected pending phase for suspended dataflow, got %q", updated.Status.Phase)
+	}
+
+	configMap := &corev1.ConfigMap{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: "nifi", Name: "nifi-nifidataflows"}, configMap); err != nil {
+		t.Fatalf("get bridge configmap: %v", err)
+	}
+	if !strings.Contains(configMap.Data["imports.json"], `"name": "orders-ingest"`) {
+		t.Fatalf("expected bridge configmap imports.json to contain dataflow entry\n%s", configMap.Data["imports.json"])
+	}
+	if !strings.Contains(configMap.Data["imports.json"], `"suspend": true`) {
+		t.Fatalf("expected bridge configmap imports.json to preserve suspended declaration\n%s", configMap.Data["imports.json"])
+	}
+}
+
+func TestNiFiDataflowReconcilePublishesSyncPolicyBridgeEntry(t *testing.T) {
+	cluster := &platformv1alpha1.NiFiCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},
+		Spec: platformv1alpha1.NiFiClusterSpec{
+			TargetRef:    platformv1alpha1.TargetRef{Name: "nifi"},
+			DesiredState: platformv1alpha1.DesiredStateRunning,
+		},
+	}
+	target := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{
+						{
+							Name: "nifidataflow-bridge",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{Name: "nifi-nifidataflows"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	dataflow := dataflowFixture()
+	dataflow.Spec.SyncPolicy.Mode = platformv1alpha1.DataflowSyncModeOnce
+	reconciler, k8sClient, _ := newTestDataflowReconciler(t, dataflow, cluster, target, bridgeConfigMapFixture())
+
+	reconcileDataflow(t, reconciler)
+	reconcileDataflow(t, reconciler)
+
+	configMap := &corev1.ConfigMap{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: "nifi", Name: "nifi-nifidataflows"}, configMap); err != nil {
+		t.Fatalf("get bridge configmap: %v", err)
+	}
+	if !strings.Contains(configMap.Data["imports.json"], `"syncPolicy": {`) || !strings.Contains(configMap.Data["imports.json"], `"mode": "Once"`) {
+		t.Fatalf("expected bridge configmap imports.json to preserve sync policy declaration\n%s", configMap.Data["imports.json"])
+	}
+}
+
+func TestNiFiDataflowReconcilePublishesRolloutBridgeEntry(t *testing.T) {
+	cluster := &platformv1alpha1.NiFiCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},
+		Spec: platformv1alpha1.NiFiClusterSpec{
+			TargetRef:    platformv1alpha1.TargetRef{Name: "nifi"},
+			DesiredState: platformv1alpha1.DesiredStateRunning,
+		},
+	}
+	target := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{
+						{
+							Name: "nifidataflow-bridge",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{Name: "nifi-nifidataflows"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	dataflow := dataflowFixture()
+	dataflow.Spec.Rollout.Strategy = platformv1alpha1.DataflowRolloutStrategyDrainAndReplace
+	dataflow.Spec.Rollout.Timeout = metav1.Duration{Duration: 20 * time.Minute}
+	reconciler, k8sClient, _ := newTestDataflowReconciler(t, dataflow, cluster, target, bridgeConfigMapFixture())
+
+	reconcileDataflow(t, reconciler)
+	reconcileDataflow(t, reconciler)
+
+	configMap := &corev1.ConfigMap{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: "nifi", Name: "nifi-nifidataflows"}, configMap); err != nil {
+		t.Fatalf("get bridge configmap: %v", err)
+	}
+	if !strings.Contains(configMap.Data["imports.json"], `"rollout": {`) || !strings.Contains(configMap.Data["imports.json"], `"strategy": "DrainAndReplace"`) {
+		t.Fatalf("expected bridge configmap imports.json to preserve rollout strategy declaration\n%s", configMap.Data["imports.json"])
+	}
+	if !strings.Contains(configMap.Data["imports.json"], `"timeout": "20m0s"`) {
+		t.Fatalf("expected bridge configmap imports.json to preserve rollout timeout declaration\n%s", configMap.Data["imports.json"])
+	}
 }
 
 func TestNiFiDataflowReconcileProjectsReadyRuntimeStatus(t *testing.T) {
@@ -141,7 +286,7 @@ func TestNiFiDataflowReconcileProjectsReadyRuntimeStatus(t *testing.T) {
 }`,
 		},
 	}
-	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflowFixture(), cluster, target, statusConfigMap)
+	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflowFixture(), cluster, target, bridgeConfigMapFixture(), statusConfigMap)
 
 	reconcileDataflow(t, reconciler)
 	reconcileDataflow(t, reconciler)
@@ -227,7 +372,7 @@ func TestNiFiDataflowReconcileProjectsBlockedRuntimeStatus(t *testing.T) {
 }`,
 		},
 	}
-	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflow, cluster, target, statusConfigMap)
+	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflow, cluster, target, bridgeConfigMapFixture(), statusConfigMap)
 
 	reconcileDataflow(t, reconciler)
 	reconcileDataflow(t, reconciler)
@@ -312,7 +457,7 @@ func TestNiFiDataflowReconcileSurfacesRetainedOwnedImportWarnings(t *testing.T) 
 }`,
 		},
 	}
-	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflowFixture(), cluster, target, statusConfigMap)
+	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflowFixture(), cluster, target, bridgeConfigMapFixture(), statusConfigMap)
 
 	reconcileDataflow(t, reconciler)
 	reconcileDataflow(t, reconciler)
@@ -396,7 +541,7 @@ func TestNiFiDataflowReconcileEmitsRetainedOwnedImportsClearedEvent(t *testing.T
 }`,
 		},
 	}
-	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflowFixture(), cluster, target, statusConfigMap)
+	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflowFixture(), cluster, target, bridgeConfigMapFixture(), statusConfigMap)
 
 	reconcileDataflow(t, reconciler)
 	reconcileDataflow(t, reconciler)
@@ -485,7 +630,7 @@ func TestNiFiDataflowReconcileClassifiesOwnershipAdoptionConflict(t *testing.T) 
 }`,
 		},
 	}
-	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflowFixture(), cluster, target, statusConfigMap)
+	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflowFixture(), cluster, target, bridgeConfigMapFixture(), statusConfigMap)
 
 	reconcileDataflow(t, reconciler)
 	reconcileDataflow(t, reconciler)
@@ -557,7 +702,7 @@ func TestNiFiDataflowReconcileDoesNotSpamBlockedEventsWhenOnlyDetailTextChanges(
 }`,
 		},
 	}
-	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflow, cluster, target, statusConfigMap)
+	reconciler, k8sClient, recorder := newTestDataflowReconciler(t, dataflow, cluster, target, bridgeConfigMapFixture(), statusConfigMap)
 
 	reconcileDataflow(t, reconciler)
 	reconcileDataflow(t, reconciler)
@@ -590,6 +735,53 @@ func TestNiFiDataflowReconcileDoesNotSpamBlockedEventsWhenOnlyDetailTextChanges(
 
 	reconcileDataflow(t, reconciler)
 	expectNoEvent(t, recorder)
+}
+
+func TestNiFiDataflowReconcileBlocksWhenBridgeConfigMapIsMissing(t *testing.T) {
+	cluster := &platformv1alpha1.NiFiCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},
+		Spec: platformv1alpha1.NiFiClusterSpec{
+			TargetRef:    platformv1alpha1.TargetRef{Name: "nifi"},
+			DesiredState: platformv1alpha1.DesiredStateRunning,
+		},
+	}
+	target := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{
+						{
+							Name: "nifidataflow-bridge",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{Name: "nifi-nifidataflows"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	reconciler, k8sClient, _ := newTestDataflowReconciler(t, dataflowFixture(), cluster, target)
+
+	reconcileDataflow(t, reconciler)
+	reconcileDataflow(t, reconciler)
+
+	updated := &platformv1alpha1.NiFiDataflow{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: "nifi", Name: "orders-ingest"}, updated); err != nil {
+		t.Fatalf("get updated dataflow: %v", err)
+	}
+	if updated.Status.Phase != platformv1alpha1.DataflowPhaseBlocked {
+		t.Fatalf("expected blocked phase, got %q", updated.Status.Phase)
+	}
+	if condition := updated.GetCondition(platformv1alpha1.ConditionTargetResolved); condition == nil || condition.Reason != "BridgeConfigMapMissing" || condition.Status != metav1.ConditionFalse {
+		t.Fatalf("expected target resolved condition to explain missing bridge configmap, got %#v", condition)
+	}
+	if !strings.Contains(updated.Status.LastOperation.Message, "chart-rendered bridge ConfigMap nifi-nifidataflows is missing") {
+		t.Fatalf("expected last operation to explain missing chart-rendered bridge configmap, got %q", updated.Status.LastOperation.Message)
+	}
 }
 
 func TestNiFiDataflowReconcileBlocksWhenTargetDoesNotMountBridge(t *testing.T) {
@@ -680,6 +872,29 @@ func expectNoEvent(t *testing.T, recorder *record.FakeRecorder) {
 	case event := <-recorder.Events:
 		t.Fatalf("expected no event but received %q", event)
 	default:
+	}
+}
+
+func bridgeConfigMapFixture() *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "nifi-nifidataflows",
+			Namespace: "nifi",
+			Labels: map[string]string{
+				"app.kubernetes.io/name":       "nifi",
+				"app.kubernetes.io/instance":   "nifi",
+				"app.kubernetes.io/managed-by": "Helm",
+				"app.kubernetes.io/component":  "nifidataflow-bridge",
+			},
+			Annotations: map[string]string{
+				"meta.helm.sh/release-name":      "nifi",
+				"meta.helm.sh/release-namespace": "nifi",
+			},
+		},
+		Data: map[string]string{
+			"imports.json": "{\n  \"imports\": []\n}\n",
+			"README.txt":   "Chart-rendered NiFiDataflow bridge catalog placeholder.\n",
+		},
 	}
 }
 

@@ -39,7 +39,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: NiFiDataflow is a bounded declarative deployment record for one
+        description: NiFiDataflow is a declarative deployment record for one
           imported versioned flow target.
         properties:
           apiVersion:

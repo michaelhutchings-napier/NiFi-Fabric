@@ -14,6 +14,7 @@ on:
         - kind-e2e-config-drift
         - kind-e2e-tls
         - kind-e2e-hibernate
+        - kind-nifidataflow-fast-e2e
         - kind-auth-oidc-initial-admin-group-fast-e2e
         - kind-auth-oidc-ingress-initial-admin-group-fast-e2e
         - kind-auth-ldap-group-sync-fast-e2e
@@ -34,7 +35,7 @@ jobs:
       shell: bash
       run: |
         if [[ "${{ github.event_name }}" == "schedule" ]]; then
-          printf '%s\n' 'matrix=["kind-alpha-e2e","kind-auth-oidc-initial-admin-group-fast-e2e","kind-auth-oidc-ingress-initial-admin-group-fast-e2e","kind-auth-ldap-group-sync-fast-e2e"]' >>"${GITHUB_OUTPUT}"
+          printf '%s\n' 'matrix=["kind-alpha-e2e","kind-nifidataflow-fast-e2e","kind-auth-oidc-initial-admin-group-fast-e2e","kind-auth-oidc-ingress-initial-admin-group-fast-e2e","kind-auth-ldap-group-sync-fast-e2e"]' >>"${GITHUB_OUTPUT}"
         else
           printf 'matrix=["%s"]\n' "${{ github.event.inputs.target }}" >>"${GITHUB_OUTPUT}"
         fi

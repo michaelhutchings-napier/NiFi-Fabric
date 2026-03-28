@@ -122,7 +122,7 @@ type NiFiDataflowStatus struct {
 // +kubebuilder:printcolumn:name="Retained",type="string",JSONPath=".status.warnings.retainedOwnedImports[0].name",priority=1
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
-// NiFiDataflow is a bounded declarative deployment record for one imported versioned flow target.
+// NiFiDataflow is a declarative deployment record for one imported versioned flow target.
 type NiFiDataflow struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
