@@ -106,7 +106,47 @@ Manual UI edits outside the managed import scope are unsupported. The product do
 - operator-owned targets without the product ownership marker are surfaced as explicit adoption-refused blocked status and events; this path does not auto-adopt them
 - when retained owned imports disappear from the bounded runtime status, the controller emits a normalized warning-cleared event so the signal is visible without repeated warning spam
 - the same bridge path also projects a small queryable status summary under `status.ownership` and `status.warnings.retainedOwnedImports[]` so automation can inspect ownership and retained-warning state without parsing condition text
+- `kubectl get nifidataflows` also surfaces a compact operator summary through the `Ownership` and low-priority `Retained` printer columns
 - ongoing automatic synchronization to newer registry versions is out of scope
+
+## Operator View
+
+When the optional controller bridge is enabled, operators can inspect the
+bounded runtime summary directly from `kubectl` without opening the full
+resource:
+
+```bash
+kubectl get nifidataflows
+```
+
+Example output:
+
+```text
+NAME             PHASE    CLUSTER   VERSION   OWNERSHIP        AGE
+orders-ingest    Ready    nifi      12        Managed          18m
+payments-sync    Blocked  nifi      8         AdoptionRefused  6m
+```
+
+If you want the retained-warning hint as well, ask for wide output:
+
+```bash
+kubectl get nifidataflows -o wide
+```
+
+Example wide output:
+
+```text
+NAME             PHASE    CLUSTER   VERSION   OWNERSHIP        RETAINED         AGE
+orders-ingest    Ready    nifi      12        Managed          old-orders       18m
+payments-sync    Blocked  nifi      8         AdoptionRefused                   6m
+```
+
+Column meaning:
+
+- `Ownership` shows the current bounded ownership view from
+  `status.ownership.state`, such as `Managed` or `AdoptionRefused`
+- `Retained` shows the first retained owned-import warning name when the runtime
+  reports stale retained targets under `status.warnings.retainedOwnedImports[]`
 
 ## Runtime Coverage
 
