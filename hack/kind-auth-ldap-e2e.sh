@@ -320,7 +320,19 @@ expect_nifi_api_code() {
   local expected="$4"
 
   local code
-  code="$(nifi_exec env \
+  code="$(nifi_api_code "${username}" "${password}" "${path}")" || return 1
+
+  if [[ "${code}" != "${expected}" ]]; then
+    fail "expected ${expected} from ${path} for ${username}, got ${code}"
+  fi
+}
+
+nifi_api_code() {
+  local username="$1"
+  local password="$2"
+  local path="$3"
+
+  nifi_exec env \
     NIFI_USERNAME="${username}" \
     NIFI_PASSWORD="${password}" \
     NIFI_PATH="${path}" \
@@ -337,11 +349,32 @@ expect_nifi_api_code() {
         --cacert /opt/nifi/tls/ca.crt \
         -H "Authorization: Bearer ${TOKEN}" \
         "https://'${HELM_RELEASE}'-0.'${HELM_RELEASE}'-headless.'${NAMESPACE}'.svc.cluster.local:8443${NIFI_PATH}"
-    ')" || return 1
+    '
+}
 
-  if [[ "${code}" != "${expected}" ]]; then
-    fail "expected ${expected} from ${path} for ${username}, got ${code}"
-  fi
+wait_for_nifi_api_code() {
+  local username="$1"
+  local password="$2"
+  local path="$3"
+  local expected="$4"
+  local timeout="$5"
+
+  local deadline actual_code=""
+  deadline=$(( $(date +%s) + timeout ))
+
+  while true; do
+    if actual_code="$(nifi_api_code "${username}" "${password}" "${path}" 2>/dev/null)"; then
+      if [[ "${actual_code}" == "${expected}" ]]; then
+        return 0
+      fi
+    fi
+
+    if (( $(date +%s) >= deadline )); then
+      fail "timed out waiting for ${expected} from ${path} for ${username}; last code was ${actual_code:-unavailable}"
+    fi
+
+    sleep 5
+  done
 }
 
 expect_no_restart() {
@@ -462,8 +495,7 @@ if [[ "${LDAP_BOOTSTRAP_MODE}" == "group" ]]; then
   nifi1_restarts="$(kubectl -n "${NAMESPACE}" get pod "${HELM_RELEASE}-1" -o jsonpath='{.status.containerStatuses[0].restartCount}')"
 
   add_ldap_user_to_group erin "Erin Admin" "Admin" nifi-platform-admins
-  sleep 15
-  expect_nifi_api_code erin "${LDAP_USER_PASSWORD}" /nifi-api/controller/config 200
+  wait_for_nifi_api_code erin "${LDAP_USER_PASSWORD}" /nifi-api/controller/config 200 90
   expect_no_restart "${HELM_RELEASE}-0" "${nifi0_uid}" "${nifi0_restarts}"
   expect_no_restart "${HELM_RELEASE}-1" "${nifi1_uid}" "${nifi1_restarts}"
 fi
