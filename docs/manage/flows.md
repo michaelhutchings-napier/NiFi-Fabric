@@ -273,6 +273,9 @@ If you want to exercise GitHub version selection locally, run:
 make kind-versioned-flow-selection-fast-e2e
 ```
 
+For the planned operator workflow for declared version changes, see
+[Operations playbooks](../operations/playbooks.md).
+
 ## What This Feature Does Not Do
 
 - create arbitrary Flow Registry Clients automatically
