@@ -81,6 +81,12 @@ data:
     {{- range $key, $value := .Values.config.extraProperties }}
     {{ $key }}={{ $value }}
     {{- end }}
+  {{- with .Values.logging.levels }}
+  logging-levels.properties: |
+    {{- range $loggerName, $level := . }}
+    {{ printf "%v" $loggerName }}={{ upper (trim (printf "%v" $level)) }}
+    {{- end }}
+  {{- end }}
   authorizers.xml: |
 {{ include "nifi.authorizersXml" . | indent 4 }}
   login-identity-providers.xml: |

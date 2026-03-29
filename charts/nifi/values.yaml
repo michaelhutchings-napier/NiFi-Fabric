@@ -897,3 +897,10 @@ config:
   # -- In managed mode, append `config.propertyConfigMaps[]` names to the
   # `NiFiCluster` watched ConfigMap restart trigger set.
   propertyConfigMapsRestartOnChange: false
+
+# -- Optional named logger level overrides applied to NiFi's existing
+# `logback.xml` during the `init-conf` bootstrap. Use logger names such as
+# `org.apache.nifi` or `org.apache.nifi.web.api`.
+# @default -- {"levels":{}}
+logging:
+  levels: {}

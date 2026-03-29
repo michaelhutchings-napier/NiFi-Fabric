@@ -225,6 +225,71 @@ spec:
             done < "${file}"
           }
 
+          apply_logging_levels() {
+            file="$1"
+            logback_path="$2"
+            if [ ! -f "${file}" ]; then
+              return 0
+            fi
+            if [ ! -f "${logback_path}" ]; then
+              echo "logback.xml not found at ${logback_path}" >&2
+              exit 1
+            fi
+            python_script="/tmp/apply-logging-levels.py"
+            printf '%s\n' \
+              'import sys' \
+              'import xml.etree.ElementTree as ET' \
+              '' \
+              'levels_path, logback_path = sys.argv[1], sys.argv[2]' \
+              'levels = {}' \
+              'with open(levels_path, encoding="utf-8") as handle:' \
+              '    for raw_line in handle:' \
+              '        line = raw_line.strip()' \
+              '        if not line or line.startswith("#"):' \
+              '            continue' \
+              '        if "=" not in raw_line:' \
+              '            raise SystemExit(f"invalid logging level line in {levels_path}: {raw_line.rstrip()}")' \
+              '        name, level = raw_line.split("=", 1)' \
+              '        name = name.strip()' \
+              '        level = level.strip().upper()' \
+              '        if not name:' \
+              '            raise SystemExit(f"invalid logging level line in {levels_path}: {raw_line.rstrip()}")' \
+              '        levels[name] = level' \
+              '' \
+              'tree = ET.parse(logback_path)' \
+              'root = tree.getroot()' \
+              'children = list(root)' \
+              'loggers_by_name = {}' \
+              'insert_index = len(children)' \
+              '' \
+              'for index, child in enumerate(children):' \
+              '    if child.tag == "root" and insert_index == len(children):' \
+              '        insert_index = index' \
+              '    if child.tag == "logger":' \
+              '        logger_name = child.attrib.get("name")' \
+              '        if logger_name:' \
+              '            loggers_by_name[logger_name] = child' \
+              '' \
+              'for name, level in levels.items():' \
+              '    logger = loggers_by_name.get(name)' \
+              '    if logger is None:' \
+              '        logger = ET.Element("logger", {"name": name, "level": level})' \
+              '        root.insert(insert_index, logger)' \
+              '        insert_index += 1' \
+              '    else:' \
+              '        logger.set("level", level)' \
+              '' \
+              'try:' \
+              '    ET.indent(tree, space="  ")' \
+              'except AttributeError:' \
+              '    pass' \
+              '' \
+              'tree.write(logback_path, encoding="UTF-8", xml_declaration=True)' \
+              > "${python_script}"
+            python3 "${python_script}" "${file}" "${logback_path}"
+            rm -f "${python_script}"
+          }
+
           cp -R /opt/nifi/nifi-current/conf/* /work-conf/
           cp /config/authorizers.xml /work-conf/authorizers.xml
           cp /config/login-identity-providers.xml /work-conf/login-identity-providers.xml
@@ -242,6 +307,7 @@ spec:
           sed -i "s|^java.arg.2=.*$|java.arg.2=-Xms{{ .Values.nifi.jvmHeapInit }}|" /work-conf/bootstrap.conf
           sed -i "s|^java.arg.3=.*$|java.arg.3=-Xmx{{ .Values.nifi.jvmHeapMax }}|" /work-conf/bootstrap.conf
           apply_property_file /config/nifi.properties.overrides "config-template nifi.properties.overrides"
+          apply_logging_levels /config/logging-levels.properties /work-conf/logback.xml
           {{- range $index, $entry := default (list) .Values.config.propertyConfigMaps }}
           apply_property_file {{ printf "/external-property-configs/property-configmap-%03d.properties" $index | quote }} {{ printf "%s/%s" $entry.name $entry.key | quote }}
           {{- end }}
