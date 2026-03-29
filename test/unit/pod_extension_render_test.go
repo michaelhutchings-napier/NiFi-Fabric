@@ -185,3 +185,71 @@ func TestPlatformManagedRenderIncludesNestedPodShapeExtensions(t *testing.T) {
 		}
 	}
 }
+
+func TestNiFiRenderIncludesExternalPropertyConfigMaps(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set-json", `config.propertyConfigMaps=[{"name":"nifi-base-properties","key":"common.properties"},{"name":"nifi-team-properties","key":"team.properties"}]`,
+	)
+	if err != nil {
+		t.Fatalf("expected nifi chart render with external property ConfigMaps to succeed: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		"name: external-property-configs",
+		"mountPath: /external-property-configs",
+		`name: "nifi-base-properties"`,
+		`key: "common.properties"`,
+		`path: "property-configmap-000.properties"`,
+		`name: "nifi-team-properties"`,
+		`key: "team.properties"`,
+		`path: "property-configmap-001.properties"`,
+		`apply_property_file "/external-property-configs/property-configmap-000.properties" "nifi-base-properties/common.properties"`,
+		`apply_property_file "/external-property-configs/property-configmap-001.properties" "nifi-team-properties/team.properties"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestNiFiRenderFailsWhenPropertyConfigMapRestartWatchingHasNoSources(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "config.propertyConfigMapsRestartOnChange=true",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail when propertyConfigMapsRestartOnChange has no sources\n%s", output)
+	}
+	if !strings.Contains(output, "config.propertyConfigMapsRestartOnChange=true requires at least one config.propertyConfigMaps entry") {
+		t.Fatalf("expected propertyConfigMapsRestartOnChange validation failure in output\n%s", output)
+	}
+}
+
+func TestPlatformManagedRenderAddsPropertyConfigMapsToRestartTriggersWhenEnabled(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi-platform",
+		"-f", "examples/platform-managed-values.yaml",
+		"--set-json", `nifi.config.propertyConfigMaps=[{"name":"nifi-base-properties","key":"common.properties"},{"name":"nifi-team-properties","key":"team.properties"}]`,
+		"--set", "nifi.config.propertyConfigMapsRestartOnChange=true",
+	)
+	if err != nil {
+		t.Fatalf("expected platform chart render with property ConfigMap restart triggers to succeed: %v\n%s", err, output)
+	}
+	clusterIndex := strings.Index(output, "kind: NiFiCluster")
+	if clusterIndex == -1 {
+		t.Fatalf("expected rendered output to include a NiFiCluster\n%s", output)
+	}
+	clusterOutput := output[clusterIndex:]
+	for _, want := range []string{
+		`- name: "test-nifi-config"`,
+		`- name: "nifi-base-properties"`,
+		`- name: "nifi-team-properties"`,
+	} {
+		if !strings.Contains(clusterOutput, want) {
+			t.Fatalf("expected rendered NiFiCluster output to contain %q\n%s", want, clusterOutput)
+		}
+	}
+}

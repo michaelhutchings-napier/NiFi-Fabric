@@ -51,6 +51,7 @@ Current OpenShift documentation and verification also cover the recommended `nat
 - Flow Registry Client catalog support
 - versioned-flow import
 - Parameter Context management
+- explicit `nifi.properties` overrides through chart values or referenced ConfigMaps
 
 ## Product Direction
 

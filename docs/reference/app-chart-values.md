@@ -274,3 +274,5 @@ For behavior and examples, see [Flows](../manage/flows.md).
 | `probes.readiness.*` | object | Readiness probe timings. | No | see values file |
 | `probes.liveness.*` | object | Liveness probe timings. | No | see values file |
 | `config.extraProperties` | object | Extra `nifi.properties` entries rendered by the chart. | No | `{}` |
+| `config.propertyConfigMaps[]` | object list | Ordered external ConfigMap key references applied after the chart-rendered `nifi.properties` overrides during the `init-conf` bootstrap. Later entries win on duplicate properties. | No | `[]` |
+| `config.propertyConfigMapsRestartOnChange` | boolean | In managed platform installs, appends `config.propertyConfigMaps[]` names to the watched ConfigMap restart-trigger set. Standalone installs ignore this flag. | No | `false` |

@@ -192,6 +192,31 @@ spec:
             fi
           }
 
+          apply_property_file() {
+            file="$1"
+            source_name="$2"
+            if [ ! -f "${file}" ]; then
+              return 0
+            fi
+            while IFS= read -r line || [ -n "${line}" ]; do
+              [ -z "${line}" ] && continue
+              case "${line}" in
+                \#*) continue ;;
+              esac
+              if ! printf '%s' "${line}" | grep -q '='; then
+                echo "invalid property line in ${source_name}: ${line}" >&2
+                exit 1
+              fi
+              key="${line%%=*}"
+              value="${line#*=}"
+              if [ -z "${key}" ]; then
+                echo "invalid property line in ${source_name}: ${line}" >&2
+                exit 1
+              fi
+              replace_property "${key}" "${value}"
+            done < "${file}"
+          }
+
           cp -R /opt/nifi/nifi-current/conf/* /work-conf/
           cp /config/authorizers.xml /work-conf/authorizers.xml
           cp /config/login-identity-providers.xml /work-conf/login-identity-providers.xml
@@ -208,15 +233,10 @@ spec:
           fi
           sed -i "s|^java.arg.2=.*$|java.arg.2=-Xms{{ .Values.nifi.jvmHeapInit }}|" /work-conf/bootstrap.conf
           sed -i "s|^java.arg.3=.*$|java.arg.3=-Xmx{{ .Values.nifi.jvmHeapMax }}|" /work-conf/bootstrap.conf
-          while IFS= read -r line; do
-            [ -z "${line}" ] && continue
-            case "${line}" in
-              \#*) continue ;;
-            esac
-            key="${line%%=*}"
-            value="${line#*=}"
-            replace_property "${key}" "${value}"
-          done < /config/nifi.properties.overrides
+          apply_property_file /config/nifi.properties.overrides "config-template nifi.properties.overrides"
+          {{- range $index, $entry := default (list) .Values.config.propertyConfigMaps }}
+          apply_property_file {{ printf "/external-property-configs/property-configmap-%03d.properties" $index | quote }} {{ printf "%s/%s" $entry.name $entry.key | quote }}
+          {{- end }}
           replace_property "nifi.security.keystore" "{{ .Values.tls.mountPath }}/{{ .Values.tls.keystoreKey }}"
           replace_property "nifi.security.keystoreType" "PKCS12"
           replace_property "nifi.security.keystorePasswd" "${KEYSTORE_PASSWORD}"
@@ -373,6 +393,11 @@ spec:
         {{- if .Values.tls.additionalTrustBundle.enabled }}
         - name: additional-trust-bundle
           mountPath: {{ .Values.tls.additionalTrustBundle.mountPath }}
+          readOnly: true
+        {{- end }}
+        {{- if .Values.config.propertyConfigMaps }}
+        - name: external-property-configs
+          mountPath: /external-property-configs
           readOnly: true
         {{- end }}
       {{- with .Values.extraInitContainers }}
@@ -769,6 +794,18 @@ spec:
       - name: versioned-flow-imports
         configMap:
           name: {{ include "nifi.versionedFlowImportsConfigName" . }}
+      {{- end }}
+      {{- if .Values.config.propertyConfigMaps }}
+      - name: external-property-configs
+        projected:
+          sources:
+          {{- range $index, $entry := .Values.config.propertyConfigMaps }}
+          - configMap:
+              name: {{ $entry.name | quote }}
+              items:
+              - key: {{ $entry.key | quote }}
+                path: {{ printf "property-configmap-%03d.properties" $index | quote }}
+          {{- end }}
       {{- end }}
       {{- with .Values.extraVolumes }}
       {{- toYaml . | nindent 6 }}
