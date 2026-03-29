@@ -1,0 +1,14 @@
+# Optional managed-platform overlay for temporary pre-start inspection.
+# Compose with:
+# - examples/platform-managed-values.yaml
+# - examples/platform-fast-values.yaml for local kind proof paths
+#
+# This is a temporary troubleshooting mode only:
+# - pauses the main NiFi container before `nifi.sh run`
+# - disables startup, readiness, and liveness probes while the pause is active
+# - intentionally keeps the pod from becoming Ready until the pause ends
+
+nifi:
+  debugStartup:
+    enabled: true
+    sleepSeconds: 1800

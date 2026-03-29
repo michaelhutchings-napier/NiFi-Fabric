@@ -29,6 +29,31 @@ Respond:
 - if node preparation is stuck, look for NiFi disconnect or offload failures before deleting anything manually
 - if the controller already marked the cluster degraded, stop automated retries until the underlying NiFi or storage issue is understood
 
+## Temporary Pre-Start Inspection With `debugStartup`
+
+Signals:
+
+- the pod starts but you want to inspect rendered config or mounted inputs before `nifi.sh run`
+- `debugStartup.enabled=true` is set in chart values
+- the NiFi pod is intentionally `Running` but not `Ready`
+
+Check:
+
+```bash
+kubectl -n nifi get pods
+kubectl -n nifi describe pod nifi-0
+kubectl -n nifi logs nifi-0 -c nifi --tail=50
+kubectl -n nifi exec -it nifi-0 -c nifi -- /bin/sh
+```
+
+Respond:
+
+- use this mode only as a temporary operator troubleshooting step
+- inspect `/opt/nifi/nifi-current/conf`, mounted TLS material, extra trust bundles, and writable repository paths before the normal startup path resumes
+- remember that the chart disables startup and liveness probes while the pause is active, but keeps readiness in place so the paused pod stays out of service
+- if the cluster is controller-managed, expect rollout progress to remain blocked on the paused pod until the sleep window expires or the setting is reverted
+- remove or disable `debugStartup` after inspection so the normal startup path can continue
+
 ## TLS Drift Escalated or Failed
 
 Signals:

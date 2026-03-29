@@ -893,6 +893,16 @@ probes:
     failureThreshold: 6
     timeoutSeconds: 3
 
+# -- Temporary troubleshooting pause before the normal NiFi startup path.
+# When enabled, the main NiFi container sleeps after the chart-managed config
+# preparation steps and before `nifi.sh run` so operators can inspect the pod.
+# The chart automatically omits startup and liveness probes in this mode while
+# keeping readiness in place so the paused pod stays out of service.
+# @default -- {"enabled":false,"sleepSeconds":3600}
+debugStartup:
+  enabled: false
+  sleepSeconds: 3600
+
 # -- Extra `nifi.properties` entries rendered by the chart.
 # @default -- {"extraProperties":{}}
 config:

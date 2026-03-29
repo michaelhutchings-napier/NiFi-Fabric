@@ -175,6 +175,7 @@ These values render the managed `NiFiCluster` resource when `mode=managed` or `m
 | `nifi.observability.audit.flowActions.*` | object | Flow-action audit settings for the nested NiFi workload, including durable local history support and the bounded advanced `export.type=log` reporter path. | No | chart-derived |
 | `nifi.persistence.*` | object | Repository storage settings, including the shared `storageClassName` fallback and optional per-repository `*.storageClassName` overrides. | No | chart-derived |
 | `nifi.resources.*` | object | NiFi pod resources. | No | chart-derived |
+| `nifi.debugStartup.*` | object | Temporary pre-start troubleshooting pause settings for the nested NiFi workload. When enabled, the nested app chart omits the normal health probes while the pause is active. | No | chart-derived |
 | `nifi.config.extraProperties` | object | Extra `nifi.properties` entries rendered by the nested app chart. | No | chart-derived |
 | `nifi.config.propertyConfigMaps[]` | object list | Ordered external ConfigMap key references applied by the nested app chart during `init-conf` bootstrap. | No | chart-derived |
 | `nifi.config.propertyConfigMapsRestartOnChange` | boolean | Appends nested `nifi.config.propertyConfigMaps[]` names to the managed `NiFiCluster` watched ConfigMap set. | No | chart-derived |
@@ -200,6 +201,15 @@ See [App Chart Values Reference](app-chart-values.md) for the detailed nested ch
 ### Nested Logger Level Overrides
 
 `nifi.logging.levels.*` behaves exactly like the app-chart `logging.levels.*` surface, but is configured on the platform chart and passed through to the nested NiFi workload. This remains a bounded troubleshooting override for named loggers only; the platform chart still does not take ownership of the full `logback.xml`.
+
+### Nested Debug Startup Pause
+
+`nifi.debugStartup.*` behaves exactly like the app-chart `debugStartup.*`
+surface, but is configured on the platform chart and passed through to the
+nested NiFi workload. In managed installs, this is a temporary troubleshooting
+mode only. Startup and liveness probes are omitted while the pause is active,
+but readiness stays in place so the paused pod remains out of service until the
+configured sleep window expires or the setting is reverted.
 
 ### Nested Repository Encryption
 

@@ -571,6 +571,12 @@ spec:
           {{- if eq (include "nifi.authMode" .) "singleUser" }}
           /opt/nifi/nifi-current/bin/nifi.sh set-single-user-credentials "${SINGLE_USER_CREDENTIALS_USERNAME}" "${SINGLE_USER_CREDENTIALS_PASSWORD}"
           {{- end }}
+          {{- if .Values.debugStartup.enabled }}
+          debug_startup_seconds="{{ int .Values.debugStartup.sleepSeconds }}"
+          echo "debugStartup.enabled=true: pausing ${debug_startup_seconds}s before NiFi startup for operator inspection"
+          echo "debugStartup.enabled=true: startup and liveness probes are disabled while readiness continues to hold the pod out of service"
+          sleep "${debug_startup_seconds}"
+          {{- end }}
           bootstrap_root_process_group_authorizations
           /opt/nifi/nifi-current/bin/nifi.sh run &
           nifi_pid="$!"
@@ -717,7 +723,7 @@ spec:
           containerPort: {{ .Values.ports.cluster }}
         - name: load-balance
           containerPort: {{ .Values.ports.loadBalance }}
-        {{- if .Values.probes.startup.enabled }}
+        {{- if and .Values.probes.startup.enabled (not .Values.debugStartup.enabled) }}
         startupProbe:
           tcpSocket:
             port: https
@@ -739,7 +745,7 @@ spec:
           failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
           timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
         {{- end }}
-        {{- if .Values.probes.liveness.enabled }}
+        {{- if and .Values.probes.liveness.enabled (not .Values.debugStartup.enabled) }}
         livenessProbe:
           tcpSocket:
             port: https
