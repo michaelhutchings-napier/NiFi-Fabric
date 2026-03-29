@@ -27,7 +27,7 @@ NiFi-Fabric keeps the roadmap small and explicit.
 - versioned-flow import
 - NiFi Registry integration through a typed `provider=nifiRegistry` client plus platform-chart versioned-flow import
 - generic extra volumes, mounts, and sidecars for environment-specific extensions
-- Secret-backed repository encryption support through a bounded chart surface
+- Secret-backed repository encryption support through a dedicated chart surface
 
 ## Planned Next
 

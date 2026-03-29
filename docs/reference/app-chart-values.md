@@ -307,7 +307,7 @@ For behavior and examples, see [Flows](../manage/flows.md).
 
 ### Repository Encryption
 
-`repositoryEncryption.*` is a bounded, Secret-backed surface for NiFi's generic repository encryption support. The chart renders protocol version `1`, fixes the provider to `KEYSTORE`, mounts the referenced Secret read-only into the pod, and replaces the keystore password placeholder during the `init-conf` bootstrap.
+`repositoryEncryption.*` is a Secret-backed surface for NiFi's generic repository encryption support. The chart renders protocol version `1`, fixes the provider to `KEYSTORE`, mounts the referenced Secret read-only into the pod, and replaces the keystore password placeholder during the `init-conf` bootstrap.
 
 This surface is intentionally small. It is for the repositories NiFi protects through `nifi.repository.encryption.*`, not a full key-management subsystem. Operators still own the keystore material, Secret lifecycle, and any required key escrow or recovery process.
 
