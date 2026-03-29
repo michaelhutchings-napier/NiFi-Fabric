@@ -91,3 +91,16 @@ What remains manual or out of scope:
 - synchronize client state continuously
 - create a new flow-management CRD surface
 - broaden NiFi Registry support into generic registry-provider management
+
+## Recovery Planning Note
+
+Flow Registry Clients help keep declared flow-source intent explicit in values
+and chart-rendered configuration, which is useful during control-plane recovery.
+
+They do not replace:
+
+- storage-level recovery for queued or repository-backed data
+- operator recovery of external registry credentials, trust, or provider reachability
+- recovery of manual runtime edits outside the bounded product-owned flow scope
+
+For the broader recovery model, see [Backup, Restore, and Disaster Recovery](../dr.md).

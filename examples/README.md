@@ -101,6 +101,13 @@ There is also one optional fast overlay:
   - Enables a kind-local GitHub Flow Registry Client catalog entry, one runtime-managed Parameter Context, and one versioned-flow import selection.
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml) and [platform-fast-values.yaml](platform-fast-values.yaml).
 
+Recovery note:
+
+- for control-plane recovery planning, export the live release intent with `bash hack/export-control-plane-backup.sh --release nifi --namespace nifi --output-dir ./backup/nifi-control-plane`
+- recover that declarative layer later with `bash hack/recover-control-plane-backup.sh --backup-dir ./backup/nifi-control-plane`
+- those helpers rebuild the declarative control plane only; pair them with your normal Secret escrow and PVC snapshot recovery procedures
+- see [../docs/dr.md](../docs/dr.md) for the full recovery model and boundaries
+
 - [platform-managed-linkerd-values.yaml](platform-managed-linkerd-values.yaml)
   - Optional Linkerd compatibility overlay for the product chart.
   - Injects only the NiFi StatefulSet pods and keeps the controller outside the mesh.
