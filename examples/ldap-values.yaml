@@ -27,20 +27,7 @@ auth:
 authz:
   mode: ldapSync
   bootstrap:
-    initialAdminGroup: nifi-platform-admins
-  applicationGroups:
-  - nifi-platform-admins
-  - nifi-flow-operators
-  policies:
-  - resource: /flow
-    actions:
-    - R
-    groups:
-    - nifi-flow-operators
-    - nifi-platform-admins
-  - resource: /controller
-    actions:
-    - R
-    - W
-    groups:
-    - nifi-platform-admins
+    # Baseline LDAP example for the default apache/nifi:2.0.0 image.
+    # For group bootstrap on newer NiFi images, use
+    # examples/ldap-group-bootstrap-values.yaml with examples/nifi-2.8.0-values.yaml.
+    initialAdminIdentity: alice

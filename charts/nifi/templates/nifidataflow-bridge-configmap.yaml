@@ -1,0 +1,25 @@
+{{- if and .Values.versionedFlowImports.enabled .Values.versionedFlowImports.controllerBridge.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nifi.nifidataflowBridgeConfigName" . }}
+  labels:
+    {{- include "nifi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nifidataflow-bridge
+data:
+  imports.json: |
+    {
+      "apiVersion": "platform.nifi.io/v1alpha1",
+      "kind": "NiFiDataflowBridgeCatalog",
+      "clusterRef": {
+        "name": {{ .Release.Name | quote }}
+      },
+      "targetRef": {
+        "name": {{ include "nifi.fullname" . | quote }}
+      },
+      "imports": []
+    }
+  README.txt: |
+    Controller-owned NiFiDataflow bridge catalog consumed by the bounded versioned-flow import runtime bundle.
+    The chart keeps this placeholder ConfigMap present so the pod-mounted controller bridge path exists before the first NiFiDataflow is created.
+{{- end }}

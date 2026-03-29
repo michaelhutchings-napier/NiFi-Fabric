@@ -1,0 +1,6 @@
+nifi:
+  versionedFlowImports:
+    enabled: true
+    controllerBridge:
+      enabled: true
+    imports: []

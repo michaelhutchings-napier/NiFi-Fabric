@@ -52,9 +52,12 @@ This keeps the product model simple:
 ### The controller owns
 
 - rollout sequencing
+- Secret and TLS input readiness status for managed running clusters, including the standard `nifi-auth`, `nifi-tls`, and `nifi-tls-params` contracts when referenced
 - TLS-aware restart decisions
 - hibernation and restore sequencing
 - controller-owned autoscaling execution
+- publishing the optional `NiFiDataflow` bridge catalog ConfigMap for the existing in-pod versioned-flow import runtime path when that feature is enabled
+- observing the optional `NiFiDataflow` bridge status ConfigMap written by the same in-pod versioned-flow import runtime path so `NiFiDataflow.status` reflects live runtime outcomes without a second flow-management engine
 - lifecycle safety checks, status, and events
 
 ## Managed Lifecycle Model
@@ -78,7 +81,7 @@ Autoscaling stays intentionally conservative:
 
 For autoscaling detail, see [Autoscaling](manage/autoscaling.md) and [KEDA](keda.md).
 
-## Security, TLS, and Metrics
+## Security, TLS, Metrics, and Audit
 
 The standard production path is:
 
@@ -88,13 +91,31 @@ The standard production path is:
 
 The standard managed install uses cert-manager for workload TLS and can bootstrap the auth or parameter Secrets it needs for the quickstart path. When you later move to the explicit cert-manager path and keep the same Secret names, the chart preserves those previously generated quickstart Secrets so the handoff stays stable.
 
+The controller does not create or mutate those Secrets. It only reports whether the referenced Secret inputs are present and structurally usable before managed running-state orchestration continues. For TLS drift, it also reports the current TLS decision state in `status.tls`, including whether the controller is idle, observing NiFi autoreload, or has determined that a controlled restart is required.
+
 For metrics, the primary path is direct secured scraping of the NiFi 2 Prometheus endpoint through the native API path. An optional exporter path is also available when a dedicated `/metrics` endpoint is preferred.
+
+The audit design keeps design-time flow-change audit separate from metrics and provenance.
+
+The audit model is:
+
+- NiFi-native local history and archive retention first
+- optional bounded external export through a `FlowActionReporter`
+- no new CRD
+- no controller-owned reconciliation loop
+
+This keeps the ownership model consistent:
+
+- NiFi keeps native runtime audit behavior
+- Helm owns workload configuration for audit export
+- external log or audit systems own long-term retention and search
 
 For more detail, see:
 
 - [TLS and cert-manager](manage/tls-and-cert-manager.md)
 - [Authentication](manage/authentication.md)
 - [Observability and Metrics](manage/observability-metrics.md)
+- [Flow-Change Audit](manage/observability-audit.md)
 
 ## Configuration Features
 
@@ -103,6 +124,8 @@ NiFi-Fabric supports a small set of runtime-managed configuration features:
 - Flow Registry Client catalogs
 - Parameter Context management
 - versioned-flow import
+- optional controller-owned `NiFiDataflow` bridge input into the same versioned-flow import runtime path
+- optional controller observation of the corresponding runtime status ConfigMap written by reconcile pod `-0`
 - optional typed Site-to-Site sender-side observability features
 
 NiFi-Fabric also supports a small Helm-owned workload configuration extension surface for explicit `nifi.properties` overrides supplied through chart values or referenced ConfigMaps. In managed mode, those ConfigMap references can optionally feed the existing watched-restart path without introducing a second controller-owned configuration API.
@@ -131,6 +154,8 @@ Advanced paths remain available for teams that want:
 - OIDC or LDAP
 - standalone app-chart installation
 - generated manifest workflows
+- optional external-style authz generation for OIDC group-to-bundle overlays
+- separate OIDC tracks for dev bootstrap convenience and customer-owned production setup
 
 For install guidance, see:
 

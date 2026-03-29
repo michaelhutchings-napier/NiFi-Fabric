@@ -26,6 +26,8 @@ The install bootstraps the initial single-user login and TLS inputs, while cert-
 
 This quickstart uses the single-user bootstrap path. OIDC and LDAP stay available through the explicit install paths.
 
+The standard platform chart also defaults to native NiFi metrics without a reverse-proxy sidecar. It renders the direct metrics `Service` by default and leaves `ServiceMonitor` opt-in for Prometheus Operator environments.
+
 After install, continue with [First Access and Day-1 Checks](docs/first-day.md).
 
 ## Why NiFi-Fabric
@@ -34,12 +36,13 @@ After install, continue with [First Access and Day-1 Checks](docs/first-day.md).
 - secure-by-default, cert-manager-first installation
 - safe lifecycle handling for rollout, TLS restart policy, hibernation, restore, and controller-owned autoscaling
 - advisory and enforced autoscaling, plus optional KEDA integration
-- first-class managed authentication options, including OIDC and LDAP
+- enterprise authentication paths, including Keycloak/OIDC group-based access and native LDAP support
 - runtime-managed NiFi configuration features, including Flow Registry Client catalogs, versioned-flow import, and Parameter Context management
 - OpenShift `Route` support for external HTTPS access
 - optional service mesh profiles for Linkerd, Istio sidecar mode, and Istio Ambient
 - native NiFi 2 Prometheus metrics support through direct secured API scraping, including multiple named `ServiceMonitor` profiles and per-profile URL parameters
 - optional exporter metrics and Site-to-Site delivery paths for metrics, status, and provenance
+- bounded flow-change audit with durable NiFi-native local history plus an optional log-only reporter export path
 - optional trust-manager integration for shared CA bundle distribution across workload and observability paths
 - a simpler product surface than a large NiFi-specific operator stack
 
@@ -52,6 +55,8 @@ It gives you a secure, low-friction managed install for evaluation and early bri
 See [Install with Helm](docs/install/helm.md) and [Advanced Install Paths](docs/install/advanced.md).
 
 For local evaluation, `kind` is the primary documented path. `minikube` can also be used for small local installs when cert-manager, image access, and a working default `StorageClass` are available. See [Local Kind Guide](docs/local-kind.md).
+
+For downstream packaging and GitOps assembly, use `make package-platform-chart` to build a fresh `charts/nifi-platform` archive without depending on any stale nested `.tgz` files in the repo tree.
 
 ## Documentation
 
@@ -66,12 +71,17 @@ Manage NiFi:
 - [TLS and cert-manager](docs/manage/tls-and-cert-manager.md)
 - [Authentication](docs/manage/authentication.md)
 - [Observability and Metrics](docs/manage/observability-metrics.md)
+- [Flow-Change Audit](docs/manage/observability-audit.md)
 - [Autoscaling](docs/manage/autoscaling.md)
 - [Optional Service Mesh Profiles](docs/install/service-mesh.md)
 - [Parameter Contexts](docs/manage/parameters.md)
 - [Flows](docs/manage/flows.md)
 - [Flow Registry Clients](docs/manage/flow-registry-clients.md)
 - [Operations and Troubleshooting](docs/operations.md)
+
+Optional in-repo tooling:
+
+- [NiFi-Fabric Authz Tooling](tools/nifi-fabric-authz/README.md)
 
 Reference and support:
 

@@ -1,0 +1,22 @@
+source:
+  type: keycloak
+  baseUrl: https://keycloak.example.com
+  realm: nifi
+  groupsClaim: groups
+  groupValueMode: name
+
+authz:
+  initialAdminGroup: nifi-platform-admins
+
+bindings:
+- keycloakGroup: nifi-platform-admins
+  bundles:
+  - admin
+- keycloakGroup: nifi-flow-operators
+  bundles:
+  - viewer
+  - editor
+  - flowVersionManager
+- keycloakGroup: nifi-flow-observers
+  bundles:
+  - viewer

@@ -82,37 +82,47 @@ capture_cmd() {
 
 controller_metrics_snapshot() {
   local log_file="${1:-/tmp/nifi-alpha-metrics.log}"
-  local pf_pid=""
   local metrics=""
+  local attempt
 
-  cleanup() {
+  cleanup_port_forward() {
+    local pf_pid="${1:-}"
     if [[ -n "${pf_pid}" ]]; then
       kill "${pf_pid}" >/dev/null 2>&1 || true
       wait "${pf_pid}" >/dev/null 2>&1 || true
     fi
   }
 
-  kubectl -n "${SYSTEM_NAMESPACE}" port-forward --address 127.0.0.1 deployment/nifi-fabric-controller-manager 18080:8080 >"${log_file}" 2>&1 &
-  pf_pid=$!
+  kubectl -n "${SYSTEM_NAMESPACE}" rollout status deployment/nifi-fabric-controller-manager --timeout=2m >/dev/null
 
-  if ! wait_for "controller metrics port-forward" 30 bash -ec '
-    curl --silent --show-error --fail --max-time 2 http://127.0.0.1:18080/metrics >/dev/null
-  '; then
-    cleanup
-    echo "controller metrics port-forward did not become ready" >&2
-    [[ -f "${log_file}" ]] && cat "${log_file}" >&2
-    return 1
-  fi
+  for attempt in 1 2 3 4 5 6; do
+    local pf_pid=""
+    local attempt_log="${log_file}.attempt${attempt}"
 
-  if ! metrics="$(curl --silent --show-error --fail --max-time 10 http://127.0.0.1:18080/metrics)"; then
-    cleanup
-    echo "controller metrics endpoint did not return a response" >&2
-    [[ -f "${log_file}" ]] && cat "${log_file}" >&2
-    return 1
-  fi
+    kubectl -n "${SYSTEM_NAMESPACE}" port-forward --address 127.0.0.1 deployment/nifi-fabric-controller-manager 18080:8080 >"${attempt_log}" 2>&1 &
+    pf_pid=$!
 
-  cleanup
-  printf '%s' "${metrics}"
+    if wait_for "controller metrics port-forward (attempt ${attempt}/6)" 10 bash -ec '
+      curl --silent --show-error --fail --max-time 2 http://127.0.0.1:18080/metrics >/dev/null
+    '; then
+      if metrics="$(curl --silent --show-error --fail --max-time 10 http://127.0.0.1:18080/metrics)"; then
+        cat "${attempt_log}" >"${log_file}" 2>/dev/null || true
+        cleanup_port_forward "${pf_pid}"
+        printf '%s' "${metrics}"
+        return 0
+      fi
+      echo "controller metrics endpoint did not return a response on attempt ${attempt}" >&2
+    else
+      echo "controller metrics port-forward did not become ready on attempt ${attempt}" >&2
+    fi
+
+    [[ -f "${attempt_log}" ]] && cat "${attempt_log}" >&2
+    cleanup_port_forward "${pf_pid}"
+    sleep 2
+  done
+
+  echo "controller metrics port-forward did not become ready after 6 attempts" >&2
+  return 1
 }
 
 dump_diagnostics() {

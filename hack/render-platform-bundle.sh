@@ -4,12 +4,20 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHART_DIR="${ROOT_DIR}/charts/nifi-platform"
+CHARTS_ROOT_DIR="${ROOT_DIR}/charts"
+WORK_DIR="$(mktemp -d)"
 
 PROFILE="${PROFILE:-managed}"
 NAMESPACE="${NAMESPACE:-nifi}"
 HELM_RELEASE="${HELM_RELEASE:-nifi}"
 OUTPUT_PATH="${OUTPUT_PATH:-}"
 EXTRA_VALUES=()
+
+cleanup() {
+  rm -rf "${WORK_DIR}"
+}
+
+trap cleanup EXIT
 
 usage() {
   cat <<'EOF'
@@ -79,12 +87,14 @@ case "${PROFILE}" in
     ;;
 esac
 
-helm dependency build "${CHART_DIR}" >/dev/null
+cp -R "${CHARTS_ROOT_DIR}" "${WORK_DIR}/charts"
+rm -rf "${WORK_DIR}/charts/nifi-platform/charts"
+helm dependency build "${WORK_DIR}/charts/nifi-platform" >/dev/null
 
 helm_args=(
   template
   "${HELM_RELEASE}"
-  "${CHART_DIR}"
+  "${WORK_DIR}/charts/nifi-platform"
   --namespace "${NAMESPACE}"
   --include-crds
 )

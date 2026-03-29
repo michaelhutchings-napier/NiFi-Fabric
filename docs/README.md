@@ -21,6 +21,7 @@ Use this documentation set as the customer-facing guide for installing, operatin
 - [Authentication](manage/authentication.md)
 - [Autoscaling](manage/autoscaling.md)
 - [Observability and Metrics](manage/observability-metrics.md)
+- [Flow-Change Audit](manage/observability-audit.md)
 - [Hibernation and Restore](manage/hibernation-and-restore.md)
 - [Parameter Contexts](manage/parameters.md)
 - [Flows](manage/flows.md)
@@ -42,6 +43,7 @@ Use this documentation set as the customer-facing guide for installing, operatin
 
 - [Architecture Summary](architecture.md)
 - [NiFiCluster Reference](reference/nificluster.md)
+- [NiFiDataflow Reference](reference/nifidataflow.md)
 - [Platform Chart Values Reference](reference/nifi-platform-values.md)
 - [App Chart Values Reference](reference/app-chart-values.md)
 - [Roadmap](roadmap.md)

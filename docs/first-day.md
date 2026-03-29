@@ -8,6 +8,32 @@ The goal is simple:
 - log in once
 - verify the basic Kubernetes, TLS, and NiFi signals look right
 
+## Fast Path
+
+For the standard managed cert-manager quickstart, start with:
+
+```bash
+kubectl -n nifi get nificluster,statefulset,pods,svc,pvc
+kubectl -n nifi get certificate,secret
+kubectl -n nifi-system get deployment,pods
+helm -n nifi status nifi
+```
+
+For standalone installs, use:
+
+```bash
+kubectl -n nifi get statefulset,pods,svc,pvc,secret
+helm -n nifi status nifi
+```
+
+If that standalone install uses cert-manager, also run:
+
+```bash
+kubectl -n nifi get certificate
+```
+
+If you are working from this repository, `make first-day-check` is still available as an optional wrapper around the same day-1 checks.
+
 ## 1. Check The Core Resources
 
 ```bash
@@ -57,6 +83,8 @@ Log in with the username and password from `Secret/nifi-auth`.
 
 ```bash
 helm -n nifi status nifi
+kubectl -n nifi get nificluster nifi -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.reason}{"\n"}{end}'
+kubectl -n nifi get nificluster nifi -o jsonpath='{.status.tls.phase}{" "}{.status.tls.reason}{"\n"}'
 kubectl -n nifi get nificluster nifi -o yaml
 kubectl -n nifi-system logs deployment/nifi-controller-manager --tail=100
 ```
@@ -64,7 +92,8 @@ kubectl -n nifi-system logs deployment/nifi-controller-manager --tail=100
 What good looks like:
 
 - the Helm release is `deployed`
-- the `NiFiCluster` does not show a degraded rollout
+- `Available=True`, `SecretsReady=True`, and `TLSMaterialReady=True`
+- `status.tls.phase` is usually `Idle` once the initial rollout settles
 - the controller logs do not show repeated reconciliation failures
 
 ## 5. Optional First Metrics Check

@@ -1,0 +1,77 @@
+# Higher-level integrated OIDC contract sketch.
+#
+# This file is intentionally not a direct `charts/nifi-platform` values overlay.
+# It documents the values shape that an umbrella chart, installer chart, or
+# GitOps bundle could use to bootstrap Keycloak and NiFi-Fabric together while
+# keeping the existing NiFi-Fabric OIDC contract unchanged.
+#
+# Keep this as an advanced option. The standard customer path remains:
+# - customer-owned Keycloak realm, client, groups, and users
+# - `charts/nifi-platform` consuming `Secret/nifi-oidc`
+
+identity:
+  keycloak:
+    enabled: true
+    bootstrap:
+      enabled: true
+      realm: nifi
+
+      client:
+        id: nifi-fabric
+        secretRef:
+          name: nifi-oidc
+          key: clientSecret
+
+      groups:
+      - nifi-platform-admins
+      - nifi-flow-operators
+      - nifi-flow-observers
+
+      bootstrapAdmin:
+        enabled: true
+        username: alice
+        passwordSecretRef:
+          name: keycloak-bootstrap-admin
+          key: password
+        groups:
+        - nifi-platform-admins
+
+nifi:
+  auth:
+    mode: oidc
+    oidc:
+      discoveryUrl: https://keycloak.example.com/realms/nifi/.well-known/openid-configuration
+      clientId: nifi-fabric
+      clientSecret:
+        existingSecret: nifi-oidc
+        key: clientSecret
+      claims:
+        identifyingUser: email
+        groups: groups
+      additionalScopes:
+      - openid
+      - profile
+      - email
+
+  authz:
+    mode: externalClaimGroups
+    bootstrap:
+      initialAdminGroup: nifi-platform-admins
+    applicationGroups:
+    - nifi-platform-admins
+    - nifi-flow-operators
+    - nifi-flow-observers
+    bundles:
+      admin:
+        groups:
+        - nifi-platform-admins
+      viewer:
+        groups:
+        - nifi-flow-operators
+        - nifi-flow-observers
+      editor:
+        groups:
+        - nifi-flow-operators
+      flowVersionManager:
+        groups:
+        - nifi-flow-operators

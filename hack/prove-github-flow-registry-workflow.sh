@@ -76,6 +76,8 @@ dump_diagnostics() {
   for file in \
     created-process-group.json \
     start-version-control.json \
+    created-processor.json \
+    workflow-processor-running.json \
     process-group-flow.json \
     flow-registries.json \
     bucket-flows.json \
@@ -224,6 +226,33 @@ if [[ -z "${registry_id}" ]]; then
   exit 1
 fi
 
+nifi_request GET /flow/processor-types >"${tmpdir}/processor-types.json"
+mapfile -t generate_flow_file_bundle < <(python3 - "${tmpdir}/processor-types.json" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+target = "org.apache.nifi.processors.standard.GenerateFlowFile"
+for entry in payload.get("processorTypes", []):
+    if entry.get("type") != target:
+        continue
+    bundle = entry.get("bundle") or {}
+    print(bundle.get("group") or "")
+    print(bundle.get("artifact") or "")
+    print(bundle.get("version") or "")
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+)
+generate_flow_file_bundle_group="${generate_flow_file_bundle[0]:-}"
+generate_flow_file_bundle_artifact="${generate_flow_file_bundle[1]:-}"
+generate_flow_file_bundle_version="${generate_flow_file_bundle[2]:-}"
+
+if [[ -z "${generate_flow_file_bundle_group}" || -z "${generate_flow_file_bundle_artifact}" || -z "${generate_flow_file_bundle_version}" ]]; then
+  echo "failed to resolve GenerateFlowFile processor bundle from live NiFi runtime" >&2
+  exit 1
+fi
+
 workflow_suffix="$(date +%s)"
 workflow_pg_name="${workflow_pg_name:-workflow-pg-${workflow_suffix}}"
 workflow_flow_name="${workflow_flow_name:-workflow-flow-${workflow_suffix}}"
@@ -291,6 +320,99 @@ PY
 
 create_label_payload="$(tr -d '\n' < "${tmpdir}/create-label.json")"
 nifi_request POST "/process-groups/${workflow_pg_id}/labels" "${create_label_payload}" >"${tmpdir}/created-label.json"
+
+python3 \
+  - "${workflow_flow_name}-source" \
+  "${generate_flow_file_bundle_group}" \
+  "${generate_flow_file_bundle_artifact}" \
+  "${generate_flow_file_bundle_version}" \
+  >"${tmpdir}/create-processor.json" <<'PY'
+import json
+import sys
+
+payload = {
+    "revision": {
+        "clientId": "github-flow-workflow-proof",
+        "version": 0,
+    },
+    "component": {
+        "name": sys.argv[1],
+        "type": "org.apache.nifi.processors.standard.GenerateFlowFile",
+        "bundle": {
+            "group": sys.argv[2],
+            "artifact": sys.argv[3],
+            "version": sys.argv[4],
+        },
+        "position": {"x": 180.0, "y": 260.0},
+        "config": {
+            "schedulingPeriod": "1 sec",
+            "autoTerminatedRelationships": ["success"],
+            "properties": {
+                "File Size": "1 KB",
+                "Batch Size": "1",
+                "Data Format": "Text",
+                "Unique FlowFiles": "true",
+            },
+        },
+    },
+}
+json.dump(payload, sys.stdout)
+PY
+
+create_processor_payload="$(tr -d '\n' < "${tmpdir}/create-processor.json")"
+nifi_request POST "/process-groups/${workflow_pg_id}/processors" "${create_processor_payload}" >"${tmpdir}/created-processor.json"
+
+mapfile -t created_processor_meta < <(python3 - "${tmpdir}/created-processor.json" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1]))
+component = payload.get("component", {})
+revision = payload.get("revision", {})
+print(payload.get("id") or component.get("id") or "")
+print(revision.get("version", 0))
+PY
+)
+workflow_processor_id="${created_processor_meta[0]:-}"
+workflow_processor_version="${created_processor_meta[1]:-0}"
+
+if [[ -z "${workflow_processor_id}" ]]; then
+  echo "failed to create workflow seed processor" >&2
+  exit 1
+fi
+
+python3 - "${workflow_processor_version}" >"${tmpdir}/start-processor.json" <<'PY'
+import json
+import sys
+
+payload = {
+    "revision": {
+        "clientId": "github-flow-workflow-proof",
+        "version": int(sys.argv[1]),
+    },
+    "state": "RUNNING",
+    "disconnectedNodeAcknowledged": False,
+}
+json.dump(payload, sys.stdout)
+PY
+
+nifi_request PUT "/processors/${workflow_processor_id}/run-status" "$(tr -d '\n' < "${tmpdir}/start-processor.json")" > /dev/null
+nifi_request GET "/processors/${workflow_processor_id}" >"${tmpdir}/workflow-processor-running.json"
+
+python3 - "${tmpdir}/workflow-processor-running.json" "${workflow_flow_name}-source" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1]))
+target_name = sys.argv[2]
+component = payload.get("component", {})
+if component.get("name") != target_name:
+    raise SystemExit(f"expected workflow seed processor {target_name!r}, got {component.get('name')!r}")
+if component.get("state") != "RUNNING":
+    raise SystemExit(f"expected workflow seed processor RUNNING, got {component.get('state')!r}")
+print("ok")
+PY
+
 nifi_request GET "/process-groups/${workflow_pg_id}" >"${tmpdir}/workflow-process-group.json"
 
 workflow_pg_version="$(

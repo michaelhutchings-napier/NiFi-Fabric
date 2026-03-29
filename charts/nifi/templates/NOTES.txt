@@ -2,8 +2,30 @@ This chart deploys Apache NiFi 2.x with a standard standalone-first install path
 
 - Standalone mode is the default.
 - Set controllerManaged.enabled=true only when using the optional controller.
-- `tls.mode=externalSecret` expects an existing PKCS12-based TLS Secret and a single-user credentials Secret.
-- `tls.mode=certManager` makes Helm render a cert-manager `Certificate` and still expects stable PKCS12 password refs plus a sensitive props key source.
+{{- if eq (include "nifi.tlsMode" .) "externalSecret" }}
+- `tls.mode=externalSecret` expects existing Secrets:
+  - TLS Secret `{{ include "nifi.tlsSecretName" . }}` with keys `{{ .Values.tls.caCertKey }}`, `{{ .Values.tls.keystoreKey }}`, `{{ .Values.tls.truststoreKey }}`, `{{ .Values.tls.keystorePasswordKey }}`, `{{ .Values.tls.truststorePasswordKey }}`, and `{{ .Values.tls.sensitivePropsKeyKey }}`
+{{- else }}
+- `tls.mode=certManager` renders cert-manager `Certificate/{{ include "nifi.fullname" . }}`
+  - cert-manager writes TLS Secret `{{ include "nifi.tlsSecretName" . }}`
+  - PKCS12 password comes from `{{ include "nifi.certManagerPKCS12PasswordSecretName" . }}` unless set inline
+  - sensitive props key comes from `{{ include "nifi.sensitivePropsSecretName" . }}` unless set inline
+{{- end }}
+{{- if eq (include "nifi.authMode" .) "singleUser" }}
+- `auth.mode=singleUser` expects credentials Secret `{{ .Values.auth.singleUser.existingSecret }}` with keys `username` and `password`
+{{- end }}
+- First checks:
+  - `kubectl -n {{ .Release.Namespace }} get statefulset,pods,svc,secret`
+{{- if eq (include "nifi.tlsMode" .) "certManager" }}
+  - `kubectl -n {{ .Release.Namespace }} get certificate {{ include "nifi.fullname" . }}`
+{{- end }}
+  - `helm -n {{ .Release.Namespace }} status {{ .Release.Name }}`
+- Quick access:
+  - `kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "nifi.fullname" . }} 8443:8443`
+{{- if eq (include "nifi.authMode" .) "singleUser" }}
+  - `kubectl -n {{ .Release.Namespace }} get secret {{ include "nifi.singleUserUsernameSecretName" . }} -o jsonpath='{.data.username}' | base64 -d; echo`
+  - `kubectl -n {{ .Release.Namespace }} get secret {{ include "nifi.singleUserUsernameSecretName" . }} -o jsonpath='{.data.password}' | base64 -d; echo`
+{{- end }}
 - `flowRegistryClients.enabled=true` renders a prepared Flow Registry Client catalog for GitHub, GitLab, Bitbucket, Azure DevOps, or the bounded NiFi Registry compatibility path under `{{ .Values.flowRegistryClients.mountPath }}` in the NiFi pod.
 - the catalog is available as both `clients.yaml` and `clients.json` in ConfigMap `{{ include "nifi.fullname" . }}-flow-registry-clients`
 - Flow Registry Clients stay chart-first and bounded: the chart does not become a broad flow-management platform and the controller does not manage flows.
@@ -11,4 +33,5 @@ This chart deploys Apache NiFi 2.x with a standard standalone-first install path
 - declared prepared `provider=nifiRegistry` imports can create or reconcile the exact live client they own for that compatibility path; other providers still expect the live client to already exist in NiFi.
 - the chart does not add ongoing synchronization or arbitrary process-group mutation.
 - For kind, use hack/create-kind-secrets.sh before installing the chart.
+- Secret contract examples live under `examples/secret-contracts/`.
 - For production-style managed rollout and drift handling, install the controller and `NiFiCluster` path through `charts/nifi-platform`.

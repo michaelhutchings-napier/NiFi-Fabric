@@ -14,6 +14,10 @@ on:
         - kind-e2e-config-drift
         - kind-e2e-tls
         - kind-e2e-hibernate
+        - kind-nifidataflow-fast-e2e
+        - kind-auth-oidc-initial-admin-group-fast-e2e
+        - kind-auth-oidc-ingress-initial-admin-group-fast-e2e
+        - kind-auth-ldap-group-sync-fast-e2e
   schedule:
   - cron: '17 2 * * *'
 
@@ -21,11 +25,30 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  select-targets:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+    steps:
+    - name: Select test targets
+      id: targets
+      shell: bash
+      run: |
+        if [[ "${{ github.event_name }}" == "schedule" ]]; then
+          printf '%s\n' 'matrix=["kind-alpha-e2e","kind-nifidataflow-fast-e2e","kind-auth-oidc-initial-admin-group-fast-e2e","kind-auth-oidc-ingress-initial-admin-group-fast-e2e","kind-auth-ldap-group-sync-fast-e2e"]' >>"${GITHUB_OUTPUT}"
+        else
+          printf 'matrix=["%s"]\n' "${{ github.event.inputs.target }}" >>"${GITHUB_OUTPUT}"
+        fi
   e2e:
+    needs: select-targets
     runs-on: ubuntu-latest
     timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJson(needs.select-targets.outputs.matrix) }}
     env:
-      ARTIFACT_DIR: ${{ github.workspace }}/artifacts/platform-e2e
+      ARTIFACT_DIR: ${{ github.workspace }}/artifacts/${{ matrix.target }}
     steps:
     - uses: actions/checkout@v6
     - uses: actions/setup-go@v6
@@ -40,22 +63,17 @@ jobs:
     - uses: engineerd/setup-kind@v0.6.2
       with:
         version: v0.24.0
-    - name: Select test target
-      id: target
-      shell: bash
-      run: |
-        if [[ "${{ github.event_name }}" == "schedule" ]]; then
-          echo "value=kind-alpha-e2e" >>"${GITHUB_OUTPUT}"
-        else
-          echo "value=${{ github.event.inputs.target }}" >>"${GITHUB_OUTPUT}"
-        fi
+        skipClusterCreation: true
+        skipClusterLogsExport: true
     - name: Run end-to-end workflow
       shell: bash
-      run: make "${{ steps.target.outputs.value }}"
+      run: make "${{ matrix.target }}"
     - name: Upload diagnostics
       if: failure()
+      continue-on-error: true
       uses: actions/upload-artifact@v4
       with:
-        name: platform-e2e-diagnostics-${{ github.run_id }}
-        path: artifacts/platform-e2e
+        name: platform-e2e-diagnostics-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+        path: artifacts/${{ matrix.target }}
         if-no-files-found: warn
+        overwrite: true

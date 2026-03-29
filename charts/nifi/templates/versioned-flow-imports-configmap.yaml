@@ -2,7 +2,7 @@
 {{- $statusFile := "/opt/nifi/nifi-current/logs/versioned-flow-imports-bootstrap-status.json" -}}
 {{- $descriptionMarker := "Managed by NiFi-Fabric versionedFlowImports" -}}
 {{- $authMode := include "nifi.authMode" . -}}
-{{- $proxiedIdentity := .Values.authz.bootstrap.initialAdminIdentity -}}
+{{- $proxiedIdentity := include "nifi.effectiveAuthzBootstrapInitialAdminIdentity" . -}}
 {{- if eq $authMode "singleUser" -}}
 {{- $proxiedIdentity = "__SINGLE_USER_IDENTITY__" -}}
 {{- end -}}
@@ -46,6 +46,8 @@
     "reconcilePodOrdinal" 0
     "proxiedIdentity" $proxiedIdentity
     "clientId" "fabric-versioned-flow-import-reconciler"
+    "externalImportsPath" (ternary (printf "%s/imports.json" .Values.versionedFlowImports.controllerBridge.mountPath) "" .Values.versionedFlowImports.controllerBridge.enabled)
+    "statusConfigMapName" (ternary (include "nifi.nifidataflowBridgeStatusConfigName" .) "" .Values.versionedFlowImports.controllerBridge.enabled)
   )
   "ownership" $ownership
   "preparedRegistryClients" (list)
@@ -146,9 +148,11 @@ data:
 {{ $catalog | toPrettyJson | indent 4 }}
   bootstrap.py: |
     import base64
+    import fcntl
     import hashlib
     import json
     import os
+    import re
     import ssl
     import subprocess
     import sys
@@ -159,15 +163,61 @@ data:
     import urllib.request
 
     CONFIG_PATH = "/opt/nifi/fabric/versioned-flow-imports/config.json"
+    LOCK_PATH = "/opt/nifi/nifi-current/logs/versioned-flow-imports-bootstrap.lock"
 
 
     class NiFiAPIError(RuntimeError):
         pass
 
 
+    def load_external_imports(config):
+        path = config.get("management", {}).get("externalImportsPath", "")
+        if not path or not os.path.exists(path):
+            return []
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        if isinstance(payload, dict):
+            payload = payload.get("imports", [])
+        if not isinstance(payload, list):
+            raise NiFiAPIError("external NiFiDataflow bridge imports payload must be a list or an object with an imports list")
+        imports = []
+        for entry in payload:
+            if not isinstance(entry, dict):
+                raise NiFiAPIError("external NiFiDataflow bridge imports payload must contain only object entries")
+            imports.append(entry)
+        return imports
+
+
+    def validate_merged_imports(imports):
+        import_names = set()
+        target_names = set()
+        for entry in imports:
+            name = str(entry.get("name", "")).strip()
+            if not name:
+                raise NiFiAPIError("merged versioned flow imports require every import to have a non-empty name")
+            if name in import_names:
+                raise NiFiAPIError(f"merged versioned flow imports contain duplicate import name {name!r}")
+            import_names.add(name)
+
+            target = entry.get("target", {})
+            target_name = str(target.get("rootProcessGroupName", "")).strip()
+            if not target_name:
+                raise NiFiAPIError(f"merged versioned flow imports require import {name!r} to declare target.rootProcessGroupName")
+            if target_name in target_names:
+                raise NiFiAPIError(
+                    f"merged versioned flow imports contain duplicate target root process group name {target_name!r}"
+                )
+            target_names.add(target_name)
+
+
     def load_config():
         with open(CONFIG_PATH, "r", encoding="utf-8") as handle:
-            return json.load(handle)
+            config = json.load(handle)
+        imports = list(config.get("imports", []))
+        imports.extend(load_external_imports(config))
+        validate_merged_imports(imports)
+        config["imports"] = imports
+        return config
 
 
     def load_previous_status(config):
@@ -190,16 +240,99 @@ data:
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
             handle.write("\n")
+        publish_status_configmap(config, payload)
 
 
     def base_status(config):
         return {
             "podName": os.environ.get("POD_NAME", ""),
+            "podNamespace": os.environ.get("POD_NAMESPACE", ""),
             "authMode": config["management"].get("authMode", ""),
             "status": "running",
             "imports": [],
             "retainedOwnedImports": [],
         }
+
+
+    def kubernetes_api_base_url():
+        host = os.environ.get("KUBERNETES_SERVICE_HOST", "")
+        port = os.environ.get("KUBERNETES_SERVICE_PORT_HTTPS") or os.environ.get("KUBERNETES_SERVICE_PORT", "443")
+        if not host:
+            raise NiFiAPIError("KUBERNETES_SERVICE_HOST is not available for runtime status publication")
+        return f"https://{host}:{port}"
+
+
+    def kubernetes_request(method, path, payload=None, expect=(200,)):
+        token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        ca_path = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        if not os.path.exists(token_path):
+            raise NiFiAPIError("service account token path is not available for runtime status publication")
+        with open(token_path, "r", encoding="utf-8") as handle:
+            token = handle.read().strip()
+        if not token:
+            raise NiFiAPIError("service account token is empty for runtime status publication")
+
+        headers = {
+            "Authorization": "Bearer " + token,
+        }
+        body = None
+        if payload is not None:
+            body = json.dumps(payload).encode("utf-8")
+            headers["Content-Type"] = "application/merge-patch+json" if method == "PATCH" else "application/json"
+
+        req = urllib.request.Request(kubernetes_api_base_url() + path, data=body, headers=headers, method=method)
+        context = ssl.create_default_context(cafile=ca_path)
+        try:
+            with urllib.request.urlopen(req, timeout=10, context=context) as response:
+                data = response.read()
+                if response.status not in expect:
+                    raise NiFiAPIError(
+                        f"{method} {path} returned unexpected status {response.status}: {data[:4096].decode('utf-8', 'ignore')}"
+                    )
+                if not data:
+                    return None
+                return json.loads(data.decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            body_text = exc.read().decode("utf-8", "ignore")
+            raise NiFiAPIError(f"{method} {path} failed with status {exc.code}: {body_text[:4096]}") from exc
+        except urllib.error.URLError as exc:
+            raise NiFiAPIError(f"{method} {path} failed: {exc}") from exc
+
+
+    def publish_status_configmap(config, payload):
+        configmap_name = config["management"].get("statusConfigMapName", "")
+        namespace = os.environ.get("POD_NAMESPACE", "")
+        if not configmap_name or not namespace:
+            return
+        if payload.get("status") == "skipped":
+            return
+
+        status_json = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+        path = f"/api/v1/namespaces/{urllib.parse.quote(namespace, safe='')}/configmaps/{urllib.parse.quote(configmap_name, safe='')}"
+        patch_payload = {
+            "data": {
+                "status.json": status_json,
+            }
+        }
+        try:
+            kubernetes_request("PATCH", path, patch_payload, expect=(200,))
+            return
+        except Exception:
+            create_payload = {
+                "apiVersion": "v1",
+                "kind": "ConfigMap",
+                "metadata": {
+                    "name": configmap_name,
+                    "namespace": namespace,
+                    "labels": {
+                        "app.kubernetes.io/component": "nifidataflow-bridge-status",
+                    },
+                },
+                "data": {
+                    "status.json": status_json,
+                },
+            }
+            kubernetes_request("POST", f"/api/v1/namespaces/{urllib.parse.quote(namespace, safe='')}/configmaps", create_payload, expect=(201,))
 
 
     def should_manage(config, status):
@@ -593,6 +726,9 @@ data:
             "flowName": import_entry["source"]["flowName"],
             "version": import_entry["source"]["version"],
             "targetRootProcessGroupName": import_entry["target"]["rootProcessGroupName"],
+            "syncPolicyMode": import_sync_mode(import_entry),
+            "rolloutStrategy": import_rollout_strategy(import_entry),
+            "rolloutTimeout": import_rollout_timeout(import_entry),
             "parameterContextRefs": [
                 ref.get("name", "")
                 for ref in import_entry.get("parameterContextRefs", [])
@@ -600,6 +736,70 @@ data:
             ],
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+    def import_sync_mode(import_entry):
+        sync_policy = import_entry.get("syncPolicy", {})
+        if not isinstance(sync_policy, dict):
+            return "OnChange"
+        mode = str(sync_policy.get("mode", "")).strip()
+        return mode or "OnChange"
+
+
+    def import_rollout_strategy(import_entry):
+        rollout = import_entry.get("rollout", {})
+        if not isinstance(rollout, dict):
+            return "Replace"
+        strategy = str(rollout.get("strategy", "")).strip()
+        return strategy or "Replace"
+
+
+    def import_rollout_timeout(import_entry):
+        rollout = import_entry.get("rollout", {})
+        if not isinstance(rollout, dict):
+            return ""
+        return str(rollout.get("timeout", "")).strip()
+
+
+    def parse_duration_seconds(raw_value):
+        raw_value = str(raw_value or "").strip()
+        if not raw_value:
+            return 0
+        total_seconds = 0.0
+        position = 0
+        for match in re.finditer(r"([0-9]+(?:\.[0-9]+)?)(ms|s|m|h)", raw_value):
+            if match.start() != position:
+                raise NiFiAPIError(f"unsupported rollout timeout duration {raw_value!r}")
+            value = float(match.group(1))
+            unit = match.group(2)
+            if unit == "h":
+                total_seconds += value * 3600.0
+            elif unit == "m":
+                total_seconds += value * 60.0
+            elif unit == "s":
+                total_seconds += value
+            elif unit == "ms":
+                total_seconds += value / 1000.0
+            position = match.end()
+        if position != len(raw_value):
+            raise NiFiAPIError(f"unsupported rollout timeout duration {raw_value!r}")
+        return max(1, int(total_seconds))
+
+
+    def import_rollout_timeout_seconds(import_entry):
+        timeout = import_rollout_timeout(import_entry)
+        if not timeout:
+            return 20 * 60
+        return parse_duration_seconds(timeout)
+
+
+    def should_skip_version_drift_reconcile(import_entry, previous_entry, ownership_metadata, import_status):
+        if import_sync_mode(import_entry) != "Once":
+            return False
+        observed_hash = import_status["observedHash"]
+        if previous_entry.get("status") == "ok" and previous_entry.get("observedHash") == observed_hash:
+            return True
+        return ownership_metadata.get("observedHash") == observed_hash
 
 
     def managed_comments(config, current_comments, import_entry, resolved_version, observed_hash):
@@ -872,6 +1072,103 @@ data:
         return payload, process_group_flow, process_group_flow.get("flow", {})
 
 
+    def get_process_group_status(opener, base_url, proxied_identity, process_group_id):
+        payload = request(opener, base_url, "GET", f"/flow/process-groups/{process_group_id}/status?recursive=true", proxied_identity)
+        process_group_status = payload.get("processGroupStatus", {})
+        return payload, process_group_status, process_group_status.get("aggregateSnapshot", {}) or {}
+
+
+    def component_run_state(source):
+        if not isinstance(source, dict):
+            return ""
+        for key in ("state", "runStatus", "scheduledState", "physicalState"):
+            value = source.get(key)
+            if value is None:
+                continue
+            return str(value).upper()
+        return ""
+
+
+    def running_components_in_flow(flow_source):
+        if not isinstance(flow_source, dict):
+            return 0
+
+        total = 0
+        for collection_name in ("processors", "inputPorts", "outputPorts"):
+            for entry in flow_source.get(collection_name) or []:
+                if not isinstance(entry, dict):
+                    continue
+                component = entry.get("component", {}) if isinstance(entry.get("component"), dict) else {}
+                aggregate_snapshot = (
+                    entry.get("status", {}).get("aggregateSnapshot", {})
+                    if isinstance(entry.get("status"), dict)
+                    else {}
+                )
+                if component_run_state(component) == "RUNNING" or component_run_state(aggregate_snapshot) == "RUNNING":
+                    total += 1
+
+        for entry in flow_source.get("processGroups") or []:
+            if not isinstance(entry, dict):
+                continue
+            component = entry.get("component", {}) if isinstance(entry.get("component"), dict) else {}
+            try:
+                running_count = int(component.get("runningCount") or 0)
+            except Exception:
+                running_count = 0
+            if running_count > total:
+                total = running_count
+
+        return total
+
+
+    def process_group_running_count(component_payload, component, process_group_flow=None, flow_payload=None):
+        direct_running_count = 0
+        for source in (component_payload, component):
+            if not isinstance(source, dict):
+                continue
+            value = source.get("runningCount")
+            if value is None:
+                continue
+            try:
+                direct_running_count = max(direct_running_count, int(value))
+            except Exception:
+                continue
+
+        descendant_running_count = 0
+        for source in (flow_payload, process_group_flow, process_group_flow.get("flow", {}) if isinstance(process_group_flow, dict) else {}):
+            descendant_running_count = max(descendant_running_count, running_components_in_flow(source))
+        return max(direct_running_count, descendant_running_count)
+
+
+    def process_group_active_thread_count(status_snapshot):
+        if not isinstance(status_snapshot, dict):
+            return 0
+        value = status_snapshot.get("activeThreadCount")
+        if value is None:
+            return 0
+        try:
+            return int(value)
+        except Exception:
+            return 0
+
+
+    def schedule_process_group_components(opener, base_url, proxied_identity, process_group_id, state):
+        payload = {
+            "id": process_group_id,
+            "state": state,
+            "disconnectedNodeAcknowledged": True,
+        }
+        return request(
+            opener,
+            base_url,
+            "PUT",
+            f"/flow/process-groups/{process_group_id}",
+            proxied_identity,
+            payload=payload,
+            expect=(200, 201),
+        )
+
+
     def resolve_bucket(config, opener, base_url, proxied_identity, registry_id, bucket_name):
         payload = request(opener, base_url, "GET", f"/flow/registries/{registry_id}/buckets", proxied_identity)
         entries = payload.get("bucketResults") or payload.get("buckets") or []
@@ -1139,6 +1436,50 @@ data:
         return component_payload, component, revision, process_group_flow, flow_payload, version_control
 
 
+    def wait_for_process_group_quiescent(opener, base_url, proxied_identity, process_group_id, timeout_seconds):
+        deadline = time.time() + timeout_seconds
+        last_running_count = None
+        last_active_threads = None
+        while time.time() < deadline:
+            component_payload, component, revision, process_group_flow, flow_payload, version_control = refresh_process_group_state(
+                opener,
+                base_url,
+                proxied_identity,
+                process_group_id,
+            )
+            _, _, status_snapshot = get_process_group_status(opener, base_url, proxied_identity, process_group_id)
+            last_running_count = process_group_running_count(component_payload, component, process_group_flow, flow_payload)
+            last_active_threads = process_group_active_thread_count(status_snapshot)
+            if last_running_count == 0 and last_active_threads == 0:
+                return component_payload, component, revision, process_group_flow, flow_payload, version_control, status_snapshot
+            time.sleep(2)
+        raise NiFiAPIError(
+            f"bounded rollout drain timed out for process group {process_group_id!r}: runningCount={last_running_count!r}, activeThreadCount={last_active_threads!r}"
+        )
+
+
+    def wait_for_process_group_resumed(opener, base_url, proxied_identity, process_group_id, timeout_seconds):
+        deadline = time.time() + timeout_seconds
+        last_running_count = None
+        last_active_threads = None
+        while time.time() < deadline:
+            component_payload, component, revision, process_group_flow, flow_payload, version_control = refresh_process_group_state(
+                opener,
+                base_url,
+                proxied_identity,
+                process_group_id,
+            )
+            _, _, status_snapshot = get_process_group_status(opener, base_url, proxied_identity, process_group_id)
+            last_running_count = process_group_running_count(component_payload, component, process_group_flow, flow_payload)
+            last_active_threads = process_group_active_thread_count(status_snapshot)
+            if last_running_count > 0:
+                return component_payload, component, revision, process_group_flow, flow_payload, version_control, status_snapshot
+            time.sleep(2)
+        raise NiFiAPIError(
+            f"bounded rollout resume timed out for process group {process_group_id!r}: runningCount={last_running_count!r}, activeThreadCount={last_active_threads!r}"
+        )
+
+
     def resolved_version_for_import(opener, base_url, proxied_identity, import_entry, registry_id, bucket_id, flow_id, ownership_metadata, previous_entry, import_status):
         selected_version = str(import_entry["source"]["version"])
         flow_name = import_entry["source"]["flowName"]
@@ -1338,6 +1679,14 @@ data:
         actual_version = version_control.get("version")
         actual_version = "" if actual_version is None else str(actual_version)
         resolved_version = str(import_status["resolvedVersion"])
+        skip_version_drift_reconcile = False
+        rollout_strategy = import_rollout_strategy(import_entry)
+        rollout_timeout_seconds = import_rollout_timeout_seconds(import_entry)
+        import_status["rolloutStrategy"] = rollout_strategy
+        if rollout_strategy == "DrainAndReplace":
+            import_status["rolloutTimeoutSeconds"] = rollout_timeout_seconds
+        import_status["drainedBeforeVersionUpdate"] = bool((previous_entry or {}).get("drainedBeforeVersionUpdate", False))
+        import_status["resumedAfterVersionUpdate"] = bool((previous_entry or {}).get("resumedAfterVersionUpdate", False))
 
         needs_version_update = not version_control
         if version_control and actual_flow_name and actual_flow_name != flow_name:
@@ -1349,97 +1698,10 @@ data:
                 f"root child process group {target_name!r} is attached to flow id {actual_flow_id!r}, not declared flow id {flow_id!r}"
             )
         if version_control and actual_version != resolved_version:
-            needs_version_update = True
-
-        if needs_version_update:
-            update_imported_process_group_version(
-                opener,
-                base_url,
-                proxied_identity,
-                client_id,
-                process_group_id,
-                revision.get("version", 0),
-                registry_id,
-                snapshot,
-            )
-            action = "updated" if action == "unchanged" else action
-            component_payload, component, revision, process_group_flow, flow_payload, version_control = refresh_process_group_state(
-                opener,
-                base_url,
-                proxied_identity,
-                process_group_id,
-            )
-
-        if not version_control:
-            raise NiFiAPIError(
-                f"root child process group {target_name!r} does not expose version-control information after bounded import reconcile"
-            )
-
-        actual_flow_name = version_control.get("flowName") or version_control.get("name") or ""
-        actual_flow_id = version_control.get("flowId") or version_control.get("identifier") or ""
-        actual_version = version_control.get("version")
-        actual_version = "" if actual_version is None else str(actual_version)
-        import_status["actualVersion"] = actual_version
-        import_status["versionControlState"] = version_control.get("state", "")
-
-        if actual_flow_name and actual_flow_name != flow_name:
-            raise NiFiAPIError(
-                f"root child process group {target_name!r} is attached to flow {actual_flow_name!r}, not declared flow {flow_name!r}"
-            )
-        if actual_flow_id and actual_flow_id != flow_id:
-            raise NiFiAPIError(
-                f"root child process group {target_name!r} is attached to flow id {actual_flow_id!r}, not declared flow id {flow_id!r}"
-            )
-        if actual_version and actual_version != resolved_version:
-            raise NiFiAPIError(
-                f"root child process group {target_name!r} is on version {actual_version!r}, not resolved version {resolved_version!r}"
-            )
-
-        actual_parameter_context_id = component.get("parameterContext", {}).get("id", "")
-        if parameter_context_id:
-            if actual_parameter_context_id != parameter_context_id:
-                bind_parameter_context(
-                    opener,
-                    base_url,
-                    proxied_identity,
-                    config,
-                    process_group_id,
-                    revision.get("version", 0),
-                    parameter_context_id,
-                )
-                action = "updated" if action == "unchanged" else action
-                component_payload, component, revision, process_group_flow, flow_payload, version_control = refresh_process_group_state(
-                    opener,
-                    base_url,
-                    proxied_identity,
-                    process_group_id,
-                )
-                actual_parameter_context_id = component.get("parameterContext", {}).get("id", "")
-            if actual_parameter_context_id != parameter_context_id:
-                raise NiFiAPIError(
-                    f"root child process group {target_name!r} did not retain declared Parameter Context {parameter_context_id!r}"
-                )
-        elif actual_parameter_context_id:
-            clear_parameter_context(
-                opener,
-                base_url,
-                proxied_identity,
-                config,
-                process_group_id,
-                revision.get("version", 0),
-            )
-            action = "updated" if action == "unchanged" else action
-            component_payload, component, revision, process_group_flow, flow_payload, version_control = refresh_process_group_state(
-                opener,
-                base_url,
-                proxied_identity,
-                process_group_id,
-            )
-            actual_parameter_context_id = component.get("parameterContext", {}).get("id", "")
-            if actual_parameter_context_id:
-                raise NiFiAPIError(
-                    f"root child process group {target_name!r} retained Parameter Context {actual_parameter_context_id!r} after the declared direct attachment was removed"
-                )
+            if should_skip_version_drift_reconcile(import_entry, previous_entry, ownership_metadata, import_status):
+                skip_version_drift_reconcile = True
+            else:
+                needs_version_update = True
 
         desired_comments = managed_comments(
             config,
@@ -1466,6 +1728,172 @@ data:
                 proxied_identity,
                 process_group_id,
             )
+
+        _, _, process_group_status_snapshot = get_process_group_status(opener, base_url, proxied_identity, process_group_id)
+        should_resume_after_version_update = False
+
+        try:
+            if needs_version_update:
+                current_running_count = process_group_running_count(component_payload, component, process_group_flow, flow_payload)
+                current_active_threads = process_group_active_thread_count(process_group_status_snapshot)
+                if rollout_strategy == "DrainAndReplace":
+                    should_resume_after_version_update = current_running_count > 0
+                    if current_running_count > 0 or current_active_threads > 0:
+                        schedule_process_group_components(opener, base_url, proxied_identity, process_group_id, "STOPPED")
+                        component_payload, component, revision, process_group_flow, flow_payload, version_control, process_group_status_snapshot = wait_for_process_group_quiescent(
+                            opener,
+                            base_url,
+                            proxied_identity,
+                            process_group_id,
+                            rollout_timeout_seconds,
+                        )
+                        import_status["drainedBeforeVersionUpdate"] = True
+
+                update_imported_process_group_version(
+                    opener,
+                    base_url,
+                    proxied_identity,
+                    client_id,
+                    process_group_id,
+                    revision.get("version", 0),
+                    registry_id,
+                    snapshot,
+                )
+                action = "updated" if action == "unchanged" else action
+                component_payload, component, revision, process_group_flow, flow_payload, version_control = refresh_process_group_state(
+                    opener,
+                    base_url,
+                    proxied_identity,
+                    process_group_id,
+                )
+
+            if not version_control:
+                raise NiFiAPIError(
+                    f"root child process group {target_name!r} does not expose version-control information after bounded import reconcile"
+                )
+
+            actual_flow_name = version_control.get("flowName") or version_control.get("name") or ""
+            actual_flow_id = version_control.get("flowId") or version_control.get("identifier") or ""
+            actual_version = version_control.get("version")
+            actual_version = "" if actual_version is None else str(actual_version)
+            import_status["actualVersion"] = actual_version
+            import_status["versionControlState"] = version_control.get("state", "")
+
+            if actual_flow_name and actual_flow_name != flow_name:
+                raise NiFiAPIError(
+                    f"root child process group {target_name!r} is attached to flow {actual_flow_name!r}, not declared flow {flow_name!r}"
+                )
+            if actual_flow_id and actual_flow_id != flow_id:
+                raise NiFiAPIError(
+                    f"root child process group {target_name!r} is attached to flow id {actual_flow_id!r}, not declared flow id {flow_id!r}"
+                )
+            if actual_version and actual_version != resolved_version and not skip_version_drift_reconcile:
+                raise NiFiAPIError(
+                    f"root child process group {target_name!r} is on version {actual_version!r}, not resolved version {resolved_version!r}"
+                )
+            if skip_version_drift_reconcile:
+                import_status["syncPolicyMode"] = "Once"
+                import_status["versionDriftReconcileSkipped"] = True
+
+            actual_parameter_context_id = component.get("parameterContext", {}).get("id", "")
+            if parameter_context_id:
+                if actual_parameter_context_id != parameter_context_id:
+                    bind_parameter_context(
+                        opener,
+                        base_url,
+                        proxied_identity,
+                        config,
+                        process_group_id,
+                        revision.get("version", 0),
+                        parameter_context_id,
+                    )
+                    action = "updated" if action == "unchanged" else action
+                    component_payload, component, revision, process_group_flow, flow_payload, version_control = refresh_process_group_state(
+                        opener,
+                        base_url,
+                        proxied_identity,
+                        process_group_id,
+                    )
+                    actual_parameter_context_id = component.get("parameterContext", {}).get("id", "")
+                if actual_parameter_context_id != parameter_context_id:
+                    raise NiFiAPIError(
+                        f"root child process group {target_name!r} did not retain declared Parameter Context {parameter_context_id!r}"
+                    )
+            elif actual_parameter_context_id:
+                clear_parameter_context(
+                    opener,
+                    base_url,
+                    proxied_identity,
+                    config,
+                    process_group_id,
+                    revision.get("version", 0),
+                )
+                action = "updated" if action == "unchanged" else action
+                component_payload, component, revision, process_group_flow, flow_payload, version_control = refresh_process_group_state(
+                    opener,
+                    base_url,
+                    proxied_identity,
+                    process_group_id,
+                )
+                actual_parameter_context_id = component.get("parameterContext", {}).get("id", "")
+                if actual_parameter_context_id:
+                    raise NiFiAPIError(
+                        f"root child process group {target_name!r} retained Parameter Context {actual_parameter_context_id!r} after the declared direct attachment was removed"
+                    )
+
+            desired_comments = managed_comments(
+                config,
+                component.get("comments", "") or "",
+                import_entry,
+                resolved_version,
+                import_status["observedHash"],
+            )
+            if (component.get("comments", "") or "") != desired_comments:
+                update_process_group_comments(
+                    opener,
+                    base_url,
+                    proxied_identity,
+                    config,
+                    process_group_id,
+                    revision.get("version", 0),
+                    component.get("name", target_name),
+                    desired_comments,
+                )
+                action = "updated" if action == "unchanged" else action
+                component_payload, component, revision, process_group_flow, flow_payload, version_control = refresh_process_group_state(
+                    opener,
+                    base_url,
+                    proxied_identity,
+                    process_group_id,
+                )
+
+            if should_resume_after_version_update:
+                schedule_process_group_components(opener, base_url, proxied_identity, process_group_id, "RUNNING")
+                component_payload, component, revision, process_group_flow, flow_payload, version_control, process_group_status_snapshot = wait_for_process_group_resumed(
+                    opener,
+                    base_url,
+                    proxied_identity,
+                    process_group_id,
+                    rollout_timeout_seconds,
+                )
+                import_status["resumedAfterVersionUpdate"] = True
+                should_resume_after_version_update = False
+        except Exception as exc:
+            if should_resume_after_version_update:
+                try:
+                    schedule_process_group_components(opener, base_url, proxied_identity, process_group_id, "RUNNING")
+                    wait_for_process_group_resumed(
+                        opener,
+                        base_url,
+                        proxied_identity,
+                        process_group_id,
+                        rollout_timeout_seconds,
+                    )
+                except Exception as resume_exc:
+                    raise NiFiAPIError(
+                        f"{exc}; additionally failed to resume previously running descendants for process group {target_name!r}: {resume_exc}"
+                    ) from exc
+            raise
 
         import_status["processGroupId"] = process_group_id
         import_status["action"] = action
@@ -1510,6 +1938,18 @@ data:
 
         blocked = False
         for import_entry in config.get("imports", []):
+            if import_entry.get("suspend") is True:
+                status["imports"].append(
+                    {
+                        "name": import_entry["name"],
+                        "selectedVersion": str(import_entry["source"]["version"]),
+                        "targetRootProcessGroupName": import_entry["target"]["rootProcessGroupName"],
+                        "status": "suspended",
+                        "action": "suspended",
+                        "reason": "reconciliation is suspended by NiFiDataflow spec.suspend=true",
+                    }
+                )
+                continue
             try:
                 import_status = ensure_import(
                     config,
@@ -1539,28 +1979,30 @@ data:
         once = "--once" in sys.argv[1:]
 
         while True:
-            try:
-                config = load_config()
-                status = base_status(config)
-                if not should_manage(config, status):
-                    status["status"] = "skipped"
-                    status["reason"] = f"only pod ordinal {config['management']['reconcilePodOrdinal']} reconciles declared versioned flow imports"
-                    write_status(config, status)
-                    print(status["reason"])
-                    if once:
-                        return 0
-                    time.sleep(int(config["management"].get("pollIntervalSeconds", 10)))
-                    continue
-                status = reconcile_once(config)
-            except Exception as exc:
-                config = load_config()
-                status = base_status(config)
-                status["status"] = "failed"
-                status["reason"] = str(exc)
-            write_status(config, status)
-            if once:
-                print(json.dumps(status, indent=2, sort_keys=True))
-                return 0
+            with open(LOCK_PATH, "w", encoding="utf-8") as lock_handle:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+                try:
+                    config = load_config()
+                    status = base_status(config)
+                    if not should_manage(config, status):
+                        status["status"] = "skipped"
+                        status["reason"] = f"only pod ordinal {config['management']['reconcilePodOrdinal']} reconciles declared versioned flow imports"
+                        write_status(config, status)
+                        print(status["reason"])
+                        if once:
+                            return 0
+                        time.sleep(int(config["management"].get("pollIntervalSeconds", 10)))
+                        continue
+                    status = reconcile_once(config)
+                except Exception as exc:
+                    config = load_config()
+                    status = base_status(config)
+                    status["status"] = "failed"
+                    status["reason"] = str(exc)
+                write_status(config, status)
+                if once:
+                    print(json.dumps(status, indent=2, sort_keys=True))
+                    return 0
             time.sleep(int(config["management"].get("pollIntervalSeconds", 10)))
 
 

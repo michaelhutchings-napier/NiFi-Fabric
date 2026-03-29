@@ -6,9 +6,48 @@
 {{- $mode -}}
 {{- end -}}
 
+{{- define "nifi.effectiveAuthzMode" -}}
+{{- default "fileManaged" .Values.authz.mode -}}
+{{- end -}}
+
+{{- define "nifi.effectiveAuthzBootstrapInitialAdminGroup" -}}
+{{- default "" .Values.authz.bootstrap.initialAdminGroup -}}
+{{- end -}}
+
+{{- define "nifi.effectiveAuthzBootstrapInitialAdminIdentity" -}}
+{{- default "" .Values.authz.bootstrap.initialAdminIdentity -}}
+{{- end -}}
+
+{{- define "nifi.effectiveAuthzApplicationGroupsYaml" -}}
+{{- toYaml (default (list) .Values.authz.applicationGroups) -}}
+{{- end -}}
+
+{{- define "nifi.supportsLdapInitialAdminGroup" -}}
+{{- $tag := default "" .Values.image.tag -}}
+{{- if regexMatch "^[0-9]+\\.[0-9]+\\.[0-9]+$" $tag -}}
+{{- ternary "true" "false" (semverCompare ">=2.5.0" $tag) -}}
+{{- else -}}
+{{- "true" -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "nifi.effectiveLdapUserGroupProviderUserSearchFilter" -}}
+{{- $configured := dig "userGroupProvider" "userSearch" "filter" "__auto__" .Values.auth.ldap -}}
+{{- if ne $configured "__auto__" -}}
+{{- $configured -}}
+{{- else if include "nifi.effectiveAuthzBootstrapInitialAdminGroup" . -}}
+{{- "" -}}
+{{- else -}}
+{{- default "" .Values.auth.ldap.userSearch.filter -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "nifi.authValidation" -}}
 {{- $authMode := include "nifi.authMode" . -}}
 {{- $authzMode := include "nifi.authzMode" . -}}
+{{- $effectiveBootstrapGroup := include "nifi.effectiveAuthzBootstrapInitialAdminGroup" . -}}
+{{- $effectiveBootstrapIdentity := include "nifi.effectiveAuthzBootstrapInitialAdminIdentity" . -}}
+{{- $effectiveApplicationGroups := fromYamlArray (include "nifi.effectiveAuthzApplicationGroupsYaml" .) -}}
 {{- $seededGroups := fromYamlArray (include "nifi.baseGroupNamesYaml" .) -}}
 {{- if eq $authMode "oidc" -}}
   {{- if not .Values.auth.oidc.discoveryUrl -}}
@@ -26,7 +65,7 @@
   {{- if not .Values.auth.oidc.claims.groups -}}
     {{- fail "auth.oidc.claims.groups is required when auth.mode=oidc and must match the token groups claim name" -}}
   {{- end -}}
-  {{- if and (eq $authzMode "externalClaimGroups") (eq (len .Values.authz.applicationGroups) 0) (not .Values.authz.bootstrap.initialAdminGroup) -}}
+  {{- if and (eq $authzMode "externalClaimGroups") (eq (len $effectiveApplicationGroups) 0) (not $effectiveBootstrapGroup) -}}
     {{- fail "oidc + externalClaimGroups requires authz.applicationGroups and/or authz.bootstrap.initialAdminGroup so token groups can match seeded NiFi groups" -}}
   {{- end -}}
   {{- if and .Values.ingress.enabled (eq (len .Values.web.proxyHosts) 0) -}}
@@ -58,8 +97,11 @@
   {{- if not .Values.auth.ldap.groupSearch.memberAttribute -}}
     {{- fail "auth.ldap.groupSearch.memberAttribute is required when auth.mode=ldap and authz.mode=ldapSync" -}}
   {{- end -}}
+  {{- if and $effectiveBootstrapGroup (ne (include "nifi.supportsLdapInitialAdminGroup" .) "true") -}}
+    {{- fail (printf "authz.bootstrap.initialAdminGroup with auth.mode=ldap requires Apache NiFi >= 2.5.0; image.tag=%q does not support native LDAP initial admin group bootstrap, so use authz.bootstrap.initialAdminIdentity or a newer NiFi image" (default "" .Values.image.tag)) -}}
+  {{- end -}}
 {{- end -}}
-{{- if and (or (eq $authMode "oidc") (eq $authMode "ldap")) (not .Values.authz.bootstrap.initialAdminGroup) (not .Values.authz.bootstrap.initialAdminIdentity) -}}
+{{- if and (or (eq $authMode "oidc") (eq $authMode "ldap")) (not $effectiveBootstrapGroup) (not $effectiveBootstrapIdentity) -}}
   {{- fail "enterprise auth modes require authz.bootstrap.initialAdminGroup or authz.bootstrap.initialAdminIdentity so the first admin path is explicit" -}}
 {{- end -}}
 {{- range $index, $policy := .Values.authz.policies -}}
@@ -110,7 +152,7 @@
 {{- end -}}
 
 {{- define "nifi.authzMode" -}}
-{{- $mode := default "fileManaged" .Values.authz.mode -}}
+{{- $mode := include "nifi.effectiveAuthzMode" . -}}
 {{- if and (ne $mode "fileManaged") (ne $mode "ldapSync") (ne $mode "externalClaimGroups") -}}
 {{- fail "authz.mode must be one of: fileManaged, ldapSync, externalClaimGroups" -}}
 {{- end -}}
@@ -159,20 +201,24 @@
 {{- end -}}
 
 {{- define "nifi.dynamicAdminIdentityPlaceholder" -}}
-{{- if .Values.authz.bootstrap.initialAdminGroup -}}
+{{- $bootstrapGroup := include "nifi.effectiveAuthzBootstrapInitialAdminGroup" . -}}
+{{- $bootstrapIdentity := include "nifi.effectiveAuthzBootstrapInitialAdminIdentity" . -}}
+{{- if $bootstrapGroup -}}
 {{- "" -}}
 {{- else if eq (include "nifi.authMode" .) "singleUser" -}}
 __SINGLE_USER_IDENTITY__
 {{- else -}}
-{{ include "nifi.xmlEscape" .Values.authz.bootstrap.initialAdminIdentity }}
+{{ include "nifi.xmlEscape" $bootstrapIdentity }}
 {{- end -}}
 {{- end -}}
 
 {{- define "nifi.adminIdentityForFiles" -}}
-{{- if .Values.authz.bootstrap.initialAdminGroup -}}
+{{- $bootstrapGroup := include "nifi.effectiveAuthzBootstrapInitialAdminGroup" . -}}
+{{- $bootstrapIdentity := include "nifi.effectiveAuthzBootstrapInitialAdminIdentity" . -}}
+{{- if $bootstrapGroup -}}
 {{- "" -}}
-{{- else if .Values.authz.bootstrap.initialAdminIdentity -}}
-{{ include "nifi.xmlEscape" .Values.authz.bootstrap.initialAdminIdentity }}
+{{- else if $bootstrapIdentity -}}
+{{ include "nifi.xmlEscape" $bootstrapIdentity }}
 {{- else if eq (include "nifi.authMode" .) "singleUser" -}}
 __SINGLE_USER_IDENTITY__
 {{- else -}}
@@ -182,11 +228,12 @@ __SINGLE_USER_IDENTITY__
 
 {{- define "nifi.baseGroupNamesYaml" -}}
 {{- $groups := list -}}
-{{- range .Values.authz.applicationGroups }}
+{{- range (fromYamlArray (include "nifi.effectiveAuthzApplicationGroupsYaml" .)) }}
 {{- $groups = append $groups . -}}
 {{- end -}}
-{{- if .Values.authz.bootstrap.initialAdminGroup }}
-{{- $groups = append $groups .Values.authz.bootstrap.initialAdminGroup -}}
+{{- $bootstrapGroup := include "nifi.effectiveAuthzBootstrapInitialAdminGroup" . -}}
+{{- if $bootstrapGroup }}
+{{- $groups = append $groups $bootstrapGroup -}}
 {{- end -}}
 {{- toYaml (uniq $groups) -}}
 {{- end -}}
@@ -225,21 +272,23 @@ file-user-group-provider
 {{- end -}}
 
 {{- define "nifi.adminBindingXml" -}}
-{{- if .Values.authz.bootstrap.initialAdminGroup }}
-            <group identifier="{{ include "nifi.stableId" (printf "group:%s" .Values.authz.bootstrap.initialAdminGroup) }}"/>
+{{- $bootstrapGroup := include "nifi.effectiveAuthzBootstrapInitialAdminGroup" . -}}
+{{- if $bootstrapGroup }}
+            <group identifier="{{ include "nifi.stableId" (printf "group:%s" $bootstrapGroup) }}"/>
 {{- else if (include "nifi.adminIdentityForFiles" .) }}
             <user identifier="__ADMIN_IDENTITY_ID__"/>
 {{- end -}}
 {{- end -}}
 
 {{- define "nifi.adminGroupBindingXml" -}}
-{{- if .Values.authz.bootstrap.initialAdminGroup }}
-            <group identifier="{{ include "nifi.stableId" (printf "group:%s" .Values.authz.bootstrap.initialAdminGroup) }}"/>
+{{- $bootstrapGroup := include "nifi.effectiveAuthzBootstrapInitialAdminGroup" . -}}
+{{- if $bootstrapGroup }}
+            <group identifier="{{ include "nifi.stableId" (printf "group:%s" $bootstrapGroup) }}"/>
 {{- end -}}
 {{- end -}}
 
 {{- define "nifi.adminUserBindingXml" -}}
-{{- if and (not .Values.authz.bootstrap.initialAdminGroup) (include "nifi.adminIdentityForFiles" .) }}
+{{- if and (not (include "nifi.effectiveAuthzBootstrapInitialAdminGroup" .)) (include "nifi.adminIdentityForFiles" .) }}
             <user identifier="__ADMIN_IDENTITY_ID__"/>
 {{- end -}}
 {{- end -}}
@@ -329,10 +378,10 @@ file-user-group-provider
 </authorizations>
 {{- else -}}
 {{- $baseAdminPolicyKeys := fromYamlArray (include "nifi.baseAdminPolicyKeysYaml" .) -}}
-{{- $bootstrapAdminGroup := .Values.authz.bootstrap.initialAdminGroup -}}
+{{- $bootstrapAdminGroup := include "nifi.effectiveAuthzBootstrapInitialAdminGroup" . -}}
 {{- $declaredPolicies := concat (default (list) .Values.authz.policies) (fromYamlArray (include "nifi.namedPolicyBundlePoliciesYaml" .)) (fromYamlArray (include "nifi.mutableFlowCapabilityPoliciesYaml" .)) -}}
 {{- $policySpecs := dict -}}
-{{- if or .Values.authz.bootstrap.initialAdminGroup (include "nifi.adminIdentityForFiles" .) }}
+{{- if or $bootstrapAdminGroup (include "nifi.adminIdentityForFiles" .) }}
 {{- range $policy := (fromYamlArray (include "nifi.baseAdminPoliciesYaml" .)) }}
 {{- $key := printf "%s|%s" $policy.resource $policy.action -}}
 {{- $_ := set $policySpecs $key (dict "resource" $policy.resource "action" $policy.action "includeAdmin" true "includeNode" false "groups" (list)) -}}
@@ -400,8 +449,9 @@ file-user-group-provider
         <identifier>{{ include "nifi.fileUserGroupProviderIdentifier" . }}</identifier>
         <class>org.apache.nifi.authorization.FileUserGroupProvider</class>
         <property name="Users File">./conf/users.xml</property>
-{{- if and (eq (include "nifi.authzMode" .) "ldapSync") .Values.authz.bootstrap.initialAdminIdentity }}
-        <property name="Initial User Identity 1">{{ include "nifi.xmlEscape" .Values.authz.bootstrap.initialAdminIdentity }}</property>
+{{- $bootstrapIdentity := include "nifi.effectiveAuthzBootstrapInitialAdminIdentity" . -}}
+{{- if and (eq (include "nifi.authzMode" .) "ldapSync") $bootstrapIdentity }}
+        <property name="Initial User Identity 1">{{ include "nifi.xmlEscape" $bootstrapIdentity }}</property>
 {{- end }}
 {{- if eq (include "nifi.authzMode" .) "ldapSync" }}
         <property name="Initial User Identity 2">__NODE_IDENTITY__</property>
@@ -433,7 +483,7 @@ file-user-group-provider
         <property name="User Search Base">{{ required "auth.ldap.userSearch.base is required when auth.mode=ldap" .Values.auth.ldap.userSearch.base }}</property>
         <property name="User Object Class">{{ .Values.auth.ldap.userSearch.objectClass }}</property>
         <property name="User Search Scope">{{ .Values.auth.ldap.userSearch.scope }}</property>
-        <property name="User Search Filter">{{ .Values.auth.ldap.userSearch.filter }}</property>
+        <property name="User Search Filter">{{ include "nifi.effectiveLdapUserGroupProviderUserSearchFilter" . }}</property>
         <property name="User Identity Attribute">{{ .Values.auth.ldap.userSearch.identityAttribute }}</property>
         <property name="User Group Name Attribute">{{ .Values.auth.ldap.userSearch.groupNameAttribute }}</property>
         <property name="User Group Name Attribute - Referenced Group Attribute">{{ .Values.auth.ldap.userSearch.groupNameReferencedGroupAttribute }}</property>
@@ -458,7 +508,7 @@ file-user-group-provider
         <property name="User Group Provider">{{ include "nifi.activeUserGroupProviderIdentifier" . }}</property>
         <property name="Authorizations File">./conf/authorizations.xml</property>
         <property name="Initial Admin Identity">{{ include "nifi.dynamicAdminIdentityPlaceholder" . }}</property>
-        <property name="Initial Admin Group">{{ include "nifi.xmlEscape" .Values.authz.bootstrap.initialAdminGroup }}</property>
+        <property name="Initial Admin Group">{{ include "nifi.xmlEscape" (include "nifi.effectiveAuthzBootstrapInitialAdminGroup" .) }}</property>
         <property name="Node Identity 1">__NODE_IDENTITY__</property>
         <property name="Node Group"></property>
     </accessPolicyProvider>

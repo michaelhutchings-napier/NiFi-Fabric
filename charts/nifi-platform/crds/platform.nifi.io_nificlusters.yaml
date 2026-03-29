@@ -180,6 +180,17 @@ spec:
                     observationStartedAt:
                       format: date-time
                       type: string
+                    phase:
+                      type: string
+                      enum:
+                        - Idle
+                        - ObservingAutoreload
+                        - ResolvedWithoutRestart
+                        - RestartRequired
+                    reason:
+                      type: string
+                    message:
+                      type: string
                     targetCertificateHash:
                       type: string
                     targetTLSConfigurationHash:

@@ -8,6 +8,15 @@ metadata:
     {{- include "nifi.labels" . | nindent 4 }}
 data:
   nifi.properties.overrides: |
+    {{- $observability := default (dict) .Values.observability }}
+    {{- $audit := default (dict) $observability.audit }}
+    {{- $flowActions := default (dict) $audit.flowActions }}
+    {{- $auditLocal := default (dict) $flowActions.local }}
+    {{- $auditHistory := default (dict) $auditLocal.history }}
+    {{- $auditArchive := default (dict) $auditLocal.archive }}
+    {{- $auditArchiveRetention := default (dict) $auditArchive.retention }}
+    {{- $auditRequestLog := default (dict) $auditLocal.requestLog }}
+    {{- $auditExport := default (dict) $flowActions.export }}
     nifi.cluster.node.protocol.port={{ .Values.ports.cluster }}
     nifi.cluster.node.protocol.max.threads={{ .Values.nifi.cluster.nodeProtocolMaxThreads }}
     nifi.cluster.node.connection.timeout={{ .Values.nifi.cluster.nodeConnectionTimeout }}
@@ -48,6 +57,23 @@ data:
     {{- range $key, $value := .Values.auth.oidc.extraProperties }}
     {{ $key }}={{ $value }}
     {{- end }}
+    {{- end }}
+    {{- if and $flowActions.enabled $auditHistory.enabled }}
+    nifi.database.directory=./database_repository
+    {{- end }}
+    {{- if and $flowActions.enabled $auditArchive.enabled }}
+    nifi.flow.configuration.archive.enabled=true
+    nifi.flow.configuration.archive.dir={{ $auditArchive.directory }}
+    nifi.flow.configuration.archive.max.time={{ $auditArchiveRetention.maxAge }}
+    nifi.flow.configuration.archive.max.storage={{ $auditArchiveRetention.maxStorage }}
+    nifi.flow.configuration.archive.max.count={{ $auditArchiveRetention.maxCount }}
+    {{- end }}
+    {{- if and $flowActions.enabled $auditRequestLog.enabled }}
+    nifi.web.request.log.format={{ $auditRequestLog.format }}
+    {{- end }}
+    {{- if and $flowActions.enabled (eq $auditExport.type "log") }}
+    nifi.nar.library.directory.flow.action.audit=/opt/nifi/fabric/extensions/flow-action-audit
+    nifi.flow.action.reporter.implementation=io.nifi.fabric.audit.FlowActionJsonLogReporter
     {{- end }}
     nifi.flowfile.repository.directory=./flowfile_repository
     nifi.content.repository.directory.default=./content_repository

@@ -30,11 +30,22 @@ Use app chart values under:
 
 - `versionedFlowImports.enabled`
 - `versionedFlowImports.mountPath`
+- `versionedFlowImports.controllerBridge.*`
 - `versionedFlowImports.imports[]`
 
 Use platform chart values under:
 
 - `nifi.versionedFlowImports.*`
+
+The same runtime path can also consume `NiFiDataflow` declarations
+through the optional `versionedFlowImports.controllerBridge.*` mount. The chart
+renders the bridge `ConfigMap` up front so the pod mount is always present, and
+the controller only updates the `imports.json` payload inside that Helm-owned
+object. That bridge reuses the existing in-pod import reconciler rather
+than introducing a separate live flow-management engine. When the controller
+bridge is enabled, the same runtime path also mirrors its latest import
+status into a controller-observed ConfigMap so `NiFiDataflow.status` can report
+live runtime outcomes from the existing pod `-0` reconciler.
 
 ## Ownership and Drift
 
@@ -42,6 +53,7 @@ What the product creates:
 
 - one chart-rendered `ConfigMap` runtime bundle when `versionedFlowImports.enabled=true`
 - one pod mount that makes that bundle available inside the NiFi pod
+- when `versionedFlowImports.controllerBridge.enabled=true`, one chart-rendered runtime status `ConfigMap` that pod `-0` updates with the latest import outcomes
 - for declared `provider=nifiRegistry` imports only, one live product-owned Flow Registry Client in NiFi when it does not already exist
 - the declared root-child imported process-group instances in NiFi for product-owned targets
 - an ownership marker in the imported process-group comments for each declared product-owned target
@@ -54,6 +66,7 @@ What the product reconciles:
 - live attachment or update of the declared registry, bucket, flow, and selected version for owned imported process groups
 - live direct Parameter Context attachment or detachment for the declared imported process group when one reference is configured
 - the ownership marker metadata used to keep the owned scope explicit and auditable
+- the controller-side projection of the runtime status `ConfigMap` back into `NiFiDataflow.status`
 
 What the product references:
 
@@ -71,7 +84,23 @@ What remains operator-owned:
 - broader graph edits inside or around the imported process group
 - changing an owned import to point at a different declared source flow or different target name; create a new owned target or delete the old one instead
 
-Manual UI edits outside the managed import scope are unsupported. The product does not perform ongoing sync, and it does not attempt arbitrary graph reconciliation. Within the product-owned scope, direct version selection and direct Parameter Context attachment may be reconciled back to the declared state. Unsupported drift or same-name operator-owned collisions are reported as `blocked` in the runtime status file until the operator restores the expected state or deletes and recreates the target.
+Manual UI edits outside the managed import scope are unsupported. The product does not perform ongoing sync, and it does not attempt arbitrary graph reconciliation. Within the product-owned scope, direct version selection and direct Parameter Context attachment may be reconciled back to the declared state. When the optional `NiFiDataflow` bridge declares `spec.syncPolicy.mode=Once`, version drift on an already successful owned target is observed but not healed again until the declaration changes. Unsupported drift or same-name operator-owned collisions are reported as `blocked` in the runtime status file until the operator restores the expected state or deletes and recreates the target.
+
+For the optional `NiFiDataflow` bridge path, version changes also honor a small
+typed rollout policy:
+
+- `Replace` updates the owned imported process group to the resolved version
+  without first stopping descendant components
+- `DrainAndReplace` first asks NiFi to stop descendant components in the owned
+  target, waits for the process group to go quiescent within the declared
+  timeout, performs the version change, and resumes descendants only when the
+  target was running before the drain step
+
+The rollout contract stays intentionally small. The product does not become a
+generic queue-drain or graph-lifecycle engine. If the drain does not
+settle before the declared timeout, or if the version change fails after the
+target is quiesced, the runtime reports a clear failure and leaves operator
+follow-up explicit.
 
 ## Behavior
 
@@ -88,8 +117,108 @@ Manual UI edits outside the managed import scope are unsupported. The product do
 - validation on the single-node platform path upgrades the release, lets the live in-pod reconcile loop import the declared flow, and then verifies a later declared version change reconciles without replacing pod `-0`
 - at most one direct Parameter Context reference is supported per import in this feature
 - `latest` is resolved during create or declared-change reconcile and then pinned through the ownership marker; the product does not keep polling for newer versions once the declaration is unchanged
+- when the optional controller bridge is enabled and a `NiFiDataflow` declares `spec.syncPolicy.mode=Once`, the runtime stops reconciling version drift after the first successful import of that same declaration and only resumes version reconciliation when the spec changes
+- when the optional controller bridge is enabled and a `NiFiDataflow` declares `spec.rollout.strategy=DrainAndReplace`, version updates stop descendant components through the NiFi Flow API, wait for `runningCount=0` and `activeThreadCount=0`, then apply the new version and resume only if the target had running descendants before the drain step
+- when the optional controller bridge is enabled and a `NiFiDataflow` declares `spec.rollout.strategy=Replace`, version updates switch directly to the resolved version without pre-stop sequencing
 - missing live client, missing selected flow content, or unsupported manual drift is reported as `blocked` in the runtime status file instead of widening the feature into a generic recovery loop
+- when the optional controller bridge is enabled, the same runtime result is surfaced back into `NiFiDataflow.status` from the controller-observed status `ConfigMap`
+- when the optional controller bridge is enabled, the controller also emits Kubernetes events for meaningful runtime transitions such as `Ready`, `Blocked`, and `Failed`
+- retained owned imports reported by the runtime are surfaced as warnings on otherwise healthy `NiFiDataflow` resources so operators can see stale retained targets without widening the feature into a deletion controller
+- operator-owned targets without the product ownership marker are surfaced as explicit adoption-refused blocked status and events; this path does not auto-adopt them
+- when retained owned imports disappear from runtime status, the controller emits a normalized warning-cleared event so the signal is visible without repeated warning spam
+- the same bridge path also projects a small queryable status summary under `status.ownership` and `status.warnings.retainedOwnedImports[]` so automation can inspect ownership and retained-warning state without parsing condition text
+- `kubectl get nifidataflows` also surfaces a compact operator summary through the `Ownership` and low-priority `Retained` printer columns
 - ongoing automatic synchronization to newer registry versions is out of scope
+
+## Operator View
+
+When the optional controller bridge is enabled, operators can inspect the
+runtime summary directly from `kubectl` without opening the full
+resource:
+
+```bash
+kubectl get nifidataflows
+```
+
+Example output:
+
+```text
+NAME             PHASE    CLUSTER   VERSION   OWNERSHIP        AGE
+orders-ingest    Ready    nifi      12        Managed          18m
+payments-sync    Blocked  nifi      8         AdoptionRefused  6m
+```
+
+If you want the retained-warning hint as well, ask for wide output:
+
+```bash
+kubectl get nifidataflows -o wide
+```
+
+Example wide output:
+
+```text
+NAME             PHASE    CLUSTER   VERSION   OWNERSHIP        RETAINED         AGE
+orders-ingest    Ready    nifi      12        Managed          old-orders       18m
+payments-sync    Blocked  nifi      8         AdoptionRefused                   6m
+```
+
+Column meaning:
+
+- `Ownership` shows the current ownership view from
+  `status.ownership.state`, such as `Managed` or `AdoptionRefused`
+- `Retained` shows the first retained owned-import warning name when the runtime
+  reports stale retained targets under `status.warnings.retainedOwnedImports[]`
+
+## Status Examples
+
+Managed target with no ownership conflict:
+
+```yaml
+apiVersion: platform.nifi.io/v1alpha1
+kind: NiFiDataflow
+metadata:
+  name: orders-ingest
+spec:
+  clusterRef:
+    name: nifi
+status:
+  phase: Ready
+  observedVersion: "12"
+  ownership:
+    state: Managed
+    reason: OwnedTargetReconciled
+    message: runtime reconciled owned target orders-ingest at version 12
+  warnings: {}
+```
+
+Operator-owned target with the same name but without the product ownership
+marker:
+
+```yaml
+apiVersion: platform.nifi.io/v1alpha1
+kind: NiFiDataflow
+metadata:
+  name: payments-sync
+spec:
+  clusterRef:
+    name: nifi
+status:
+  phase: Blocked
+  observedVersion: "8"
+  ownership:
+    state: AdoptionRefused
+    reason: AdoptionRefused
+    message: runtime refused to adopt existing target payments-sync without an ownership marker
+  conditions:
+  - type: Degraded
+    status: "True"
+    reason: AdoptionRefused
+```
+
+Those examples line up with the `kubectl get nifidataflows` output above:
+
+- `Managed` becomes the `Ownership` column value for a product-owned target the runtime can keep reconciling
+- `AdoptionRefused` becomes the `Ownership` column value when a same-name target exists but NiFi-Fabric refuses to auto-adopt it
 
 ## Runtime Coverage
 
@@ -107,6 +236,7 @@ The project includes:
 
 - [platform-managed-versioned-flow-import-values.yaml](../../examples/platform-managed-versioned-flow-import-values.yaml)
 - [platform-managed-versioned-flow-import-kind-values.yaml](../../examples/platform-managed-versioned-flow-import-kind-values.yaml)
+- [platform-managed-nifidataflow-values.yaml](../../examples/platform-managed-nifidataflow-values.yaml)
 - [platform-managed-versioned-flow-import-nifi-registry-values.yaml](../../examples/platform-managed-versioned-flow-import-nifi-registry-values.yaml)
 - [platform-managed-versioned-flow-import-nifi-registry-kind-values.yaml](../../examples/platform-managed-versioned-flow-import-nifi-registry-kind-values.yaml)
 - [github-versioned-flow-selection-kind-values.yaml](../../examples/github-versioned-flow-selection-kind-values.yaml)
@@ -123,6 +253,12 @@ If you want to exercise the platform path locally, run:
 
 ```bash
 make kind-platform-managed-versioned-flow-import-fast-e2e
+```
+
+If you want to exercise the `NiFiDataflow` CRD path locally, run:
+
+```bash
+make kind-nifidataflow-fast-e2e
 ```
 
 If you want to exercise the NiFi Registry compatibility path locally, run:

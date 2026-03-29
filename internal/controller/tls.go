@@ -14,6 +14,20 @@ import (
 
 const tlsAutoreloadObservationWindow = 30 * time.Second
 
+func setTLSStatus(cluster *platformv1alpha1.NiFiCluster, phase platformv1alpha1.TLSStatusPhase, reason, message string) {
+	cluster.Status.TLS.Phase = phase
+	cluster.Status.TLS.Reason = reason
+	cluster.Status.TLS.Message = message
+}
+
+func setTLSStatusIdle(cluster *platformv1alpha1.NiFiCluster, reason, message string) {
+	cluster.Status.TLS = platformv1alpha1.TLSStatus{
+		Phase:   platformv1alpha1.TLSStatusPhaseIdle,
+		Reason:  reason,
+		Message: message,
+	}
+}
+
 func tlsDiffPolicy(cluster *platformv1alpha1.NiFiCluster) platformv1alpha1.TLSDiffPolicy {
 	if cluster.Spec.RestartPolicy.TLSDrift == "" {
 		return platformv1alpha1.TLSDiffPolicyAutoreloadThenRestartOnFailure
@@ -90,18 +104,23 @@ func tlsObservationElapsed(cluster *platformv1alpha1.NiFiCluster) bool {
 }
 
 func startTLSObservation(cluster *platformv1alpha1.NiFiCluster, drift WatchedResourceDrift) {
+	message := fmt.Sprintf("Observing TLS autoreload for %s before deciding whether a restart is required", joinOrNone(drift.CertificateRefs))
 	if tlsObservationMatches(cluster, drift) {
+		setTLSStatus(cluster, platformv1alpha1.TLSStatusPhaseObservingAutoreload, "TLSAutoreloadObserving", message)
 		return
 	}
 
 	now := metav1.NewTime(time.Now().UTC())
 	cluster.Status.TLS = platformv1alpha1.TLSStatus{
 		ObservationStartedAt:       &now,
+		Phase:                      platformv1alpha1.TLSStatusPhaseObservingAutoreload,
+		Reason:                     "TLSAutoreloadObserving",
+		Message:                    message,
 		TargetCertificateHash:      drift.CurrentCertificateHash,
 		TargetTLSConfigurationHash: drift.CurrentTLSConfigurationHash,
 	}
 }
 
 func clearTLSObservation(cluster *platformv1alpha1.NiFiCluster) {
-	cluster.Status.TLS = platformv1alpha1.TLSStatus{}
+	setTLSStatusIdle(cluster, "NoTLSDrift", "No active TLS observation or restart is required")
 }

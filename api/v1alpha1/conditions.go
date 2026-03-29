@@ -7,6 +7,8 @@ import (
 
 const (
 	ConditionTargetResolved = "TargetResolved"
+	ConditionSecretsReady   = "SecretsReady"
+	ConditionTLSReady       = "TLSMaterialReady"
 	ConditionAvailable      = "Available"
 	ConditionProgressing    = "Progressing"
 	ConditionDegraded       = "Degraded"
@@ -15,6 +17,8 @@ const (
 
 var defaultConditionTypes = []string{
 	ConditionTargetResolved,
+	ConditionSecretsReady,
+	ConditionTLSReady,
 	ConditionAvailable,
 	ConditionProgressing,
 	ConditionDegraded,

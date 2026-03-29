@@ -246,6 +246,9 @@ func rolloutStartSignal(original, updated *platformv1alpha1.NiFiCluster) (lifecy
 			message:  message,
 		}, true
 	case platformv1alpha1.RolloutTriggerTLSDrift:
+		if updated.Status.TLS.Message != "" {
+			message = updated.Status.TLS.Message
+		}
 		return lifecycleSignal{
 			category: "tls",
 			event:    "rollout_required",

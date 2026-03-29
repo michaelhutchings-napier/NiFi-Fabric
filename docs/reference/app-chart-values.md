@@ -53,7 +53,7 @@ See also:
 | `ingress.enabled` | boolean | Enables Kubernetes Ingress rendering. | No | `false` |
 | `ingress.className` | string | Ingress class name. | No | `""` |
 | `ingress.annotations` | object | Ingress annotations. | No | `{}` |
-| `ingress.hosts[]` | object list | Ingress host and path rules. | No | see values file |
+| `ingress.hosts[]` | object-or-string list | Ingress host and path rules. String entries use the host as shorthand for a single `/` `Prefix` path. | No | see values file |
 | `ingress.tls[]` | object list | Ingress TLS entries. | No | `[]` |
 | `openshift.route.enabled` | boolean | Enables OpenShift Route rendering. The documented model keeps the Route hostname explicit and mirrors it into `web.proxyHosts`. | No | `false` |
 | `openshift.route.host` | string | Explicit Route host. Required when `openshift.route.enabled=true`. | No | `""` |
@@ -147,7 +147,7 @@ See also:
 | `authz.capabilities.mutableFlow.groups[]` | string list | Seeded NiFi groups that should receive the mutable-flow bundle. Each group must also be seeded through `authz.applicationGroups[]` or `authz.bootstrap.initialAdminGroup`. | No | `[]` |
 | `authz.policies[]` | object list | File-managed policy definitions. | No | `[]` |
 
-## Observability and Metrics
+## Observability
 
 | Field | Type | Description | Required | Default |
 | --- | --- | --- | --- | --- |
@@ -156,6 +156,7 @@ See also:
 | `serviceMonitor.scrapeTimeout` | string | Deprecated compatibility shim scrape timeout. | No | `10s` |
 | `observability.metrics.mode` | enum | Metrics mode. Values: `disabled`, `nativeApi`, `exporter`, `siteToSite`. | No | `disabled` |
 | `observability.metrics.nativeApi.service.*` | object | Native metrics Service settings. | No | see values file |
+| `observability.metrics.nativeApi.serviceMonitor.enabled` | boolean | Enables native API `ServiceMonitor` rendering. Direct `charts/nifi` installs keep this `true` by default for backward compatibility; set it to `false` when Prometheus Operator is not installed and you only want the native metrics `Service`. | No | `true` |
 | `observability.metrics.nativeApi.serviceMonitor.defaults.*` | object | Default ServiceMonitor settings for native metrics endpoints. | No | see values file |
 | `observability.metrics.nativeApi.machineAuth.*` | object | Provider-agnostic machine-auth Secret settings. | No | see values file |
 | `observability.metrics.nativeApi.tlsConfig.*` | object | TLS settings for secured native metrics scraping, including Secret or ConfigMap CA references. | No | see values file |
@@ -190,6 +191,24 @@ See also:
 | `observability.siteToSiteProvenance.source.*` | object | Optional provenance-export source URL override. | No | see values file |
 | `observability.siteToSiteProvenance.transport.*` | object | Site-to-Site transport settings for the typed provenance-export path. | No | see values file |
 | `observability.siteToSiteProvenance.provenance.startPosition` | enum | Initial provenance cursor. Values: `beginningOfStream`, `endOfStream`. | No | `endOfStream` |
+| `observability.audit.flowActions.enabled` | boolean | Enables the flow-action audit capability. The default supported layer is durable local audit; optional `export.type=log` adds bounded reporter export. Keep this `false` when you do not want the audit feature at all. | No | `false` |
+| `observability.audit.flowActions.local.history.enabled` | boolean | Keeps the NiFi-native flow configuration history database explicit. The current supported slice requires this to stay enabled when flow-action audit is enabled. | No | `true` |
+| `observability.audit.flowActions.local.archive.enabled` | boolean | Keeps automatic flow archive creation enabled on durable storage. The current supported slice requires this to stay enabled when flow-action audit is enabled. | No | `true` |
+| `observability.audit.flowActions.local.archive.directory` | string | Durable archive directory for flow archive files. Use a PVC-backed location, not the default `./conf/archive` path under the chart's `emptyDir`-backed `conf` mount. | No | `/opt/nifi/nifi-current/database_repository/flow-audit-archive` |
+| `observability.audit.flowActions.local.archive.retention.maxAge` | string | Maximum flow archive age passed to `nifi.flow.configuration.archive.max.time`. | No | `30 days` |
+| `observability.audit.flowActions.local.archive.retention.maxStorage` | string | Maximum flow archive storage passed to `nifi.flow.configuration.archive.max.storage`. | No | `2 GB` |
+| `observability.audit.flowActions.local.archive.retention.maxCount` | integer | Maximum number of archive files passed to `nifi.flow.configuration.archive.max.count`. | No | `1000` |
+| `observability.audit.flowActions.local.requestLog.enabled` | boolean | Enables explicit request-log format wiring as secondary evidence for the local audit layer. | No | `true` |
+| `observability.audit.flowActions.local.requestLog.format` | string | Request-log format written to `nifi.web.request.log.format` when request-log wiring is enabled. | No | see values file |
+| `observability.audit.flowActions.export.type` | enum | Export mode for flow-action audit. Values: `disabled`, `log`. `disabled` is the normal default. `log` is an advanced optional path that requires NiFi `image.tag >= 2.4.0` plus the reporter image settings below. | No | `disabled` |
+| `observability.audit.flowActions.export.log.installation.image.repository` | string | Reporter image repository used by the chart-managed init container for `export.type=log`. Upstream release plumbing publishes this reporter image to GHCR under `ghcr.io/<owner>/nifi-fabric-flow-action-audit-reporter`, but customers can and should use an internal mirrored registry when public registry access is restricted. | No | `""` |
+| `observability.audit.flowActions.export.log.installation.image.tag` | string | Reporter image tag used by the chart-managed init container for `export.type=log`. The release workflow publishes `edge`, `sha-<commit>`, and version tags from `flow-action-audit-reporter-vX.Y.Z`; customers can mirror and pin those tags internally. | No | `""` |
+| `observability.audit.flowActions.export.log.installation.image.pullPolicy` | string | Reporter image pull policy used by the chart-managed init container. | No | `IfNotPresent` |
+| `observability.audit.flowActions.export.log.installation.image.narPath` | string | Absolute path to the built reporter NAR inside the reporter image. | No | `/opt/nifi-fabric-audit/nifi-flow-action-audit-reporter.nar` |
+| `observability.audit.flowActions.content.includeRequestDetails` | boolean | Reserved bounded enrichment switch for the reporter-based export slice. | No | `true` |
+| `observability.audit.flowActions.content.includeProcessGroupPath` | boolean | Reserved bounded enrichment switch for the reporter-based export slice. | No | `true` |
+| `observability.audit.flowActions.content.propertyValues.mode` | enum | Export redaction mode. The current supported implementation requires `redacted`. | No | `redacted` |
+| `observability.audit.flowActions.content.propertyValues.allowlistedProperties[]` | string list | Reserved placeholder for a future explicit allowlist-based mode. The current supported implementation does not use it. | No | `[]` |
 
 ## Flow Registry Clients
 
@@ -217,6 +236,8 @@ For behavior and examples, see [Flows](../manage/flows.md).
 | --- | --- | --- | --- | --- |
 | `versionedFlowImports.enabled` | boolean | Enables runtime-managed versioned-flow import reconciliation. | No | `false` |
 | `versionedFlowImports.mountPath` | string | Mount path for the rendered runtime bundle and status files consumed by the live in-pod reconciler. | No | `/opt/nifi/fabric/versioned-flow-imports` |
+| `versionedFlowImports.controllerBridge.enabled` | boolean | Enables the optional `NiFiDataflow` bridge input consumed by the same in-pod reconciler and the matching runtime status ConfigMap observed back into `NiFiDataflow.status`. The chart renders the bridge `ConfigMap`, and the controller updates only the bridge payload. Requires `controllerManaged.enabled=true`. | No | `false` |
+| `versionedFlowImports.controllerBridge.mountPath` | string | Mount path for the optional chart-rendered `NiFiDataflow` bridge `ConfigMap`. | No | `/opt/nifi/fabric/nifidataflows` |
 | `versionedFlowImports.imports[]` | object list | Declared versioned-flow imports with a selected registry client name, bucket, flow name, selected version identifier or `latest`, one intended root-child target name, and optional direct Parameter Context reference. | No | `[]` |
 
 ## Availability, Storage, and Resources

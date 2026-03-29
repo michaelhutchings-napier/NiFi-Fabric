@@ -1,0 +1,71 @@
+# Production OIDC overlay for `charts/nifi-platform`.
+# Compose with:
+# - examples/platform-managed-values.yaml
+#
+# This is the recommended customer path:
+# - customer-owned Keycloak realm, groups, users, and client setup
+# - no baked-in dev user
+# - explicit bootstrap admin group
+# - group-to-bundle authz scaffold ready before first login
+#
+# Before install:
+# - complete Keycloak realm, client, group, and admin-user setup
+# - create Secret/nifi-tls
+# - create Secret/nifi-oidc with key `clientSecret`
+# - set the real public NiFi host in `nifi.web.proxyHosts`
+
+nifi:
+  auth:
+    mode: oidc
+    oidc:
+      discoveryUrl: https://idp.example.com/realms/nifi/.well-known/openid-configuration
+      clientId: nifi-fabric
+      clientSecret:
+        existingSecret: nifi-oidc
+        key: clientSecret
+      claims:
+        identifyingUser: email
+        groups: groups
+      additionalScopes:
+      - openid
+      - profile
+      - email
+
+  authz:
+    mode: externalClaimGroups
+    bootstrap:
+      initialAdminGroup: nifi-platform-admins
+      initialAdminIdentity: ""
+    applicationGroups:
+    - nifi-platform-admins
+    - nifi-flow-operators
+    - nifi-flow-observers
+    bundles:
+      viewer:
+        groups:
+        - nifi-flow-observers
+        - nifi-flow-operators
+      editor:
+        groups:
+        - nifi-flow-operators
+      flowVersionManager:
+        groups:
+        - nifi-flow-operators
+      admin:
+        groups:
+        - nifi-platform-admins
+
+  web:
+    proxyHosts:
+    - nifi.example.com
+
+# Uncomment and set this block under `nifi.tls` when the IdP uses a private CA
+# that NiFi does not already trust:
+#
+# nifi:
+#   tls:
+#     additionalTrustBundle:
+#       enabled: true
+#       secretRef:
+#         name: idp-ca
+#         key: ca.crt

@@ -15,6 +15,12 @@ See also:
 | --- | --- | --- | --- | --- |
 | `mode` | enum | Install mode. Values: `standalone`, `managed`, `managed-cert-manager`. | No | `standalone` |
 
+## Shared Install Profile
+
+| Field | Type | Description | Required | Default |
+| --- | --- | --- | --- | --- |
+| `global.nifiFabric.installProfile` | enum | Shared install-profile preset used by the platform chart and nested app chart. Values: `explicit`, `quickstart-cert-manager`, `quickstart-self-signed`. | No | `explicit` |
+
 ## Controller Settings
 
 | Field | Type | Description | Required | Default |
@@ -165,7 +171,8 @@ These values render the managed `NiFiCluster` resource when `mode=managed` or `m
 | `nifi.authz.*` | object | NiFi authorization bootstrap, mutable-flow capability bundles, and policy settings. | No | chart-derived |
 | `nifi.ingress.*` | object | Standard Kubernetes ingress settings. | No | chart-derived |
 | `nifi.openshift.route.*` | object | OpenShift Route settings. | No | chart-derived |
-| `nifi.observability.metrics.*` | object | Metrics subsystem settings, including optional trust-manager bundle consumption. | No | chart-derived |
+| `nifi.observability.metrics.*` | object | Metrics subsystem settings, including optional trust-manager bundle consumption. The platform chart defaults this to `mode=nativeApi` with `nifi.observability.metrics.nativeApi.serviceMonitor.enabled=false`. | No | chart-derived |
+| `nifi.observability.audit.flowActions.*` | object | Flow-action audit settings for the nested NiFi workload, including durable local history support and the bounded advanced `export.type=log` reporter path. | No | chart-derived |
 | `nifi.persistence.*` | object | Repository storage settings. | No | chart-derived |
 | `nifi.resources.*` | object | NiFi pod resources. | No | chart-derived |
 | `nifi.config.extraProperties` | object | Extra `nifi.properties` entries rendered by the nested app chart. | No | chart-derived |

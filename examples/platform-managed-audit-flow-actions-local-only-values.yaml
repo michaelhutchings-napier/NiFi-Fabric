@@ -1,0 +1,13 @@
+# Optional managed-platform overlay for local-only flow-change audit.
+#
+# Compose it with:
+# - examples/platform-managed-values.yaml
+#
+# This enables the durable local audit layer and keeps external export disabled.
+nifi:
+  observability:
+    audit:
+      flowActions:
+        enabled: true
+        export:
+          type: disabled

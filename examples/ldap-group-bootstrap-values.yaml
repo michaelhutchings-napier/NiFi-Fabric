@@ -1,0 +1,34 @@
+# LDAP group-bootstrap overlay for newer Apache NiFi 2.x images.
+# Compose with:
+# - examples/managed/values.yaml
+# - examples/nifi-2.8.0-values.yaml
+#
+# This keeps LDAP as the source of truth for users and group membership while
+# letting NiFi bootstrap admin access from a directory group.
+
+auth:
+  mode: ldap
+  ldap:
+    url: ldaps://ldap.example.com:636
+    authenticationStrategy: LDAPS
+    managerSecret:
+      name: nifi-ldap-bind
+      dnKey: managerDn
+      passwordKey: managerPassword
+    userSearch:
+      base: ou=People,dc=example,dc=com
+      filter: (uid={0})
+      scope: SUBTREE
+      objectClass: inetOrgPerson
+      identityAttribute: uid
+    groupSearch:
+      base: ou=Groups,dc=example,dc=com
+      scope: SUBTREE
+      objectClass: groupOfNames
+      nameAttribute: cn
+      memberAttribute: member
+
+authz:
+  mode: ldapSync
+  bootstrap:
+    initialAdminGroup: nifi-platform-admins

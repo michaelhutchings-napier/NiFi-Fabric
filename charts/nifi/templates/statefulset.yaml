@@ -1,3 +1,11 @@
+{{- $observability := default (dict) .Values.observability -}}
+{{- $audit := default (dict) $observability.audit -}}
+{{- $flowActionAudit := default (dict) $audit.flowActions -}}
+{{- $flowActionAuditExport := default (dict) $flowActionAudit.export -}}
+{{- $flowActionAuditExportLog := default (dict) $flowActionAuditExport.log -}}
+{{- $flowActionAuditExportLogInstallation := default (dict) $flowActionAuditExportLog.installation -}}
+{{- $flowActionAuditExportLogImage := default (dict) $flowActionAuditExportLogInstallation.image -}}
+{{- $flowActionAuditReporterMountPath := "/opt/nifi/fabric/extensions/flow-action-audit" -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -400,6 +408,25 @@ spec:
           mountPath: /external-property-configs
           readOnly: true
         {{- end }}
+      {{- if and $flowActionAudit.enabled (eq $flowActionAuditExport.type "log") }}
+      - name: install-flow-action-audit-reporter
+        image: "{{ $flowActionAuditExportLogImage.repository }}:{{ $flowActionAuditExportLogImage.tag }}"
+        imagePullPolicy: {{ $flowActionAuditExportLogImage.pullPolicy }}
+        command:
+        - /bin/sh
+        - -ec
+        - |
+          if [ ! -f "{{ $flowActionAuditExportLogImage.narPath }}" ]; then
+            echo "flow-action audit reporter NAR not found at {{ $flowActionAuditExportLogImage.narPath }}" >&2
+            exit 1
+          fi
+          cp "{{ $flowActionAuditExportLogImage.narPath }}" "{{ $flowActionAuditReporterMountPath }}/"
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
+        volumeMounts:
+        - name: flow-action-audit-reporter
+          mountPath: {{ $flowActionAuditReporterMountPath }}
+      {{- end }}
       {{- with .Values.extraInitContainers }}
       {{- range . }}
         {{- $container := deepCopy . }}
@@ -416,6 +443,20 @@ spec:
         - /bin/sh
         - -ec
         - |
+          nifi_pid=""
+          tail_pid=""
+
+          stop_nifi() {
+            if [ -n "${nifi_pid}" ] && kill -0 "${nifi_pid}" 2>/dev/null; then
+              /opt/nifi/nifi-current/bin/nifi.sh stop >/dev/null 2>&1 || true
+            fi
+            if [ -n "${tail_pid}" ] && kill -0 "${tail_pid}" 2>/dev/null; then
+              kill "${tail_pid}" >/dev/null 2>&1 || true
+            fi
+          }
+
+          trap 'stop_nifi; wait "${nifi_pid}" 2>/dev/null || true; wait "${tail_pid}" 2>/dev/null || true; exit 0' TERM INT
+
           bootstrap_root_process_group_authorizations() {
             if [ ! -f /opt/nifi/nifi-current/conf/authorizations.template.xml ]; then
               return 0
@@ -453,6 +494,7 @@ spec:
           /opt/nifi/nifi-current/bin/nifi.sh run &
           nifi_pid="$!"
           tail -F --pid="${nifi_pid}" /opt/nifi/nifi-current/logs/nifi-app.log &
+          tail_pid="$!"
           {{- if eq (include "nifi.metricsMode" .) "siteToSite" }}
           python3 /opt/nifi/fabric/site-to-site-metrics/bootstrap.py
           {{- end }}
@@ -471,6 +513,7 @@ spec:
           python3 /opt/nifi/fabric/versioned-flow-imports/bootstrap.py >>/opt/nifi/nifi-current/logs/versioned-flow-imports-bootstrap.log 2>&1 &
           {{- end }}
           wait "${nifi_pid}"
+          wait "${tail_pid}" 2>/dev/null || true
         securityContext:
           {{- toYaml .Values.securityContext | nindent 10 }}
         env:
@@ -593,24 +636,39 @@ spec:
           containerPort: {{ .Values.ports.cluster }}
         - name: load-balance
           containerPort: {{ .Values.ports.loadBalance }}
+        {{- if .Values.probes.startup.enabled }}
         startupProbe:
           tcpSocket:
             port: https
+          {{- with .Values.probes.startup.initialDelaySeconds }}
+          initialDelaySeconds: {{ . }}
+          {{- end }}
           periodSeconds: {{ .Values.probes.startup.periodSeconds }}
           failureThreshold: {{ .Values.probes.startup.failureThreshold }}
           timeoutSeconds: {{ .Values.probes.startup.timeoutSeconds }}
+        {{- end }}
+        {{- if .Values.probes.readiness.enabled }}
         readinessProbe:
           tcpSocket:
             port: https
+          {{- with .Values.probes.readiness.initialDelaySeconds }}
+          initialDelaySeconds: {{ . }}
+          {{- end }}
           periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
           failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
           timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+        {{- end }}
+        {{- if .Values.probes.liveness.enabled }}
         livenessProbe:
           tcpSocket:
             port: https
+          {{- with .Values.probes.liveness.initialDelaySeconds }}
+          initialDelaySeconds: {{ . }}
+          {{- end }}
           periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
           failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
           timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+        {{- end }}
         resources:
           {{- toYaml .Values.resources | nindent 10 }}
         volumeMounts:
@@ -689,6 +747,16 @@ spec:
         {{- if .Values.versionedFlowImports.enabled }}
         - name: versioned-flow-imports
           mountPath: {{ .Values.versionedFlowImports.mountPath }}
+          readOnly: true
+        {{- if .Values.versionedFlowImports.controllerBridge.enabled }}
+        - name: nifidataflow-bridge
+          mountPath: {{ .Values.versionedFlowImports.controllerBridge.mountPath }}
+          readOnly: true
+        {{- end }}
+        {{- end }}
+        {{- if and $flowActionAudit.enabled (eq $flowActionAuditExport.type "log") }}
+        - name: flow-action-audit-reporter
+          mountPath: {{ $flowActionAuditReporterMountPath }}
           readOnly: true
         {{- end }}
         {{- with .Values.extraVolumeMounts }}
@@ -794,6 +862,16 @@ spec:
       - name: versioned-flow-imports
         configMap:
           name: {{ include "nifi.versionedFlowImportsConfigName" . }}
+      {{- if .Values.versionedFlowImports.controllerBridge.enabled }}
+      - name: nifidataflow-bridge
+        configMap:
+          name: {{ include "nifi.nifidataflowBridgeConfigName" . }}
+          optional: true
+      {{- end }}
+      {{- end }}
+      {{- if and $flowActionAudit.enabled (eq $flowActionAuditExport.type "log") }}
+      - name: flow-action-audit-reporter
+        emptyDir: {}
       {{- end }}
       {{- if .Values.config.propertyConfigMaps }}
       - name: external-property-configs

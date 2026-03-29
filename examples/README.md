@@ -43,6 +43,7 @@ Generated manifest-bundle installs:
 
 - managed: `make render-platform-managed-bundle && kubectl apply -f dist/nifi-platform-managed-bundle.yaml`
 - managed + cert-manager: `make render-platform-managed-cert-manager-bundle && kubectl apply -f dist/nifi-platform-managed-cert-manager-bundle.yaml`
+- fresh packaged chart for downstreams: `make package-platform-chart`
 
 Advanced evaluator installs still exist:
 
@@ -122,8 +123,8 @@ There is also one optional fast overlay:
 Metrics note:
 
 - [platform-managed-metrics-native-values.yaml](platform-managed-metrics-native-values.yaml) is an optional overlay for the first-class native API metrics subsystem
-- it enables `nifi.observability.metrics.mode=nativeApi`
-- it is the recommended default metrics overlay for managed installs
+- it enables `nifi.observability.metrics.nativeApi.serviceMonitor.enabled=true`
+- the platform chart already defaults managed installs to `nifi.observability.metrics.mode=nativeApi` and keeps `ServiceMonitor` opt-in until Prometheus Operator is present
 - it renders a dedicated metrics `Service` plus multiple named `ServiceMonitor` resources
 - it uses the provider-agnostic machine-auth Secret and CA Secret layout shared by the metrics subsystem
 - `hack/bootstrap-metrics-machine-auth.sh` can create those Kubernetes Secrets from a pre-minted token or from existing NiFi-accepted credentials
@@ -171,6 +172,24 @@ Metrics note:
 - it keeps destination receiver topology, destination-side user or policy lifecycle, long-lived credential lifecycle, downstream provenance processing, and downstream storage or retention expectations operator-owned
 - [platform-managed-site-to-site-provenance-kind-values.yaml](platform-managed-site-to-site-provenance-kind-values.yaml) points that typed feature at a cluster-local kind URL for local kind use
 - [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is reused as the kind receiver harness for that command
+
+Audit note:
+
+- [platform-managed-audit-flow-actions-local-only-values.yaml](platform-managed-audit-flow-actions-local-only-values.yaml) is the local-only example for enabling durable NiFi-native audit while keeping external export disabled
+- [platform-managed-audit-flow-actions-ghcr-values.yaml](platform-managed-audit-flow-actions-ghcr-values.yaml) is the connected-cluster example for using a published reporter image directly
+- [platform-managed-audit-flow-actions-private-registry-values.yaml](platform-managed-audit-flow-actions-private-registry-values.yaml) is the restricted-cluster example for using a mirrored internal reporter image plus `imagePullSecrets`
+- [platform-managed-audit-flow-actions-values.yaml](platform-managed-audit-flow-actions-values.yaml) is the optional managed-platform overlay for bounded design-time flow-action audit export
+- it enables `nifi.observability.audit.flowActions.enabled=true`
+- it keeps durable local history, request log, and flow archive as the primary support layer
+- it adds only the advanced `export.type=log` path; HTTP and Kafka sinks are intentionally not part of this shape
+- it expects a reporter image containing the NAR at the configured path; build the local example image with `make build-flow-action-audit-reporter-image`, or use the release-published upstream image from `ghcr.io/<owner>/nifi-fabric-flow-action-audit-reporter`
+- it pins the NiFi workload image to `2.8.0` because FlowActionReporter is only available in published NiFi artifacts from `2.4.0` onward
+- use it together with `examples/platform-managed-values.yaml`
+- [platform-managed-audit-flow-actions-kind-values.yaml](platform-managed-audit-flow-actions-kind-values.yaml) is the focused local kind overlay for this proof path
+- it switches the proof to a single NiFi node and keeps startup on the normal path until the proof script grants one temporary root-canvas policy through the NiFi API
+- use it together with `examples/platform-managed-values.yaml`, one audit overlay, and `examples/platform-fast-values.yaml`
+- use `make kind-flow-action-audit-fast-e2e` for the focused local kind proof path that installs local-only audit first and then upgrades to `export.type=log`
+- production rollout starts with the local-only overlay above, then moves to one of the explicit reporter-image overlays once the reporter image source and pull path are validated in the target cluster
 
 KEDA note:
 
@@ -221,8 +240,33 @@ There are also authentication overlays:
   - Compose with [oidc-values.yaml](oidc-values.yaml) and [oidc-group-claims-values.yaml](oidc-group-claims-values.yaml).
   - Use it when the external browser flow stays on the same `oidc + externalClaimGroups` model and NiFi needs a public HTTPS host for redirects.
 
+- [values-dev-keycloak-bootstrap.yaml](values-dev-keycloak-bootstrap.yaml)
+  - Development OIDC overlay for `charts/nifi-platform`.
+  - Convenience path for local, personal, and demo environments.
+  - Pair it with [platform-managed-values.yaml](platform-managed-values.yaml) and [keycloak-dev-bootstrap-realm.json](keycloak-dev-bootstrap-realm.json).
+
+- [keycloak-dev-bootstrap-realm.json](keycloak-dev-bootstrap-realm.json)
+  - Sample Keycloak startup-import realm for the dev bootstrap OIDC path.
+  - Seeds a client, groups, and an optional local dev admin user.
+  - Non-production example only.
+
+- [values-prod-oidc.yaml](values-prod-oidc.yaml)
+  - Production OIDC overlay for `charts/nifi-platform`.
+  - Recommended customer path once the customer-managed Keycloak realm, groups, users, and client already exist.
+  - Pair it with [../docs/install/keycloak-oidc-production.md](../docs/install/keycloak-oidc-production.md) for the production setup steps.
+
+- [integrated-keycloak-oidc-contract.yaml](integrated-keycloak-oidc-contract.yaml)
+  - Advanced higher-level install contract sketch for bootstrapping Keycloak and NiFi-Fabric together.
+  - Not consumed directly by `charts/nifi-platform`.
+  - Shows the recommended “declare the OIDC client secret once and use it in both Keycloak and `Secret/nifi-oidc`” pattern.
+
 - [ldap-values.yaml](ldap-values.yaml)
   - Enables `auth.mode=ldap` with `authz.mode=ldapSync`.
+  - Pair it with [../docs/install/ldap-production.md](../docs/install/ldap-production.md) for the production setup steps and baseline identity-bootstrap path.
+
+- [ldap-group-bootstrap-values.yaml](ldap-group-bootstrap-values.yaml)
+  - Enables LDAP group bootstrap for newer NiFi images.
+  - Compose it with [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml) and [../docs/install/ldap-production.md](../docs/install/ldap-production.md).
 
 - [ldap-kind-values.yaml](ldap-kind-values.yaml)
   - Kind LDAP overlay.
@@ -351,10 +395,13 @@ Only one authentication mode is supported at a time. The intended thin-platform 
 Preferred bootstrap:
 
 - `authz.bootstrap.initialAdminGroup`
+  - for OIDC
+  - for LDAP on newer NiFi images when using the group-bootstrap path
 
 Fallback bootstrap:
 
 - `authz.bootstrap.initialAdminIdentity`
+  - default for the baseline LDAP path on `apache/nifi:2.0.0`
 
 Flow Registry Client notes:
 
@@ -381,6 +428,10 @@ Flow Registry Client notes:
   - Use with `make helm-install-standalone`.
 
 ## Managed
+
+- [secret-contracts/](secret-contracts/)
+  - Copyable example Secret manifests for the explicit auth and TLS paths.
+  - Shows the expected key layout for `nifi-auth`, `nifi-tls`, and `nifi-tls-params`.
 
 - [platform-managed-cert-manager-quickstart-values.yaml](platform-managed-cert-manager-quickstart-values.yaml)
   - Standard one-release product-chart values for the cert-manager-first managed install path.

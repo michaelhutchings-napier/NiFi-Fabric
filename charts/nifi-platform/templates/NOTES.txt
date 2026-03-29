@@ -13,9 +13,46 @@ Managed mode details:
 {{- if eq (include "nifi-platform.mode" .) "managed-cert-manager" }}
 - cert-manager is a prerequisite and is not installed by this chart
 {{- end }}
+{{- if eq (include "nifi-platform.installProfile" .) "quickstart-cert-manager" }}
+- quickstart generated `Secret/{{ include "nifi-platform.nifiAuthSecretName" . }}`
+- quickstart generated `Secret/{{ include "nifi-platform.nifiCertManagerPKCS12PasswordSecretName" . }}` for PKCS12 password and sensitive props
+- cert-manager writes `Secret/{{ include "nifi-platform.tlsSecretName" . }}`
+{{- else if eq (include "nifi-platform.installProfile" .) "quickstart-self-signed" }}
+- quickstart generated `Secret/{{ include "nifi-platform.nifiAuthSecretName" . }}`
+- quickstart generated `Secret/{{ include "nifi-platform.tlsSecretName" . }}` with PKCS12 material and sensitive props
+{{- else if eq (include "nifi-platform.nifiTLSMode" .) "certManager" }}
+- expected before install: `Secret/{{ include "nifi-platform.nifiAuthSecretName" . }}` when using single-user auth
+- expected before install: `Secret/{{ include "nifi-platform.nifiCertManagerPKCS12PasswordSecretName" . }}` for PKCS12 password and sensitive props
+- cert-manager writes `Secret/{{ include "nifi-platform.tlsSecretName" . }}`
+{{- else }}
+- expected before install: `Secret/{{ include "nifi-platform.nifiAuthSecretName" . }}` when using single-user auth
+- expected before install: `Secret/{{ include "nifi-platform.tlsSecretName" . }}` with PKCS12 material, passwords, and sensitive props
+{{- end }}
+- Secret contract examples live under `examples/secret-contracts/`
+- First checks:
+  - `kubectl -n {{ .Release.Namespace }} get nificluster {{ include "nifi-platform.clusterName" . }} -o yaml`
+  - `kubectl -n {{ .Release.Namespace }} get statefulset,pods,svc,secret`
+{{- if eq (include "nifi-platform.nifiTLSMode" .) "certManager" }}
+  - `kubectl -n {{ .Release.Namespace }} get certificate {{ include "nifi-platform.targetRefName" . }}`
+{{- end }}
+  - `helm -n {{ .Release.Namespace }} status {{ .Release.Name }}`
+- Quick access:
+  - `kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "nifi-platform.targetRefName" . }} 8443:8443`
+{{- if eq (include "nifi-platform.nifiAuthMode" .) "singleUser" }}
+  - `kubectl -n {{ .Release.Namespace }} get secret {{ include "nifi-platform.nifiAuthSecretName" . }} -o jsonpath='{.data.username}' | base64 -d; echo`
+  - `kubectl -n {{ .Release.Namespace }} get secret {{ include "nifi-platform.nifiAuthSecretName" . }} -o jsonpath='{.data.password}' | base64 -d; echo`
+{{- end }}
+  - `kubectl -n {{ .Release.Namespace }} get nificluster {{ include "nifi-platform.clusterName" . }} -o yaml`
+  - `kubectl -n {{ include "nifi-platform.controllerNamespace" . }} logs deployment/{{ include "nifi-platform.controllerName" . }} --tail=100`
 {{- else }}
 Standalone mode details:
 
 - this release installed only the reusable `nifi` app chart resources
 - no controller or `NiFiCluster` was installed
+- First checks:
+  - `kubectl -n {{ .Release.Namespace }} get statefulset,pods,svc,secret`
+{{- if eq (include "nifi-platform.nifiTLSMode" .) "certManager" }}
+  - `kubectl -n {{ .Release.Namespace }} get certificate {{ include "nifi-platform.targetRefName" . }}`
+{{- end }}
+  - `helm -n {{ .Release.Namespace }} status {{ .Release.Name }}`
 {{- end }}

@@ -3,7 +3,7 @@
 {{- $secretRootPath := "/opt/nifi/fabric/parameter-context-secrets" -}}
 {{- $descriptionMarker := "Managed by NiFi-Fabric parameterContexts" -}}
 {{- $authMode := include "nifi.authMode" . -}}
-{{- $proxiedIdentity := .Values.authz.bootstrap.initialAdminIdentity -}}
+{{- $proxiedIdentity := include "nifi.effectiveAuthzBootstrapInitialAdminIdentity" . -}}
 {{- if eq $authMode "singleUser" -}}
 {{- $proxiedIdentity = "__SINGLE_USER_IDENTITY__" -}}
 {{- end -}}

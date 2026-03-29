@@ -1,0 +1,16 @@
+# Focused local kind overlay for the flow-action audit proof.
+#
+# This keeps the proof bounded to the audit slice by:
+# - using a single NiFi node
+# - keeping startup on the normal path, then letting the proof script grant one
+#   temporary root-canvas policy through the NiFi API before it creates the
+#   audit-triggering child process group
+#
+# Compose it with:
+# - examples/platform-managed-values.yaml
+# - one flow-action audit overlay such as:
+#   - examples/platform-managed-audit-flow-actions-local-only-values.yaml
+#   - examples/platform-managed-audit-flow-actions-values.yaml
+# - examples/platform-fast-values.yaml
+nifi:
+  replicaCount: 1

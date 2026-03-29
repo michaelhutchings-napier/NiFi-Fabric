@@ -14,11 +14,19 @@ spec:
   ingressClassName: {{ .Values.ingress.className }}
   {{- end }}
   rules:
-  {{- range .Values.ingress.hosts }}
-  - host: {{ .host }}
+  {{- range $host := .Values.ingress.hosts }}
+  {{- $hostName := $host -}}
+  {{- $paths := list (dict "path" "/" "pathType" "Prefix") -}}
+  {{- if kindIs "map" $host }}
+  {{- $hostName = $host.host -}}
+  {{- if $host.paths }}
+  {{- $paths = $host.paths -}}
+  {{- end }}
+  {{- end }}
+  - host: {{ $hostName }}
     http:
       paths:
-      {{- range .paths }}
+      {{- range $paths }}
       - path: {{ .path }}
         pathType: {{ .pathType }}
         backend:
@@ -33,4 +41,3 @@ spec:
     {{- toYaml . | nindent 2 }}
   {{- end }}
 {{- end }}
-

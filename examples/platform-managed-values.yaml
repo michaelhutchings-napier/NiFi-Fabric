@@ -33,10 +33,6 @@ nifi:
     autoReload:
       enabled: true
 
-  observability:
-    metrics:
-      mode: disabled
-
   nifi:
     jvmHeapInit: 512m
     jvmHeapMax: 512m

@@ -50,10 +50,6 @@ nifi:
         name: nifi-tls-params
         key: sensitivePropsKey
 
-  observability:
-    metrics:
-      mode: disabled
-
   nifi:
     jvmHeapInit: 512m
     jvmHeapMax: 512m

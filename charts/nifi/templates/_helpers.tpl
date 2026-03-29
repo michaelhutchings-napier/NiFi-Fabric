@@ -452,20 +452,17 @@ app.kubernetes.io/component: metrics-exporter
 {{- printf "%s-versioned-flow-imports" (include "nifi.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "nifi.nifidataflowBridgeConfigName" -}}
+{{- printf "%s-nifidataflows" (include "nifi.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "nifi.nifidataflowBridgeStatusConfigName" -}}
+{{- printf "%s-nifidataflows-status" (include "nifi.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "nifi.metricsServiceSelectorLabels" -}}
-{{- $observability := default (dict) .Values.observability -}}
-{{- $metrics := default (dict) $observability.metrics -}}
-{{- $native := default (dict) $metrics.nativeApi -}}
-{{- $service := default (dict) $native.service -}}
-{{- $mode := default "disabled" $metrics.mode -}}
-{{- if eq $mode "exporter" -}}
-{{- include "nifi.metricsExporterSelectorLabels" . }}
-{{- else if $service.enabled -}}
 {{- include "nifi.selectorLabels" . }}
 app.kubernetes.io/component: metrics
-{{- else -}}
-{{- include "nifi.selectorLabels" . }}
-{{- end -}}
 {{- end -}}
 
 {{- define "nifi.metricsEndpointName" -}}
@@ -511,6 +508,19 @@ app.kubernetes.io/component: metrics
 {{- $siteToSiteMetrics := default (dict) $metrics.siteToSite -}}
 {{- $siteToSiteStatus := default (dict) $observability.siteToSiteStatus -}}
 {{- $siteToSiteProvenance := default (dict) $observability.siteToSiteProvenance -}}
+{{- $audit := default (dict) $observability.audit -}}
+{{- $flowActionAudit := default (dict) $audit.flowActions -}}
+{{- $flowActionAuditLocal := default (dict) $flowActionAudit.local -}}
+{{- $flowActionAuditHistory := default (dict) $flowActionAuditLocal.history -}}
+{{- $flowActionAuditArchive := default (dict) $flowActionAuditLocal.archive -}}
+{{- $flowActionAuditArchiveRetention := default (dict) $flowActionAuditArchive.retention -}}
+{{- $flowActionAuditRequestLog := default (dict) $flowActionAuditLocal.requestLog -}}
+{{- $flowActionAuditExport := default (dict) $flowActionAudit.export -}}
+{{- $flowActionAuditExportLog := default (dict) $flowActionAuditExport.log -}}
+{{- $flowActionAuditExportLogInstallation := default (dict) $flowActionAuditExportLog.installation -}}
+{{- $flowActionAuditExportLogImage := default (dict) $flowActionAuditExportLogInstallation.image -}}
+{{- $flowActionAuditContent := default (dict) $flowActionAudit.content -}}
+{{- $flowActionAuditPropertyValues := default (dict) $flowActionAuditContent.propertyValues -}}
 {{- $parameterContexts := default (dict) .Values.parameterContexts -}}
 {{- $versionedFlowImports := default (dict) .Values.versionedFlowImports -}}
 {{- $config := default (dict) .Values.config -}}
@@ -534,6 +544,55 @@ app.kubernetes.io/component: metrics
 {{- fail (printf "config.propertyConfigMaps contains duplicate reference %q" $entryID) -}}
 {{- end -}}
 {{- $_ := set $seenPropertyConfigMaps $entryID true -}}
+{{- end -}}
+{{- if $flowActionAudit.enabled -}}
+{{- if not $flowActionAuditHistory.enabled -}}
+{{- fail "observability.audit.flowActions.enabled=true currently requires local.history.enabled=true so NiFi-native flow configuration history remains the primary support layer" -}}
+{{- end -}}
+{{- if not $flowActionAuditArchive.enabled -}}
+{{- fail "observability.audit.flowActions.enabled=true currently requires local.archive.enabled=true so durable flow archives remain available for support workflows" -}}
+{{- end -}}
+{{- if not $flowActionAuditArchive.directory -}}
+{{- fail "observability.audit.flowActions.local.archive.directory is required when flowActions audit is enabled" -}}
+{{- end -}}
+{{- if not $flowActionAuditArchiveRetention.maxAge -}}
+{{- fail "observability.audit.flowActions.local.archive.retention.maxAge is required when flowActions audit is enabled" -}}
+{{- end -}}
+{{- if not $flowActionAuditArchiveRetention.maxStorage -}}
+{{- fail "observability.audit.flowActions.local.archive.retention.maxStorage is required when flowActions audit is enabled" -}}
+{{- end -}}
+{{- if lt (int $flowActionAuditArchiveRetention.maxCount) 1 -}}
+{{- fail "observability.audit.flowActions.local.archive.retention.maxCount must be greater than zero when flowActions audit is enabled" -}}
+{{- end -}}
+{{- if and $flowActionAuditRequestLog.enabled (not $flowActionAuditRequestLog.format) -}}
+{{- fail "observability.audit.flowActions.local.requestLog.format is required when requestLog.enabled=true" -}}
+{{- end -}}
+{{- if and (ne $flowActionAuditExport.type "") (ne $flowActionAuditExport.type "disabled") (ne $flowActionAuditExport.type "log") -}}
+{{- fail "observability.audit.flowActions.export.type must be one of: disabled, log" -}}
+{{- end -}}
+{{- if and (eq $flowActionAuditExport.type "log") (not $flowActionAudit.enabled) -}}
+{{- fail "observability.audit.flowActions.export.type=log requires observability.audit.flowActions.enabled=true" -}}
+{{- end -}}
+{{- if eq $flowActionAuditExport.type "log" -}}
+{{- if not (regexMatch "^v?[0-9]+\\.[0-9]+\\.[0-9]+$" .Values.image.tag) -}}
+{{- fail "observability.audit.flowActions.export.type=log requires image.tag to be an explicit NiFi semver at or above 2.4.0 because FlowActionReporter is not available in earlier published NiFi artifacts" -}}
+{{- end -}}
+{{- if semverCompare "<2.4.0-0" (trimPrefix "v" .Values.image.tag) -}}
+{{- fail "observability.audit.flowActions.export.type=log requires image.tag >= 2.4.0 because FlowActionReporter is not available in earlier published NiFi artifacts" -}}
+{{- end -}}
+{{- if not $flowActionAuditExportLogImage.repository -}}
+{{- fail "observability.audit.flowActions.export.log.installation.image.repository is required when export.type=log" -}}
+{{- end -}}
+{{- if not $flowActionAuditExportLogImage.tag -}}
+{{- fail "observability.audit.flowActions.export.log.installation.image.tag is required when export.type=log" -}}
+{{- end -}}
+{{- if not $flowActionAuditExportLogImage.narPath -}}
+{{- fail "observability.audit.flowActions.export.log.installation.image.narPath is required when export.type=log" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if and (ne $flowActionAuditPropertyValues.mode "") (ne $flowActionAuditPropertyValues.mode "redacted") -}}
+{{- fail "observability.audit.flowActions.content.propertyValues.mode must be redacted in the current supported implementation" -}}
 {{- end -}}
 {{- if $route.enabled -}}
 {{- if not $route.host -}}
@@ -977,6 +1036,7 @@ app.kubernetes.io/component: metrics
 {{- $authzCapabilities := default (dict) $authz.capabilities -}}
 {{- $mutableFlow := default (dict) $authzCapabilities.mutableFlow -}}
 {{- $authMode := include "nifi.authMode" . -}}
+{{- $controllerBridge := default (dict) $versionedFlowImports.controllerBridge -}}
 {{- if not $flowRegistryClients.enabled -}}
 {{- fail "versionedFlowImports.enabled=true currently requires flowRegistryClients.enabled=true so the selected prepared client definition can be resolved for bounded import reconciliation" -}}
 {{- end -}}
@@ -991,13 +1051,19 @@ app.kubernetes.io/component: metrics
 {{- if not $versionedFlowImports.mountPath -}}
 {{- fail "versionedFlowImports.mountPath is required when versionedFlowImports.enabled=true" -}}
 {{- end -}}
+{{- if and $controllerBridge.enabled (not .Values.controllerManaged.enabled) -}}
+{{- fail "versionedFlowImports.controllerBridge.enabled=true requires controllerManaged.enabled=true so the controller-owned NiFiDataflow bridge only runs on the managed platform path" -}}
+{{- end -}}
+{{- if and $controllerBridge.enabled (not $controllerBridge.mountPath) -}}
+{{- fail "versionedFlowImports.controllerBridge.mountPath is required when versionedFlowImports.controllerBridge.enabled=true" -}}
+{{- end -}}
 {{- if and (or (eq $authMode "oidc") (eq $authMode "ldap")) (not $bootstrap.initialAdminIdentity) -}}
 {{- fail "versionedFlowImports.enabled=true with auth.mode=oidc or auth.mode=ldap requires authz.bootstrap.initialAdminIdentity so the bounded trusted-proxy management identity is explicit" -}}
 {{- end -}}
 {{- if and (eq $authMode "singleUser") (not (or (and $mutableFlow.enabled $mutableFlow.includeInitialAdmin) $authzBundles.flowVersionManager.includeInitialAdmin)) -}}
 {{- fail "versionedFlowImports.enabled=true with auth.mode=singleUser requires authz.capabilities.mutableFlow.enabled=true with includeInitialAdmin=true or authz.bundles.flowVersionManager.includeInitialAdmin=true" -}}
 {{- end -}}
-{{- if eq (len $versionedFlowImports.imports) 0 -}}
+{{- if and (eq (len $versionedFlowImports.imports) 0) (not $controllerBridge.enabled) -}}
 {{- fail "versionedFlowImports.enabled=true requires versionedFlowImports.imports to contain at least one import definition" -}}
 {{- end -}}
 {{- $importNames := list -}}
@@ -1092,9 +1158,14 @@ app.kubernetes.io/component: metrics
 {{- end -}}
 {{- if eq $mode "nativeApi" -}}
 {{- $native := default (dict) $metrics.nativeApi -}}
+{{- $service := default (dict) $native.service -}}
+{{- $serviceMonitor := default (dict) $native.serviceMonitor -}}
 {{- $defaults := default (dict) $native.serviceMonitor.defaults -}}
 {{- if not $native.endpoints -}}
 {{- fail "observability.metrics.nativeApi.endpoints must contain at least one endpoint when observability.metrics.mode=nativeApi" -}}
+{{- end -}}
+{{- if and (not $service.enabled) (default false $serviceMonitor.enabled) -}}
+{{- fail "observability.metrics.nativeApi.service.enabled=false cannot be combined with an enabled nativeApi ServiceMonitor" -}}
 {{- end -}}
 {{- $enabledCount := 0 -}}
 {{- $defaultScheme := default "https" $defaults.scheme -}}

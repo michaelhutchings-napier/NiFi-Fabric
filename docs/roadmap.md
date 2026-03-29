@@ -18,6 +18,7 @@ NiFi-Fabric keeps the roadmap small and explicit.
 - typed Site-to-Site metrics export as an optional GA sender-side path
 - typed Site-to-Site status export as an optional GA sender-side path
 - typed Site-to-Site provenance export as an optional GA sender-side path
+- bounded flow-change audit with NiFi-native local history plus optional `export.type=log`
 - Git-based Flow Registry Client direction through chart-managed catalog rendering
 - Parameter Context management
 - versioned-flow import
