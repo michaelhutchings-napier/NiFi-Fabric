@@ -178,6 +178,7 @@ These values render the managed `NiFiCluster` resource when `mode=managed` or `m
 | `nifi.config.extraProperties` | object | Extra `nifi.properties` entries rendered by the nested app chart. | No | chart-derived |
 | `nifi.config.propertyConfigMaps[]` | object list | Ordered external ConfigMap key references applied by the nested app chart during `init-conf` bootstrap. | No | chart-derived |
 | `nifi.config.propertyConfigMapsRestartOnChange` | boolean | Appends nested `nifi.config.propertyConfigMaps[]` names to the managed `NiFiCluster` watched ConfigMap set. | No | chart-derived |
+| `nifi.repositoryEncryption.*` | object | Secret-backed repository-encryption settings passed through to the nested app chart. When enabled, the platform chart also appends the referenced Secret to the managed `NiFiCluster` watched Secret set. | No | chart-derived |
 | `nifi.logging.levels.*` | string map | Optional named logger level overrides patched into the nested app chart's `logback.xml` during `init-conf`. Supported levels are `TRACE`, `DEBUG`, `INFO`, `WARN`, and `ERROR`. | No | chart-derived |
 | `nifi.env[]` | object list | Extra environment variables appended to the main nested NiFi container. | No | chart-derived |
 | `nifi.envFrom[]` | object list | Extra environment sources appended to the main nested NiFi container. | No | chart-derived |
@@ -199,3 +200,7 @@ See [App Chart Values Reference](app-chart-values.md) for the detailed nested ch
 ### Nested Logger Level Overrides
 
 `nifi.logging.levels.*` behaves exactly like the app-chart `logging.levels.*` surface, but is configured on the platform chart and passed through to the nested NiFi workload. This remains a bounded troubleshooting override for named loggers only; the platform chart still does not take ownership of the full `logback.xml`.
+
+### Nested Repository Encryption
+
+`nifi.repositoryEncryption.*` behaves exactly like the app-chart `repositoryEncryption.*` surface, but is configured on the platform chart and passed through to the nested NiFi workload. In managed installs, the platform chart also appends the referenced repository-encryption Secret to `spec.restartTriggers.secrets[]` so Secret changes can drive the normal controller-owned rollout path instead of relying on manual restart coordination.

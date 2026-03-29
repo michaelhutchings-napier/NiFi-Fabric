@@ -12,6 +12,7 @@ spec:
   desiredState: {{ .Values.cluster.desiredState }}
   suspend: {{ ternary "true" "false" .Values.cluster.suspend }}
   {{- $restartTriggerConfigMaps := list }}
+  {{- $restartTriggerSecrets := list }}
   {{- if .Values.cluster.restartTriggers.configMaps }}
   {{- range .Values.cluster.restartTriggers.configMaps }}
   {{- if and .name (not (has .name $restartTriggerConfigMaps)) }}
@@ -31,21 +32,32 @@ spec:
   {{- end }}
   {{- end }}
   {{- end }}
+  {{- if .Values.cluster.restartTriggers.secrets }}
+  {{- range .Values.cluster.restartTriggers.secrets }}
+  {{- if and .name (not (has .name $restartTriggerSecrets)) }}
+  {{- $restartTriggerSecrets = append $restartTriggerSecrets .name }}
+  {{- end }}
+  {{- end }}
+  {{- else }}
+  {{- $restartTriggerSecrets = append $restartTriggerSecrets (include "nifi-platform.tlsSecretName" .) }}
+  {{- if and .Values.trustManager.enabled (eq (include "nifi-platform.trustManagerTargetType" .) "secret") (dig "tls" "additionalTrustBundle" "enabled" false .Values.nifi) (dig "tls" "additionalTrustBundle" "useTrustManagerBundle" false .Values.nifi) }}
+  {{- $restartTriggerSecrets = append $restartTriggerSecrets (include "nifi-platform.trustManagerBundleName" .) }}
+  {{- end }}
+  {{- end }}
+  {{- if dig "repositoryEncryption" "enabled" false .Values.nifi }}
+  {{- $repositoryEncryptionSecretName := dig "repositoryEncryption" "secretRef" "name" "" .Values.nifi }}
+  {{- if and $repositoryEncryptionSecretName (not (has $repositoryEncryptionSecretName $restartTriggerSecrets)) }}
+  {{- $restartTriggerSecrets = append $restartTriggerSecrets $repositoryEncryptionSecretName }}
+  {{- end }}
+  {{- end }}
   restartTriggers:
     configMaps:
       {{- range $name := $restartTriggerConfigMaps }}
       - name: {{ $name | quote }}
       {{- end }}
     secrets:
-      {{- if .Values.cluster.restartTriggers.secrets }}
-      {{- range .Values.cluster.restartTriggers.secrets }}
-      - name: {{ .name | quote }}
-      {{- end }}
-      {{- else }}
-      - name: {{ include "nifi-platform.tlsSecretName" . | quote }}
-      {{- if and .Values.trustManager.enabled (eq (include "nifi-platform.trustManagerTargetType" .) "secret") (dig "tls" "additionalTrustBundle" "enabled" false .Values.nifi) (dig "tls" "additionalTrustBundle" "useTrustManagerBundle" false .Values.nifi) }}
-      - name: {{ include "nifi-platform.trustManagerBundleName" . | quote }}
-      {{- end }}
+      {{- range $name := $restartTriggerSecrets }}
+      - name: {{ $name | quote }}
       {{- end }}
   restartPolicy:
     tlsDrift: {{ .Values.cluster.restartPolicy.tlsDrift }}

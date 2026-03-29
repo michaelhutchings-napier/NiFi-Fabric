@@ -21,6 +21,7 @@ NiFi-Fabric focuses on a small, practical feature set for running Apache NiFi 2.
 - external TLS Secret ownership for advanced installs
 - single-user authentication for the standard bootstrap path
 - OIDC and LDAP for advanced managed installs
+- Secret-backed repository encryption through a bounded chart surface
 - OpenShift `Route` for external HTTPS access
 - named authorization bundles for common access levels
 

@@ -39,6 +39,10 @@ Primary one-command product installs:
 - managed self-signed quickstart: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace --set global.nifiFabric.installProfile=quickstart-self-signed`
 - standalone: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-standalone-values.yaml`
 
+Optional Secret contract note:
+
+- if you enable `repositoryEncryption.*`, create the matching Secret first; see [repository-encryption-secret.yaml](secret-contracts/repository-encryption-secret.yaml)
+
 Generated manifest-bundle installs:
 
 - managed: `make render-platform-managed-bundle && kubectl apply -f dist/nifi-platform-managed-bundle.yaml`

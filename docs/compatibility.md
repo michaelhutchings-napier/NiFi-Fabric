@@ -42,6 +42,7 @@ Across the supported NiFi `2.x` line, NiFi-Fabric supports:
 - OIDC and LDAP
 - native API metrics
 - exporter metrics
+- Secret-backed repository encryption using NiFi's generic `nifi.repository.encryption.*` model
 - controller-owned autoscaling
 - optional KEDA integration
 

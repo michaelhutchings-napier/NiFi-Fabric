@@ -9,6 +9,7 @@ Files:
 - `auth-single-user-secret.yaml`: single-user credentials Secret used by `auth.mode=singleUser`
 - `tls-external-secret.yaml`: full workload TLS Secret used by `tls.mode=externalSecret`
 - `tls-cert-manager-params-secret.yaml`: support Secret used with `tls.mode=certManager`
+- `repository-encryption-secret.yaml`: optional Secret-backed repository-encryption keystore used by `repositoryEncryption.*`
 
 For the standard product quickstart path:
 
@@ -17,3 +18,10 @@ For the standard product quickstart path:
 - `nifi-tls` is written by cert-manager
 
 For the explicit advanced paths, you create the relevant Secrets yourself.
+
+If you enable `repositoryEncryption.*`, create the referenced repository-encryption Secret yourself too. The current chart surface expects:
+
+- one keystore file key, default `repository.p12`
+- one keystore password key, default `password`
+
+The keystore must contain one or more Secret Key entries, and `repositoryEncryption.key.id` must match the alias NiFi should use for new encryption operations.

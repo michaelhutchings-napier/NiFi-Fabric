@@ -135,6 +135,13 @@ spec:
               name: {{ include "nifi.sensitivePropsSecretName" . | quote }}
               key: {{ include "nifi.sensitivePropsSecretKey" . | quote }}
           {{- end }}
+        {{- if .Values.repositoryEncryption.enabled }}
+        - name: REPOSITORY_ENCRYPTION_KEYSTORE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.repositoryEncryption.secretRef.name | quote }}
+              key: {{ .Values.repositoryEncryption.secretRef.passwordKey | quote }}
+        {{- end }}
         - name: AUTH_MODE
           value: {{ include "nifi.authMode" . | quote }}
         - name: AUTHZ_MODE
@@ -427,6 +434,9 @@ spec:
           replace_token /work-conf/login-identity-providers.xml "__TRUSTSTORE_PATH__" "$(xml_escape "${TRUSTSTORE_PATH}")"
           replace_token /work-conf/login-identity-providers.xml "__TRUSTSTORE_PASSWORD__" "$(xml_escape "${TRUSTSTORE_PASSWORD}")"
           replace_property "nifi.sensitive.props.key" "${NIFI_SENSITIVE_PROPS_KEY}"
+          {{- if .Values.repositoryEncryption.enabled }}
+          replace_property "nifi.repository.encryption.key.provider.keystore.password" "${REPOSITORY_ENCRYPTION_KEYSTORE_PASSWORD}"
+          {{- end }}
           replace_property "nifi.web.http.host" ""
           replace_property "nifi.web.http.port" ""
           replace_property "nifi.web.https.host" "${NIFI_POD_FQDN}"
@@ -464,6 +474,11 @@ spec:
         - name: tls
           mountPath: {{ .Values.tls.mountPath }}
           readOnly: true
+        {{- if .Values.repositoryEncryption.enabled }}
+        - name: repository-encryption
+          mountPath: {{ .Values.repositoryEncryption.mountPath }}
+          readOnly: true
+        {{- end }}
         {{- if .Values.tls.additionalTrustBundle.enabled }}
         - name: additional-trust-bundle
           mountPath: {{ .Values.tls.additionalTrustBundle.mountPath }}
@@ -753,6 +768,11 @@ spec:
         - name: tls
           mountPath: {{ .Values.tls.mountPath }}
           readOnly: true
+        {{- if .Values.repositoryEncryption.enabled }}
+        - name: repository-encryption
+          mountPath: {{ .Values.repositoryEncryption.mountPath }}
+          readOnly: true
+        {{- end }}
         {{- if eq (include "nifi.metricsMode" .) "siteToSite" }}
         - name: site-to-site-metrics-config
           mountPath: /opt/nifi/fabric/site-to-site-metrics
@@ -847,6 +867,11 @@ spec:
       - name: tls
         secret:
           secretName: {{ include "nifi.tlsSecretName" . }}
+      {{- if .Values.repositoryEncryption.enabled }}
+      - name: repository-encryption
+        secret:
+          secretName: {{ .Values.repositoryEncryption.secretRef.name }}
+      {{- end }}
       {{- if eq (include "nifi.metricsMode" .) "siteToSite" }}
       - name: site-to-site-metrics-config
         configMap:

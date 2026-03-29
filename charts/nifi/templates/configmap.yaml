@@ -78,6 +78,13 @@ data:
     nifi.flowfile.repository.directory=./flowfile_repository
     nifi.content.repository.directory.default=./content_repository
     nifi.provenance.repository.directory.default=./provenance_repository
+    {{- if .Values.repositoryEncryption.enabled }}
+    nifi.repository.encryption.protocol.version=1
+    nifi.repository.encryption.key.id={{ .Values.repositoryEncryption.key.id }}
+    nifi.repository.encryption.key.provider=KEYSTORE
+    nifi.repository.encryption.key.provider.keystore.location={{ printf "%s/%s" .Values.repositoryEncryption.mountPath .Values.repositoryEncryption.secretRef.keystoreKey }}
+    nifi.repository.encryption.key.provider.keystore.password=__REPOSITORY_ENCRYPTION_KEYSTORE_PASSWORD__
+    {{- end }}
     {{- range $key, $value := .Values.config.extraProperties }}
     {{ $key }}={{ $value }}
     {{- end }}
