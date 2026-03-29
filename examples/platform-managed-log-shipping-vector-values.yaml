@@ -1,0 +1,39 @@
+# Optional managed-platform overlay for sidecar-based NiFi log shipping.
+#
+# Compose with:
+# - examples/platform-managed-values.yaml
+#
+# Create examples/log-shipping-vector-configmap.yaml first, or replace the
+# referenced ConfigMap name with your own Vector config source.
+nifi:
+  extraVolumes:
+  - name: log-shipper-config
+    configMap:
+      name: log-shipping-vector-config
+  - name: log-shipper-data
+    emptyDir: {}
+
+  sidecars:
+  - name: log-shipper
+    # Replace this image tag with the approved Vector image you pin in your environment.
+    image: timberio/vector:0.42.0-alpine
+    imagePullPolicy: IfNotPresent
+    args:
+    - --config
+    - /etc/vector/vector.yaml
+    volumeMounts:
+    - name: logs
+      mountPath: /opt/nifi/nifi-current/logs
+      readOnly: true
+    - name: log-shipper-config
+      mountPath: /etc/vector
+      readOnly: true
+    - name: log-shipper-data
+      mountPath: /var/lib/vector
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi

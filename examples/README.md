@@ -191,6 +191,15 @@ Audit note:
 - use `make kind-flow-action-audit-fast-e2e` for the focused local kind proof path that installs local-only audit first and then upgrades to `export.type=log`
 - production rollout starts with the local-only overlay above, then moves to one of the explicit reporter-image overlays once the reporter image source and pull path are validated in the target cluster
 
+Log shipping note:
+
+- [platform-managed-log-shipping-vector-values.yaml](platform-managed-log-shipping-vector-values.yaml) is the optional managed-platform overlay for one documented sidecar-based log-shipping pattern
+- [log-shipping-vector-configmap.yaml](log-shipping-vector-configmap.yaml) is the matching sample Vector ConfigMap
+- use them together with `examples/platform-managed-values.yaml`
+- the example mounts the existing NiFi `logs` volume plus a writable Vector state directory into one sidecar and writes structured events to the sidecar stdout stream for cluster log collection
+- this is intentionally a docs-first sidecar pattern, not a built-in logging subsystem
+- see [../docs/operations/log-shipping.md](../docs/operations/log-shipping.md) for the operator guidance and tradeoffs
+
 KEDA note:
 
 - [platform-managed-keda-values.yaml](platform-managed-keda-values.yaml) is the optional GA overlay for KEDA-triggered external scale-up intent in managed mode
