@@ -40,6 +40,7 @@ This keeps the product model simple:
 - chart-managed bootstrap inputs for the standard quickstart path
 - metrics Services and `ServiceMonitor` resources
 - configuration features such as Parameter Context definitions, Flow Registry Client catalogs, and versioned-flow import declarations
+- ConfigMap-backed `nifi.properties` override inputs mounted and applied during chart-owned bootstrap
 
 ### NiFi owns
 
@@ -126,6 +127,8 @@ NiFi-Fabric supports a small set of runtime-managed configuration features:
 - optional controller-owned `NiFiDataflow` bridge input into the same versioned-flow import runtime path
 - optional controller observation of the corresponding runtime status ConfigMap written by reconcile pod `-0`
 - optional typed Site-to-Site sender-side observability features
+
+NiFi-Fabric also supports a small Helm-owned workload configuration extension surface for explicit `nifi.properties` overrides supplied through chart values or referenced ConfigMaps. In managed mode, those ConfigMap references can optionally feed the existing watched-restart path without introducing a second controller-owned configuration API.
 
 These features are intentionally narrower than a broad NiFi object-management operator. They are designed to solve common product use cases without introducing a large CRD or control-plane surface.
 

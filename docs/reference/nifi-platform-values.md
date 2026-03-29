@@ -175,6 +175,9 @@ These values render the managed `NiFiCluster` resource when `mode=managed` or `m
 | `nifi.observability.audit.flowActions.*` | object | Flow-action audit settings for the nested NiFi workload, including durable local history support and the bounded advanced `export.type=log` reporter path. | No | chart-derived |
 | `nifi.persistence.*` | object | Repository storage settings. | No | chart-derived |
 | `nifi.resources.*` | object | NiFi pod resources. | No | chart-derived |
+| `nifi.config.extraProperties` | object | Extra `nifi.properties` entries rendered by the nested app chart. | No | chart-derived |
+| `nifi.config.propertyConfigMaps[]` | object list | Ordered external ConfigMap key references applied by the nested app chart during `init-conf` bootstrap. | No | chart-derived |
+| `nifi.config.propertyConfigMapsRestartOnChange` | boolean | Appends nested `nifi.config.propertyConfigMaps[]` names to the managed `NiFiCluster` watched ConfigMap set. | No | chart-derived |
 | `nifi.env[]` | object list | Extra environment variables appended to the main nested NiFi container. | No | chart-derived |
 | `nifi.envFrom[]` | object list | Extra environment sources appended to the main nested NiFi container. | No | chart-derived |
 | `nifi.extraVolumes[]` | object list | Extra pod volumes appended to the nested NiFi pod. | No | chart-derived |

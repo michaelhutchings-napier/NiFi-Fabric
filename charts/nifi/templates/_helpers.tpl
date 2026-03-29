@@ -523,8 +523,27 @@ app.kubernetes.io/component: metrics
 {{- $flowActionAuditPropertyValues := default (dict) $flowActionAuditContent.propertyValues -}}
 {{- $parameterContexts := default (dict) .Values.parameterContexts -}}
 {{- $versionedFlowImports := default (dict) .Values.versionedFlowImports -}}
+{{- $config := default (dict) .Values.config -}}
+{{- $propertyConfigMaps := default (list) $config.propertyConfigMaps -}}
 {{- if or (and $linkerd.enabled $istio.enabled) (and $linkerd.enabled $ambient.enabled) (and $istio.enabled $ambient.enabled) -}}
 {{- fail "linkerd.enabled, istio.enabled, and ambient.enabled are mutually exclusive; choose one bounded service-mesh compatibility profile" -}}
+{{- end -}}
+{{- if and $config.propertyConfigMapsRestartOnChange (eq (len $propertyConfigMaps) 0) -}}
+{{- fail "config.propertyConfigMapsRestartOnChange=true requires at least one config.propertyConfigMaps entry" -}}
+{{- end -}}
+{{- $seenPropertyConfigMaps := dict -}}
+{{- range $index, $entry := $propertyConfigMaps -}}
+{{- if not $entry.name -}}
+{{- fail (printf "config.propertyConfigMaps[%d].name is required" $index) -}}
+{{- end -}}
+{{- if not $entry.key -}}
+{{- fail (printf "config.propertyConfigMaps[%d].key is required" $index) -}}
+{{- end -}}
+{{- $entryID := printf "%s/%s" $entry.name $entry.key -}}
+{{- if hasKey $seenPropertyConfigMaps $entryID -}}
+{{- fail (printf "config.propertyConfigMaps contains duplicate reference %q" $entryID) -}}
+{{- end -}}
+{{- $_ := set $seenPropertyConfigMaps $entryID true -}}
 {{- end -}}
 {{- if $flowActionAudit.enabled -}}
 {{- if not $flowActionAuditHistory.enabled -}}

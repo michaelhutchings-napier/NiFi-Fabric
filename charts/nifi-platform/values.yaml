@@ -263,6 +263,7 @@ keda:
 # - `nifi.trustManagerBundleRef.*` when the platform trust-manager target type or key differs from the default ConfigMap/`ca.crt` path
 # - `nifi.auth.*`
 # - `nifi.authz.*`
+# - `nifi.config.*` for explicit `nifi.properties` overrides, including ordered external ConfigMap sources
 # - `nifi.parameterContexts.*` for prepared Parameter Context catalogs
 # - `nifi.versionedFlowImports.*` for runtime-managed versioned-flow import and version selection
 # - `nifi.ingress.*` or `nifi.openshift.route.*`

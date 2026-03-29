@@ -20,6 +20,11 @@ For most teams, start with one of these `charts/nifi-platform` entry points:
   - Explicit advanced path using externally provided TLS and auth inputs.
   - Use it when you want to own those inputs from the start.
 
+- [platform-managed-configmap-properties-values.yaml](platform-managed-configmap-properties-values.yaml)
+  - Optional overlay for ordered external `nifi.properties` overrides from ConfigMaps.
+  - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
+  - Create the referenced ConfigMaps before install, or use the dedicated kind ConfigMap-properties runtime proof script.
+
 - [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml)
   - Explicit advanced cert-manager path.
   - Use it when cert-manager already exists and you want explicit ownership of the remaining bootstrap inputs instead of the quickstart flow.

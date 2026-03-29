@@ -891,3 +891,9 @@ probes:
 # @default -- {"extraProperties":{}}
 config:
   extraProperties: {}
+  # -- Ordered external ConfigMap key references applied after the chart-rendered
+  # `nifi.properties` overrides during the `init-conf` bootstrap.
+  propertyConfigMaps: []
+  # -- In managed mode, append `config.propertyConfigMaps[]` names to the
+  # `NiFiCluster` watched ConfigMap restart trigger set.
+  propertyConfigMapsRestartOnChange: false

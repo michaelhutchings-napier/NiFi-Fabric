@@ -11,17 +11,30 @@ spec:
     name: {{ include "nifi-platform.targetRefName" . }}
   desiredState: {{ .Values.cluster.desiredState }}
   suspend: {{ ternary "true" "false" .Values.cluster.suspend }}
+  {{- $restartTriggerConfigMaps := list }}
+  {{- if .Values.cluster.restartTriggers.configMaps }}
+  {{- range .Values.cluster.restartTriggers.configMaps }}
+  {{- if and .name (not (has .name $restartTriggerConfigMaps)) }}
+  {{- $restartTriggerConfigMaps = append $restartTriggerConfigMaps .name }}
+  {{- end }}
+  {{- end }}
+  {{- else }}
+  {{- $restartTriggerConfigMaps = append $restartTriggerConfigMaps (printf "%s-config" (include "nifi-platform.nifiFullname" .)) }}
+  {{- if and .Values.trustManager.enabled (eq (include "nifi-platform.trustManagerTargetType" .) "configMap") (dig "tls" "additionalTrustBundle" "enabled" false .Values.nifi) (dig "tls" "additionalTrustBundle" "useTrustManagerBundle" false .Values.nifi) }}
+  {{- $restartTriggerConfigMaps = append $restartTriggerConfigMaps (include "nifi-platform.trustManagerBundleName" .) }}
+  {{- end }}
+  {{- end }}
+  {{- if dig "config" "propertyConfigMapsRestartOnChange" false .Values.nifi }}
+  {{- range $entry := default (list) (dig "config" "propertyConfigMaps" (list) .Values.nifi) }}
+  {{- if and $entry.name (not (has $entry.name $restartTriggerConfigMaps)) }}
+  {{- $restartTriggerConfigMaps = append $restartTriggerConfigMaps $entry.name }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
   restartTriggers:
     configMaps:
-      {{- if .Values.cluster.restartTriggers.configMaps }}
-      {{- range .Values.cluster.restartTriggers.configMaps }}
-      - name: {{ .name | quote }}
-      {{- end }}
-      {{- else }}
-      - name: {{ printf "%s-config" (include "nifi-platform.nifiFullname" .) | quote }}
-      {{- if and .Values.trustManager.enabled (eq (include "nifi-platform.trustManagerTargetType" .) "configMap") (dig "tls" "additionalTrustBundle" "enabled" false .Values.nifi) (dig "tls" "additionalTrustBundle" "useTrustManagerBundle" false .Values.nifi) }}
-      - name: {{ include "nifi-platform.trustManagerBundleName" . | quote }}
-      {{- end }}
+      {{- range $name := $restartTriggerConfigMaps }}
+      - name: {{ $name | quote }}
       {{- end }}
     secrets:
       {{- if .Values.cluster.restartTriggers.secrets }}
