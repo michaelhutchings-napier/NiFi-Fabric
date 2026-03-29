@@ -1,0 +1,16 @@
+# Optional overlay for managed installs that source ordered `nifi.properties`
+# overrides from external ConfigMaps.
+#
+# Create the referenced ConfigMaps before installing the chart.
+#
+# Compose with:
+# - examples/platform-managed-values.yaml
+# - examples/platform-fast-values.yaml for kind-fast proofs
+nifi:
+  config:
+    propertyConfigMaps:
+      - name: nifi-property-overrides-base
+        key: common.properties
+      - name: nifi-property-overrides-team
+        key: team.properties
+    propertyConfigMapsRestartOnChange: true
