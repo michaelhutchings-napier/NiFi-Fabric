@@ -101,6 +101,8 @@ For advanced managed installs:
 - keep the provider-specific Secrets and bootstrap admin settings explicit
 
 See [Authentication](../manage/authentication.md) for the auth-mode details and supported value shapes.
+Use [External Identity Providers](external-identity-providers.md) when you want
+the customer-facing OIDC, Keycloak, and LDAP setup contract in one place.
 
 Optional higher-level platform integration is also possible for OIDC:
 
@@ -111,6 +113,7 @@ Optional higher-level platform integration is also possible for OIDC:
 
 See:
 
+- [External Identity Providers](external-identity-providers.md)
 - [Integrated OIDC Install Contract](integrated-oidc.md)
 - [Keycloak OIDC Production Setup](keycloak-oidc-production.md)
 
@@ -161,6 +164,7 @@ helm upgrade --install nifi charts/nifi-platform \
 Use:
 
 - [values-prod-oidc.yaml](../../examples/values-prod-oidc.yaml)
+- [External Identity Providers](external-identity-providers.md)
 - [Keycloak OIDC Production Setup](keycloak-oidc-production.md)
 
 This is the recommended customer ownership model because Keycloak owns realm, client, user, and group administration while NiFi-Fabric only needs the matching authz scaffold ready before first login.
@@ -194,6 +198,7 @@ helm upgrade --install nifi charts/nifi-platform \
 Use:
 
 - [ldap-values.yaml](../../examples/ldap-values.yaml)
+- [External Identity Providers](external-identity-providers.md)
 - [LDAP Production Setup](ldap-production.md)
 
 Current limitation:

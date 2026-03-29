@@ -19,6 +19,7 @@ NiFi-Fabric keeps the roadmap small and explicit.
 - optional KEDA external intent through `NiFiCluster` `/scale`, with controller-owned execution and starter operational support
 - supported external Secret and cert-manager TLS paths
 - first-class OIDC and LDAP auth options
+- external identity-provider guidance, including Keycloak OIDC examples
 - native API metrics as the primary metrics mode
 - exporter metrics as an optional GA secondary metrics mode
 - typed Site-to-Site metrics export as an optional GA sender-side path
