@@ -432,7 +432,7 @@ spec:
         {{- $container := deepCopy . }}
         {{- $securityContext := mergeOverwrite (deepCopy $.Values.securityContext) (deepCopy $.Values.extraInitContainersSecurityContext) (default (dict) .securityContext) }}
         {{- $_ := set $container "securityContext" $securityContext }}
-        {{- toYaml $container | nindent 6 }}
+        {{- toYaml (list $container) | nindent 6 }}
       {{- end }}
       {{- end }}
       containers:
@@ -767,7 +767,7 @@ spec:
         {{- $container := deepCopy . }}
         {{- $securityContext := mergeOverwrite (deepCopy $.Values.securityContext) (deepCopy $.Values.sidecarsSecurityContext) (default (dict) .securityContext) }}
         {{- $_ := set $container "securityContext" $securityContext }}
-        {{- toYaml $container | nindent 6 }}
+        {{- toYaml (list $container) | nindent 6 }}
       {{- end }}
       {{- end }}
       volumes:

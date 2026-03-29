@@ -196,7 +196,7 @@ Log shipping note:
 - [platform-managed-log-shipping-vector-values.yaml](platform-managed-log-shipping-vector-values.yaml) is the optional managed-platform overlay for one documented sidecar-based log-shipping pattern
 - [log-shipping-vector-configmap.yaml](log-shipping-vector-configmap.yaml) is the matching sample Vector ConfigMap
 - use them together with `examples/platform-managed-values.yaml`
-- the example mounts the existing NiFi `logs` volume into one Vector sidecar and writes structured events to the sidecar stdout stream for cluster log collection
+- the example mounts the existing NiFi `logs` volume plus a writable Vector state directory into one sidecar and writes structured events to the sidecar stdout stream for cluster log collection
 - this is intentionally a docs-first sidecar pattern, not a built-in logging subsystem
 - see [../docs/operations/log-shipping.md](../docs/operations/log-shipping.md) for the operator guidance and tradeoffs
 

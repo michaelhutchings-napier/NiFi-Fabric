@@ -10,6 +10,8 @@ nifi:
   - name: log-shipper-config
     configMap:
       name: log-shipping-vector-config
+  - name: log-shipper-data
+    emptyDir: {}
 
   sidecars:
   - name: log-shipper
@@ -26,6 +28,8 @@ nifi:
     - name: log-shipper-config
       mountPath: /etc/vector
       readOnly: true
+    - name: log-shipper-data
+      mountPath: /var/lib/vector
     resources:
       requests:
         cpu: 25m

@@ -17,9 +17,12 @@ func TestNiFiRenderIncludesExtraInitContainersAndSidecars(t *testing.T) {
 	}
 	for _, want := range []string{
 		"name: init-conf",
+		"- command:",
+		"- echo init",
 		"name: extra-init",
 		"image: busybox:1.36",
 		"runAsUser: 1000",
+		"- sleep 3600",
 		"name: extra-sidecar",
 		"runAsUser: 1000",
 	} {
@@ -77,8 +80,10 @@ func TestNiFiRenderAllowsPerContainerSecurityOverridesForPodExtensions(t *testin
 		t.Fatalf("expected nifi chart render with pod extension security overrides to succeed: %v\n%s", err, output)
 	}
 	for _, want := range []string{
+		"- echo init",
 		"name: extra-init",
 		"runAsUser: 2500",
+		"- sleep 3600",
 		"name: extra-sidecar",
 		"runAsUser: 2600",
 	} {
@@ -101,7 +106,9 @@ func TestPlatformManagedRenderIncludesNestedPodExtensions(t *testing.T) {
 	}
 	for _, want := range []string{
 		"name: init-conf",
+		"- echo init",
 		"name: extra-init",
+		"- sleep 3600",
 		"name: extra-sidecar",
 	} {
 		if !strings.Contains(output, want) {

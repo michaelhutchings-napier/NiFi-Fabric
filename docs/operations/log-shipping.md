@@ -25,6 +25,7 @@ That example:
 - adds one Vector sidecar through `nifi.sidecars[]`
 - mounts the existing shared `logs` volume from the NiFi pod read-only
 - mounts one ConfigMap-backed Vector config
+- adds one writable `emptyDir` for Vector state under `/var/lib/vector`
 - tails `*.log` under `/opt/nifi/nifi-current/logs`
 - writes structured events to the sidecar stdout stream so a cluster logging pipeline can collect them
 
