@@ -9,6 +9,12 @@ imports_configmap=""
 import_name=""
 status_file="/opt/nifi/nifi-current/logs/versioned-flow-imports-bootstrap-status.json"
 expected_action=""
+expected_resolved_version=""
+expected_actual_version=""
+expected_version_drift_reconcile_skipped=""
+expected_rollout_strategy=""
+expected_drained_before_version_update=""
+expected_resumed_after_version_update=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -40,6 +46,30 @@ while [[ $# -gt 0 ]]; do
       expected_action="$2"
       shift 2
       ;;
+    --expected-resolved-version)
+      expected_resolved_version="$2"
+      shift 2
+      ;;
+    --expected-actual-version)
+      expected_actual_version="$2"
+      shift 2
+      ;;
+    --expected-version-drift-reconcile-skipped)
+      expected_version_drift_reconcile_skipped="$2"
+      shift 2
+      ;;
+    --expected-rollout-strategy)
+      expected_rollout_strategy="$2"
+      shift 2
+      ;;
+    --expected-drained-before-version-update)
+      expected_drained_before_version_update="$2"
+      shift 2
+      ;;
+    --expected-resumed-after-version-update)
+      expected_resumed_after_version_update="$2"
+      shift 2
+      ;;
     *)
       echo "unknown argument: $1" >&2
       exit 1
@@ -61,6 +91,84 @@ cleanup() {
   rm -rf "${tmpdir}"
 }
 trap cleanup EXIT
+
+is_transient_nifi_exec_error() {
+  local message="$1"
+  [[ "${message}" == *'container not found ("nifi")'* ]] \
+    || [[ "${message}" == *"unable to upgrade connection"* ]] \
+    || [[ "${message}" == *"connection refused"* ]] \
+    || [[ "${message}" == *"Connection refused"* ]] \
+    || [[ "${message}" == *"Couldn't connect to server"* ]] \
+    || [[ "${message}" == *"Failed to connect to "* ]] \
+    || [[ "${message}" == *"Flow Controller is initializing the Data Flow."* ]]
+}
+
+is_transient_nifi_api_error() {
+  local status="$1"
+  local body="$2"
+  [[ "${body}" == *"Flow Controller is initializing the Data Flow."* ]] \
+    || [[ "${body}" == *"no nodes are connected"* ]] \
+    || [[ "${status}" == "409" && "${body}" == *"initializing"* ]]
+}
+
+wait_for_nifi_exec_ready() {
+  local deadline=$(( $(date +%s) + 300 ))
+
+  kubectl -n "${namespace}" wait --for=condition=Ready "pod/${pod}" --timeout=10m >/dev/null
+
+  while true; do
+    if kubectl -n "${namespace}" get pod "${pod}" -o json >"${tmpdir}/nifi-pod.json" 2>/dev/null && \
+      python3 - "${tmpdir}/nifi-pod.json" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+if payload.get("metadata", {}).get("deletionTimestamp"):
+    raise SystemExit(1)
+
+for status in payload.get("status", {}).get("containerStatuses") or []:
+    if status.get("name") != "nifi":
+        continue
+    state = status.get("state") or {}
+    if status.get("ready") and isinstance(state.get("running"), dict):
+        raise SystemExit(0)
+    raise SystemExit(1)
+
+raise SystemExit(1)
+PY
+    then
+      return 0
+    fi
+    if (( $(date +%s) >= deadline )); then
+      echo "timed out waiting for ${pod} nifi container to become exec-ready" >&2
+      return 1
+    fi
+    sleep 3
+  done
+}
+
+nifi_exec() {
+  local output=""
+  local attempt
+
+  for attempt in $(seq 1 20); do
+    wait_for_nifi_exec_ready || return 1
+    if output="$(kubectl -n "${namespace}" exec -i -c nifi "${pod}" -- "$@" 2>&1)"; then
+      printf '%s' "${output}"
+      return 0
+    fi
+    if is_transient_nifi_exec_error "${output}"; then
+      sleep 3
+      continue
+    fi
+    printf '%s\n' "${output}" >&2
+    return 1
+  done
+
+  printf '%s\n' "${output}" >&2
+  echo "timed out waiting for a stable exec path into ${pod}/nifi" >&2
+  return 1
+}
 
 kubectl -n "${namespace}" get configmap "${imports_configmap}" -o jsonpath='{.data.imports\.json}' >"${tmpdir}/imports.json"
 if [[ ! -s "${tmpdir}/imports.json" ]]; then
@@ -124,7 +232,7 @@ base_url="https://${host}:8443/nifi-api"
 nifi_token=""
 
 mint_nifi_token() {
-  kubectl -n "${namespace}" exec -i -c nifi "${pod}" -- env \
+  nifi_exec env \
     NIFI_USERNAME="${username}" \
     NIFI_PASSWORD="${password}" \
     NIFI_BASE_URL="${base_url}" \
@@ -155,64 +263,78 @@ nifi_request() {
   local path="$2"
   local body="${3:-}"
   local response status
+  local attempt
 
-  response="$(
-    kubectl -n "${namespace}" exec -i -c nifi "${pod}" -- env \
-      NIFI_BASE_URL="${base_url}" \
-      NIFI_TOKEN="${nifi_token}" \
-      REQUEST_METHOD="${method}" \
-      REQUEST_PATH="${path}" \
-      REQUEST_BODY="${body}" \
-      sh -ec '
-        if [ -n "${REQUEST_BODY}" ]; then
-          curl --silent --show-error \
-            --cacert /opt/nifi/tls/ca.crt \
-            -H "Authorization: Bearer ${NIFI_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -X "${REQUEST_METHOD}" \
-            --data "${REQUEST_BODY}" \
-            --write-out "\n%{http_code}" \
-            "${NIFI_BASE_URL}${REQUEST_PATH}"
-        else
-          curl --silent --show-error \
-            --cacert /opt/nifi/tls/ca.crt \
-            -H "Authorization: Bearer ${NIFI_TOKEN}" \
-            -X "${REQUEST_METHOD}" \
-            --write-out "\n%{http_code}" \
-            "${NIFI_BASE_URL}${REQUEST_PATH}"
-        fi
-      '
-  )"
+  for attempt in $(seq 1 20); do
+    response="$(
+      nifi_exec env \
+        NIFI_BASE_URL="${base_url}" \
+        NIFI_TOKEN="${nifi_token}" \
+        REQUEST_METHOD="${method}" \
+        REQUEST_PATH="${path}" \
+        REQUEST_BODY="${body}" \
+        sh -ec '
+          if [ -n "${REQUEST_BODY}" ]; then
+            curl --silent --show-error \
+              --cacert /opt/nifi/tls/ca.crt \
+              -H "Authorization: Bearer ${NIFI_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -X "${REQUEST_METHOD}" \
+              --data "${REQUEST_BODY}" \
+              --write-out "\n%{http_code}" \
+              "${NIFI_BASE_URL}${REQUEST_PATH}"
+          else
+            curl --silent --show-error \
+              --cacert /opt/nifi/tls/ca.crt \
+              -H "Authorization: Bearer ${NIFI_TOKEN}" \
+              -X "${REQUEST_METHOD}" \
+              --write-out "\n%{http_code}" \
+              "${NIFI_BASE_URL}${REQUEST_PATH}"
+          fi
+        '
+    )"
 
-  status="${response##*$'\n'}"
-  LAST_HTTP_BODY="${response%$'\n'*}"
-  LAST_HTTP_STATUS="${status}"
+    status="${response##*$'\n'}"
+    LAST_HTTP_BODY="${response%$'\n'*}"
+    LAST_HTTP_STATUS="${status}"
 
-  if [[ ! "${status}" =~ ^2 ]]; then
+    if [[ "${status}" =~ ^2 ]]; then
+      printf '%s' "${LAST_HTTP_BODY}"
+      return 0
+    fi
+    if is_transient_nifi_api_error "${status}" "${LAST_HTTP_BODY}"; then
+      sleep 3
+      continue
+    fi
     echo "NiFi API ${method} ${path} returned HTTP ${status}" >&2
     printf '%s\n' "${LAST_HTTP_BODY}" >&2
     return 1
-  fi
+  done
 
-  printf '%s' "${LAST_HTTP_BODY}"
+  echo "NiFi API ${method} ${path} kept returning transient errors after repeated retries" >&2
+  printf '%s\n' "${LAST_HTTP_BODY}" >&2
+  return 1
 }
 
-kubectl -n "${namespace}" exec -i -c nifi "${pod}" -- cat "${status_file}" >"${tmpdir}/status.json"
+nifi_exec cat "${status_file}" >"${tmpdir}/status.json"
 if [[ ! -s "${tmpdir}/status.json" ]]; then
   echo "versioned flow import bootstrap status file ${status_file} is missing" >&2
   exit 1
 fi
 
-python3 - "${tmpdir}/status.json" "${selected_import_name}" "${expected_action}" >"${tmpdir}/status-entry.json" <<'PY'
+python3 - "${tmpdir}/status.json" "${selected_import_name}" "${expected_action}" "${expected_resolved_version}" "${expected_actual_version}" "${expected_version_drift_reconcile_skipped}" "${expected_rollout_strategy}" "${expected_drained_before_version_update}" "${expected_resumed_after_version_update}" >"${tmpdir}/status-entry.json" <<'PY'
 import json
 import sys
 
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
 target_name = sys.argv[2]
 expected_action = sys.argv[3]
-
-if payload.get("status") != "ok":
-    raise SystemExit(f"bootstrap status is {payload.get('status')!r}: {payload}")
+expected_resolved_version = sys.argv[4]
+expected_actual_version = sys.argv[5]
+expected_version_drift_reconcile_skipped = sys.argv[6]
+expected_rollout_strategy = sys.argv[7]
+expected_drained_before_version_update = sys.argv[8]
+expected_resumed_after_version_update = sys.argv[9]
 
 entry = None
 for candidate in payload.get("imports", []):
@@ -226,10 +348,54 @@ if entry is None:
 if entry.get("status") != "ok":
     raise SystemExit(f"import {target_name!r} status is {entry.get('status')!r}: {entry}")
 
+allowed_bootstrap_statuses = {"ok", "blocked"}
+bootstrap_status = payload.get("status")
+if bootstrap_status not in allowed_bootstrap_statuses:
+    raise SystemExit(f"bootstrap status is {bootstrap_status!r}: {payload}")
+
 if expected_action:
     allowed = {value.strip() for value in expected_action.split(",") if value.strip()}
     if entry.get("action") not in allowed:
         raise SystemExit(f"expected action in {sorted(allowed)}, got {entry.get('action')!r}")
+
+if expected_resolved_version and str(entry.get("resolvedVersion") or "") != expected_resolved_version:
+    raise SystemExit(
+        f"expected resolvedVersion {expected_resolved_version!r}, got {str(entry.get('resolvedVersion') or '')!r}"
+    )
+
+if expected_actual_version and str(entry.get("actualVersion") or "") != expected_actual_version:
+    raise SystemExit(
+        f"expected actualVersion {expected_actual_version!r}, got {str(entry.get('actualVersion') or '')!r}"
+    )
+
+if expected_version_drift_reconcile_skipped:
+    actual = "true" if bool(entry.get("versionDriftReconcileSkipped")) else "false"
+    if actual != expected_version_drift_reconcile_skipped:
+        raise SystemExit(
+            "expected versionDriftReconcileSkipped "
+            f"{expected_version_drift_reconcile_skipped!r}, got {actual!r}"
+        )
+
+if expected_rollout_strategy and str(entry.get("rolloutStrategy") or "") != expected_rollout_strategy:
+    raise SystemExit(
+        f"expected rolloutStrategy {expected_rollout_strategy!r}, got {str(entry.get('rolloutStrategy') or '')!r}"
+    )
+
+if expected_drained_before_version_update:
+    actual = "true" if bool(entry.get("drainedBeforeVersionUpdate")) else "false"
+    if actual != expected_drained_before_version_update:
+        raise SystemExit(
+            "expected drainedBeforeVersionUpdate "
+            f"{expected_drained_before_version_update!r}, got {actual!r}"
+        )
+
+if expected_resumed_after_version_update:
+    actual = "true" if bool(entry.get("resumedAfterVersionUpdate")) else "false"
+    if actual != expected_resumed_after_version_update:
+        raise SystemExit(
+            "expected resumedAfterVersionUpdate "
+            f"{expected_resumed_after_version_update!r}, got {actual!r}"
+        )
 
 json.dump(entry, sys.stdout)
 PY
@@ -246,6 +412,10 @@ print(entry.get("actualVersion", ""))
 print(entry.get("registryClientId", ""))
 print(entry.get("flowId", ""))
 print(entry.get("parameterContextId", ""))
+print("true" if entry.get("versionDriftReconcileSkipped") else "false")
+print(entry.get("rolloutStrategy", ""))
+print("true" if entry.get("drainedBeforeVersionUpdate") else "false")
+print("true" if entry.get("resumedAfterVersionUpdate") else "false")
 PY
 )
 
@@ -256,6 +426,10 @@ status_actual_version="${status_meta[3]:-}"
 status_registry_id="${status_meta[4]:-}"
 status_flow_id="${status_meta[5]:-}"
 status_parameter_context_id="${status_meta[6]:-}"
+status_version_drift_reconcile_skipped="${status_meta[7]:-false}"
+status_rollout_strategy="${status_meta[8]:-}"
+status_drained_before_version_update="${status_meta[9]:-false}"
+status_resumed_after_version_update="${status_meta[10]:-false}"
 
 nifi_request GET /flow/registries >"${tmpdir}/flow-registries.json"
 nifi_request GET /flow/process-groups/root >"${tmpdir}/root-flow.json"
@@ -302,7 +476,10 @@ python3 - \
   "${status_actual_version}" \
   "${status_registry_id}" \
   "${status_flow_id}" \
-  "${status_parameter_context_id}" <<'PY'
+  "${status_parameter_context_id}" \
+  "${expected_actual_version}" \
+  "${expected_version_drift_reconcile_skipped}" \
+  "${status_version_drift_reconcile_skipped}" <<'PY'
 import json
 import sys
 
@@ -324,6 +501,9 @@ status_actual_version = sys.argv[14]
 status_registry_id = sys.argv[15]
 status_flow_id = sys.argv[16]
 status_parameter_context_id = sys.argv[17]
+expected_actual_version = sys.argv[18]
+expected_version_drift_reconcile_skipped = sys.argv[19]
+status_version_drift_reconcile_skipped = sys.argv[20]
 
 component = process_group.get("component", {})
 actual_name = component.get("name")
@@ -386,14 +566,27 @@ if status_flow_id and actual_flow_id and actual_flow_id != status_flow_id:
         f"imported process group flow id {actual_flow_id!r} did not match resolved flow id {status_flow_id!r}"
     )
 if selected_version == "latest":
-    if status_resolved_version and actual_version != status_resolved_version:
+    if expected_version_drift_reconcile_skipped != "true" and status_resolved_version and actual_version != status_resolved_version:
         raise SystemExit(
             f"imported process group version {actual_version!r} did not match resolved latest version {status_resolved_version!r}"
         )
 else:
-    if actual_version != selected_version:
+    if expected_version_drift_reconcile_skipped != "true" and actual_version != selected_version:
         raise SystemExit(
             f"imported process group version {actual_version!r} did not match selected version {selected_version!r}"
+        )
+
+if expected_actual_version and actual_version != expected_actual_version:
+    raise SystemExit(
+        f"imported process group version {actual_version!r} did not match expected actual version {expected_actual_version!r}"
+    )
+
+if expected_version_drift_reconcile_skipped:
+    actual_drift_skip = "true" if status_version_drift_reconcile_skipped == "true" else "false"
+    if actual_drift_skip != expected_version_drift_reconcile_skipped:
+        raise SystemExit(
+            "status file versionDriftReconcileSkipped "
+            f"{actual_drift_skip!r} did not match expected {expected_version_drift_reconcile_skipped!r}"
         )
 
 actual_parameter_context_id = component.get("parameterContext", {}).get("id", "")
@@ -466,6 +659,11 @@ echo "  action: ${status_action}"
 echo "  target root child process group: ${target_root_pg_name}"
 echo "  selected version: ${selected_version}"
 echo "  resolved version: ${status_resolved_version:-${status_actual_version}}"
+echo "  actual version: ${status_actual_version:-unknown}"
+echo "  version drift reconcile skipped: ${status_version_drift_reconcile_skipped}"
+echo "  rollout strategy: ${status_rollout_strategy:-unknown}"
+echo "  drained before version update: ${status_drained_before_version_update}"
+echo "  resumed after version update: ${status_resumed_after_version_update}"
 echo "  registry client: ${registry_client_name}"
 echo "  bucket: ${bucket_name}"
 echo "  flow: ${flow_name}"

@@ -1,0 +1,16 @@
+{{- if and .Values.versionedFlowImports.enabled .Values.versionedFlowImports.controllerBridge.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nifi.nifidataflowBridgeStatusConfigName" . }}
+  labels:
+    {{- include "nifi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nifidataflow-bridge-status
+data:
+  status.json: |
+    {}
+  README.txt: |
+    This ConfigMap is updated at runtime by the bounded versioned-flow import runner.
+    It mirrors the latest import status so the NiFiDataflow controller can project
+    runtime import outcomes back into NiFiDataflow status.
+{{- end }}

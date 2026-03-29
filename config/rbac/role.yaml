@@ -20,6 +20,24 @@ rules:
   - patch
   - update
 - apiGroups:
+  - platform.nifi.io
+  resources:
+  - nifidataflows
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - platform.nifi.io
+  resources:
+  - nifidataflows/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - apps
   resources:
   - statefulsets
@@ -43,8 +61,12 @@ rules:
   resources:
   - configmaps
   verbs:
+  - create
+  - delete
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - ""

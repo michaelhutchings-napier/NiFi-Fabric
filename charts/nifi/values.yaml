@@ -689,6 +689,9 @@ parameterContexts:
 versionedFlowImports:
   enabled: false
   mountPath: /opt/nifi/fabric/versioned-flow-imports
+  controllerBridge:
+    enabled: false
+    mountPath: /opt/nifi/fabric/nifidataflows
   imports: []
 
 # ------------------------------------------------------------------------------

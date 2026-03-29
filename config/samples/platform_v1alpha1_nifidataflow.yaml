@@ -1,0 +1,24 @@
+apiVersion: platform.nifi.io/v1alpha1
+kind: NiFiDataflow
+metadata:
+  name: orders-ingest
+  namespace: nifi
+spec:
+  clusterRef:
+    name: nifi
+  source:
+    registryClient:
+      name: github-main
+    bucket: platform-flows
+    flow: orders-ingest
+    version: "12"
+  target:
+    rootChildProcessGroupName: orders-ingest
+    parameterContextRef:
+      name: orders-prod
+  rollout:
+    strategy: DrainAndReplace
+    timeout: 20m
+  syncPolicy:
+    mode: OnChange
+  suspend: false

@@ -452,6 +452,14 @@ app.kubernetes.io/component: metrics-exporter
 {{- printf "%s-versioned-flow-imports" (include "nifi.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "nifi.nifidataflowBridgeConfigName" -}}
+{{- printf "%s-nifidataflows" (include "nifi.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "nifi.nifidataflowBridgeStatusConfigName" -}}
+{{- printf "%s-nifidataflows-status" (include "nifi.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "nifi.metricsServiceSelectorLabels" -}}
 {{- include "nifi.selectorLabels" . }}
 app.kubernetes.io/component: metrics
@@ -1009,6 +1017,7 @@ app.kubernetes.io/component: metrics
 {{- $authzCapabilities := default (dict) $authz.capabilities -}}
 {{- $mutableFlow := default (dict) $authzCapabilities.mutableFlow -}}
 {{- $authMode := include "nifi.authMode" . -}}
+{{- $controllerBridge := default (dict) $versionedFlowImports.controllerBridge -}}
 {{- if not $flowRegistryClients.enabled -}}
 {{- fail "versionedFlowImports.enabled=true currently requires flowRegistryClients.enabled=true so the selected prepared client definition can be resolved for bounded import reconciliation" -}}
 {{- end -}}
@@ -1023,13 +1032,19 @@ app.kubernetes.io/component: metrics
 {{- if not $versionedFlowImports.mountPath -}}
 {{- fail "versionedFlowImports.mountPath is required when versionedFlowImports.enabled=true" -}}
 {{- end -}}
+{{- if and $controllerBridge.enabled (not .Values.controllerManaged.enabled) -}}
+{{- fail "versionedFlowImports.controllerBridge.enabled=true requires controllerManaged.enabled=true so the controller-owned NiFiDataflow bridge only runs on the managed platform path" -}}
+{{- end -}}
+{{- if and $controllerBridge.enabled (not $controllerBridge.mountPath) -}}
+{{- fail "versionedFlowImports.controllerBridge.mountPath is required when versionedFlowImports.controllerBridge.enabled=true" -}}
+{{- end -}}
 {{- if and (or (eq $authMode "oidc") (eq $authMode "ldap")) (not $bootstrap.initialAdminIdentity) -}}
 {{- fail "versionedFlowImports.enabled=true with auth.mode=oidc or auth.mode=ldap requires authz.bootstrap.initialAdminIdentity so the bounded trusted-proxy management identity is explicit" -}}
 {{- end -}}
 {{- if and (eq $authMode "singleUser") (not (or (and $mutableFlow.enabled $mutableFlow.includeInitialAdmin) $authzBundles.flowVersionManager.includeInitialAdmin)) -}}
 {{- fail "versionedFlowImports.enabled=true with auth.mode=singleUser requires authz.capabilities.mutableFlow.enabled=true with includeInitialAdmin=true or authz.bundles.flowVersionManager.includeInitialAdmin=true" -}}
 {{- end -}}
-{{- if eq (len $versionedFlowImports.imports) 0 -}}
+{{- if and (eq (len $versionedFlowImports.imports) 0) (not $controllerBridge.enabled) -}}
 {{- fail "versionedFlowImports.enabled=true requires versionedFlowImports.imports to contain at least one import definition" -}}
 {{- end -}}
 {{- $importNames := list -}}
