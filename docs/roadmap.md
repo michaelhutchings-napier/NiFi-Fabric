@@ -12,6 +12,7 @@ NiFi-Fabric keeps the roadmap small and explicit.
 - documented sidecar-based log-shipping example overlay
 - clearer backup, restore, and disaster-recovery guidance around the control-plane and storage recovery split
 - starter runtime-health dashboard alongside the existing product-operations dashboard
+- per-repository storage-class overrides with the shared repository StorageClass kept as a fallback
 - standard pod placement and disruption controls through `affinity`, `topologySpreadConstraints`, and pod disruption budget settings
 - built-in controller-owned autoscaling, including advisory recommendations, enforced scale-up, richer capacity reasoning, actual StatefulSet removal-candidate qualification, and sequential multi-step safe scale-down
 - optional KEDA external intent through `NiFiCluster` `/scale`, with controller-owned execution and starter operational support

@@ -25,6 +25,11 @@ For most teams, start with one of these `charts/nifi-platform` entry points:
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
   - Create the referenced ConfigMaps before install, or use the dedicated kind ConfigMap-properties runtime proof script.
 
+- [platform-managed-storage-classes-values.yaml](platform-managed-storage-classes-values.yaml)
+  - Optional overlay for per-repository `StorageClass` placement.
+  - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
+  - Keeps `nifi.persistence.storageClassName` as the shared fallback while allowing specific repository PVCs to opt into a different `StorageClass`.
+
 - [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml)
   - Explicit advanced cert-manager path.
   - Use it when cert-manager already exists and you want explicit ownership of the remaining bootstrap inputs instead of the quickstart flow.
