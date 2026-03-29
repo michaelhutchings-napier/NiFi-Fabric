@@ -11,7 +11,7 @@ CONTROLLER_IMAGE="${CONTROLLER_IMAGE:-nifi-fabric-controller:dev}"
 NIFI_IMAGE="${NIFI_IMAGE:-apache/nifi:2.0.0}"
 VERSION_VALUES_FILE="${VERSION_VALUES_FILE:-}"
 KEYCLOAK_IMAGE="${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.1}"
-PROBE_IMAGE="${PROBE_IMAGE:-python:3.12-slim}"
+PROBE_IMAGE="${PROBE_IMAGE:-${NIFI_IMAGE}}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-}"
 START_EPOCH="$(date +%s)"
 SKIP_KIND_BOOTSTRAP="${SKIP_KIND_BOOTSTRAP:-false}"
@@ -646,6 +646,7 @@ spec:
   containers:
   - name: python
     image: ${PROBE_IMAGE}
+    imagePullPolicy: IfNotPresent
     command: ["sleep", "3600"]
 EOF
 
@@ -658,7 +659,7 @@ EOF
     EXPECTED_LOGIN_HOST="${KEYCLOAK_EXPECTED_LOGIN_HOST}" \
     KEYCLOAK_DISCOVERY_URL="${KEYCLOAK_DISCOVERY_URL}" \
     OIDC_INITIAL_ADMIN_GROUP="${OIDC_INITIAL_ADMIN_GROUP}" \
-    python - <<'PY'
+    python3 - <<'PY'
 import html
 import http.cookiejar
 import json
