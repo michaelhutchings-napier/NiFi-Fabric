@@ -297,3 +297,10 @@ For behavior and examples, see [Flows](../manage/flows.md).
 | `config.extraProperties` | object | Extra `nifi.properties` entries rendered by the chart. | No | `{}` |
 | `config.propertyConfigMaps[]` | object list | Ordered external ConfigMap key references applied after the chart-rendered `nifi.properties` overrides during the `init-conf` bootstrap. Later entries win on duplicate properties. | No | `[]` |
 | `config.propertyConfigMapsRestartOnChange` | boolean | In managed platform installs, appends `config.propertyConfigMaps[]` names to the watched ConfigMap restart-trigger set. Standalone installs ignore this flag. | No | `false` |
+| `logging.levels.*` | string map | Optional named logger level overrides patched into NiFi's existing `logback.xml` during `init-conf`. Supported levels are `TRACE`, `DEBUG`, `INFO`, `WARN`, and `ERROR`. | No | `{}` |
+
+### Logger Level Overrides
+
+`logging.levels.*` is a narrow troubleshooting surface for named loggers such as `org.apache.nifi` or `org.apache.nifi.web.api`. The chart does not take ownership of the full `logback.xml`; it copies the upstream file into the writable config directory during `init-conf`, updates existing `<logger>` entries when they exist, and inserts new named logger entries before the root logger block when they do not.
+
+Changing `logging.levels.*` updates the chart-managed config ConfigMap and rolls standalone `charts/nifi` pods through the existing `checksum/config` annotation. In managed `charts/nifi-platform` installs, the same change flows through the nested app chart and the controller-managed rollout path. If a logging override causes startup trouble, revert the map entry and inspect the `init-conf` container logs for the failing pod.

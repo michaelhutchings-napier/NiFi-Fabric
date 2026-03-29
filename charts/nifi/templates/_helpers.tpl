@@ -525,6 +525,8 @@ app.kubernetes.io/component: metrics
 {{- $versionedFlowImports := default (dict) .Values.versionedFlowImports -}}
 {{- $config := default (dict) .Values.config -}}
 {{- $propertyConfigMaps := default (list) $config.propertyConfigMaps -}}
+{{- $logging := default (dict) .Values.logging -}}
+{{- $loggingLevels := default (dict) $logging.levels -}}
 {{- if or (and $linkerd.enabled $istio.enabled) (and $linkerd.enabled $ambient.enabled) (and $istio.enabled $ambient.enabled) -}}
 {{- fail "linkerd.enabled, istio.enabled, and ambient.enabled are mutually exclusive; choose one bounded service-mesh compatibility profile" -}}
 {{- end -}}
@@ -544,6 +546,29 @@ app.kubernetes.io/component: metrics
 {{- fail (printf "config.propertyConfigMaps contains duplicate reference %q" $entryID) -}}
 {{- end -}}
 {{- $_ := set $seenPropertyConfigMaps $entryID true -}}
+{{- end -}}
+{{- $validLoggingLevels := dict "TRACE" true "DEBUG" true "INFO" true "WARN" true "ERROR" true -}}
+{{- range $loggerName, $level := $loggingLevels -}}
+{{- $loggerNameValue := printf "%v" $loggerName -}}
+{{- $levelValue := upper (trim (printf "%v" $level)) -}}
+{{- if eq (trim $loggerNameValue) "" -}}
+{{- fail "logging.levels keys must be non-empty logger names" -}}
+{{- end -}}
+{{- if ne $loggerNameValue (trim $loggerNameValue) -}}
+{{- fail (printf "logging.levels[%q] must not include leading or trailing whitespace" $loggerNameValue) -}}
+{{- end -}}
+{{- if regexMatch "\\s" $loggerNameValue -}}
+{{- fail (printf "logging.levels[%q] must not contain whitespace" $loggerNameValue) -}}
+{{- end -}}
+{{- if contains "=" $loggerNameValue -}}
+{{- fail (printf "logging.levels[%q] must not contain '='" $loggerNameValue) -}}
+{{- end -}}
+{{- if eq (lower $loggerNameValue) "root" -}}
+{{- fail "logging.levels[root] is not supported; configure named loggers only" -}}
+{{- end -}}
+{{- if not (hasKey $validLoggingLevels $levelValue) -}}
+{{- fail (printf "logging.levels[%q] must be one of: TRACE, DEBUG, INFO, WARN, ERROR" $loggerNameValue) -}}
+{{- end -}}
 {{- end -}}
 {{- if $flowActionAudit.enabled -}}
 {{- if not $flowActionAuditHistory.enabled -}}
