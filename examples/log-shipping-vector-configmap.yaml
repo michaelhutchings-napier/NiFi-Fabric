@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: log-shipping-vector-config
+data:
+  vector.yaml: |
+    sources:
+      nifi_logs:
+        type: file
+        include:
+          - /opt/nifi/nifi-current/logs/*.log
+        read_from: beginning
+
+    transforms:
+      annotate:
+        type: remap
+        inputs:
+          - nifi_logs
+        source: |
+          .platform = "nifi-fabric"
+          .stream = "nifi-logs"
+
+    sinks:
+      stdout:
+        type: console
+        inputs:
+          - annotate
+        encoding:
+          codec: json

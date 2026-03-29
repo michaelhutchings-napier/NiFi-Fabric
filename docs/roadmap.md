@@ -9,6 +9,7 @@ NiFi-Fabric keeps the roadmap small and explicit.
 - standalone app install with `charts/nifi`
 - thin controller model for rollout, TLS handling, hibernation, and restore
 - operator playbooks for platform upgrades and flow version changes
+- documented sidecar-based log-shipping example overlay
 - standard pod placement and disruption controls through `affinity`, `topologySpreadConstraints`, and pod disruption budget settings
 - built-in controller-owned autoscaling, including advisory recommendations, enforced scale-up, richer capacity reasoning, actual StatefulSet removal-candidate qualification, and sequential multi-step safe scale-down
 - optional KEDA external intent through `NiFiCluster` `/scale`, with controller-owned execution and starter operational support

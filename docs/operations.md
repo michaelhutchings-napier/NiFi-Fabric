@@ -23,6 +23,7 @@ Use this page when you want to:
 Helpful first links:
 
 - [Operations playbooks](operations/playbooks.md)
+- [Log shipping](operations/log-shipping.md)
 - [Starter dashboards](operations/dashboards.md)
 - [Starter alerts](operations/alerts.md)
 - [Starter runbooks](operations/runbooks.md)
