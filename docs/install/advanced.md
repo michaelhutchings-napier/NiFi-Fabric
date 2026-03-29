@@ -24,6 +24,10 @@ Before install, create:
 - `Secret/nifi-auth`
 - `Secret/nifi-tls`
 
+If you enable `repositoryEncryption.*`, also create:
+
+- `Secret/nifi-repository-encryption`
+
 The default `nifi-tls` contract is:
 
 - `ca.crt`
@@ -37,6 +41,7 @@ Examples:
 
 - [`examples/secret-contracts/auth-single-user-secret.yaml`](/tmp/tmp.ZKzaVUztym/examples/secret-contracts/auth-single-user-secret.yaml)
 - [`examples/secret-contracts/tls-external-secret.yaml`](/tmp/tmp.ZKzaVUztym/examples/secret-contracts/tls-external-secret.yaml)
+- [`examples/secret-contracts/repository-encryption-secret.yaml`](/home/michael/Work/nifi2-platform/examples/secret-contracts/repository-encryption-secret.yaml)
 
 ### Explicit Cert-Manager Inputs
 

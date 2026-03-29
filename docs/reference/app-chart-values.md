@@ -297,7 +297,23 @@ For behavior and examples, see [Flows](../manage/flows.md).
 | `config.extraProperties` | object | Extra `nifi.properties` entries rendered by the chart. | No | `{}` |
 | `config.propertyConfigMaps[]` | object list | Ordered external ConfigMap key references applied after the chart-rendered `nifi.properties` overrides during the `init-conf` bootstrap. Later entries win on duplicate properties. | No | `[]` |
 | `config.propertyConfigMapsRestartOnChange` | boolean | In managed platform installs, appends `config.propertyConfigMaps[]` names to the watched ConfigMap restart-trigger set. Standalone installs ignore this flag. | No | `false` |
+| `repositoryEncryption.enabled` | boolean | Enables Secret-backed NiFi repository encryption wiring. The chart uses NiFi's generic repository-encryption properties with the `KEYSTORE` provider and protocol version `1`. | No | `false` |
+| `repositoryEncryption.mountPath` | string | Read-only mount path for the repository-encryption keystore Secret. | No | `/opt/nifi/repository-encryption` |
+| `repositoryEncryption.key.id` | string | NiFi repository-encryption key identifier written into `nifi.properties`. | No | `""` |
+| `repositoryEncryption.secretRef.name` | string | Secret name containing the repository-encryption keystore file and password. | No | `""` |
+| `repositoryEncryption.secretRef.keystoreKey` | string | Secret key containing the repository-encryption keystore file. | No | `repository.p12` |
+| `repositoryEncryption.secretRef.passwordKey` | string | Secret key containing the repository-encryption keystore password. | No | `password` |
 | `logging.levels.*` | string map | Optional named logger level overrides patched into NiFi's existing `logback.xml` during `init-conf`. Supported levels are `TRACE`, `DEBUG`, `INFO`, `WARN`, and `ERROR`. | No | `{}` |
+
+### Repository Encryption
+
+`repositoryEncryption.*` is a Secret-backed surface for NiFi's generic repository encryption support. The chart renders protocol version `1`, fixes the provider to `KEYSTORE`, mounts the referenced Secret read-only into the pod, and replaces the keystore password placeholder during the `init-conf` bootstrap.
+
+This surface is intentionally small. It is for the repositories NiFi protects through `nifi.repository.encryption.*`, not a full key-management subsystem. Operators still own the keystore material, Secret lifecycle, and any required key escrow or recovery process.
+
+Repository encryption is not the same thing as PVC or storage-layer encryption. Keep the normal storage controls in place as well. Also note the current support boundary: the chart does not claim coverage for NiFi's database repository through this surface.
+
+Changing `repositoryEncryption.*` updates the chart-managed config and pod spec, so standalone `charts/nifi` installs roll through the existing template checksum and StatefulSet diff. In managed `charts/nifi-platform` installs, the nested secret reference is also appended to the controller restart-trigger set so secret changes can drive a controlled rollout. Disabling or rotating repository encryption on an existing installation is operationally sensitive and should be treated as a planned change, not a casual toggle.
 
 ### Logger Level Overrides
 

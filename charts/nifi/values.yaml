@@ -898,6 +898,20 @@ config:
   # `NiFiCluster` watched ConfigMap restart trigger set.
   propertyConfigMapsRestartOnChange: false
 
+# -- Optional Secret-backed repository encryption settings.
+# This uses NiFi's generic repository encryption properties with the supported
+# `KEYSTORE` provider and protocol version `1`.
+# @default -- {"enabled":false,"mountPath":"/opt/nifi/repository-encryption","key":{"id":""},"secretRef":{"name":"","keystoreKey":"repository.p12","passwordKey":"password"}}
+repositoryEncryption:
+  enabled: false
+  mountPath: /opt/nifi/repository-encryption
+  key:
+    id: ""
+  secretRef:
+    name: ""
+    keystoreKey: repository.p12
+    passwordKey: password
+
 # -- Optional named logger level overrides applied to NiFi's existing
 # `logback.xml` during the `init-conf` bootstrap. Use logger names such as
 # `org.apache.nifi` or `org.apache.nifi.web.api`.

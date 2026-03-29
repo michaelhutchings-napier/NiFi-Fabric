@@ -525,6 +525,9 @@ app.kubernetes.io/component: metrics
 {{- $versionedFlowImports := default (dict) .Values.versionedFlowImports -}}
 {{- $config := default (dict) .Values.config -}}
 {{- $propertyConfigMaps := default (list) $config.propertyConfigMaps -}}
+{{- $repositoryEncryption := default (dict) .Values.repositoryEncryption -}}
+{{- $repositoryEncryptionKey := default (dict) $repositoryEncryption.key -}}
+{{- $repositoryEncryptionSecretRef := default (dict) $repositoryEncryption.secretRef -}}
 {{- $logging := default (dict) .Values.logging -}}
 {{- $loggingLevels := default (dict) $logging.levels -}}
 {{- if or (and $linkerd.enabled $istio.enabled) (and $linkerd.enabled $ambient.enabled) (and $istio.enabled $ambient.enabled) -}}
@@ -546,6 +549,31 @@ app.kubernetes.io/component: metrics
 {{- fail (printf "config.propertyConfigMaps contains duplicate reference %q" $entryID) -}}
 {{- end -}}
 {{- $_ := set $seenPropertyConfigMaps $entryID true -}}
+{{- end -}}
+{{- if $repositoryEncryption.enabled -}}
+{{- if not $repositoryEncryptionKey.id -}}
+{{- fail "repositoryEncryption.key.id is required when repositoryEncryption.enabled=true" -}}
+{{- end -}}
+{{- if not $repositoryEncryptionSecretRef.name -}}
+{{- fail "repositoryEncryption.secretRef.name is required when repositoryEncryption.enabled=true" -}}
+{{- end -}}
+{{- if not $repositoryEncryptionSecretRef.keystoreKey -}}
+{{- fail "repositoryEncryption.secretRef.keystoreKey is required when repositoryEncryption.enabled=true" -}}
+{{- end -}}
+{{- if not $repositoryEncryptionSecretRef.passwordKey -}}
+{{- fail "repositoryEncryption.secretRef.passwordKey is required when repositoryEncryption.enabled=true" -}}
+{{- end -}}
+{{- if not $repositoryEncryption.mountPath -}}
+{{- fail "repositoryEncryption.mountPath is required when repositoryEncryption.enabled=true" -}}
+{{- end -}}
+{{- if not (hasPrefix "/" $repositoryEncryption.mountPath) -}}
+{{- fail "repositoryEncryption.mountPath must be an absolute path when repositoryEncryption.enabled=true" -}}
+{{- end -}}
+{{- range $propertyName, $_ := default (dict) $config.extraProperties -}}
+{{- if regexMatch "^nifi\\.repository\\.encryption\\." $propertyName -}}
+{{- fail (printf "config.extraProperties[%q] conflicts with repositoryEncryption.*; use the explicit repositoryEncryption surface instead" $propertyName) -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- $validLoggingLevels := dict "TRACE" true "DEBUG" true "INFO" true "WARN" true "ERROR" true -}}
 {{- range $loggerName, $level := $loggingLevels -}}
