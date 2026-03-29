@@ -418,6 +418,20 @@ spec:
         - /bin/sh
         - -ec
         - |
+          nifi_pid=""
+          tail_pid=""
+
+          stop_nifi() {
+            if [ -n "${nifi_pid}" ] && kill -0 "${nifi_pid}" 2>/dev/null; then
+              /opt/nifi/nifi-current/bin/nifi.sh stop >/dev/null 2>&1 || true
+            fi
+            if [ -n "${tail_pid}" ] && kill -0 "${tail_pid}" 2>/dev/null; then
+              kill "${tail_pid}" >/dev/null 2>&1 || true
+            fi
+          }
+
+          trap 'stop_nifi; wait "${nifi_pid}" 2>/dev/null || true; wait "${tail_pid}" 2>/dev/null || true; exit 0' TERM INT
+
           bootstrap_root_process_group_authorizations() {
             if [ ! -f /opt/nifi/nifi-current/conf/authorizations.template.xml ]; then
               return 0
@@ -455,6 +469,7 @@ spec:
           /opt/nifi/nifi-current/bin/nifi.sh run &
           nifi_pid="$!"
           tail -F --pid="${nifi_pid}" /opt/nifi/nifi-current/logs/nifi-app.log &
+          tail_pid="$!"
           {{- if eq (include "nifi.metricsMode" .) "siteToSite" }}
           python3 /opt/nifi/fabric/site-to-site-metrics/bootstrap.py
           {{- end }}
@@ -473,6 +488,7 @@ spec:
           python3 /opt/nifi/fabric/versioned-flow-imports/bootstrap.py >>/opt/nifi/nifi-current/logs/versioned-flow-imports-bootstrap.log 2>&1 &
           {{- end }}
           wait "${nifi_pid}"
+          wait "${tail_pid}" 2>/dev/null || true
         securityContext:
           {{- toYaml .Values.securityContext | nindent 10 }}
         env:
