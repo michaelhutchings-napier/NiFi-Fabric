@@ -247,17 +247,23 @@ For behavior and examples, see [Flows](../manage/flows.md).
 | `pdb.enabled` | boolean | Enables the pod disruption budget. | No | `true` |
 | `pdb.minAvailable` | integer | Minimum available pods for the pod disruption budget. | No | `1` |
 | `persistence.enabled` | boolean | Enables persistent storage for repositories. | No | `true` |
-| `persistence.storageClassName` | string | StorageClass name override. | No | `""` |
+| `persistence.storageClassName` | string | Shared StorageClass name fallback for repository PVCs. Individual repositories can override it with their own `storageClassName`. | No | `""` |
 | `persistence.accessModes[]` | string list | PVC access modes. | No | `["ReadWriteOnce"]` |
 | `persistence.databaseRepository.size` | string | Database repository PVC size. | No | `2Gi` |
+| `persistence.databaseRepository.storageClassName` | string | Optional database repository StorageClass override. | No | `""` |
 | `persistence.flowfileRepository.size` | string | FlowFile repository PVC size. | No | `2Gi` |
+| `persistence.flowfileRepository.storageClassName` | string | Optional FlowFile repository StorageClass override. | No | `""` |
 | `persistence.contentRepository.size` | string | Content repository PVC size. | No | `4Gi` |
+| `persistence.contentRepository.storageClassName` | string | Optional content repository StorageClass override. | No | `""` |
 | `persistence.provenanceRepository.size` | string | Provenance repository PVC size. | No | `4Gi` |
+| `persistence.provenanceRepository.storageClassName` | string | Optional provenance repository StorageClass override. | No | `""` |
 | `resources.*` | object | NiFi container resource requests and limits. | No | `{}` |
 | `env[]` | object list | Extra environment variables appended to the main NiFi container. | No | `[]` |
 | `envFrom[]` | object list | Extra environment sources appended to the main NiFi container. | No | `[]` |
 | `extraVolumes[]` | object list | Extra pod volumes appended to the NiFi pod. | No | `[]` |
 | `extraVolumeMounts[]` | object list | Extra volume mounts appended to the main NiFi container. | No | `[]` |
+
+`persistence.storageClassName` remains the simple shared default. When a repository-specific `*.storageClassName` is set, that per-repository value wins for that PVC only. If neither the per-repository field nor the shared fallback is set, Kubernetes uses the cluster default `StorageClass`.
 
 ## Scheduling and Security
 

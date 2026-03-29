@@ -1,0 +1,16 @@
+# Optional managed-platform overlay for per-repository StorageClass placement.
+# Compose it with examples/platform-managed-values.yaml.
+#
+# The shared `nifi.persistence.storageClassName` stays as the fallback for any
+# repository that does not declare its own StorageClass override.
+nifi:
+  persistence:
+    storageClassName: standard
+    databaseRepository:
+      storageClassName: fast-ssd
+    flowfileRepository:
+      storageClassName: fast-ssd
+    contentRepository:
+      storageClassName: capacity-tier
+    provenanceRepository:
+      storageClassName: capacity-tier

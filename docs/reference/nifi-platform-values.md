@@ -173,7 +173,7 @@ These values render the managed `NiFiCluster` resource when `mode=managed` or `m
 | `nifi.openshift.route.*` | object | OpenShift Route settings. | No | chart-derived |
 | `nifi.observability.metrics.*` | object | Metrics subsystem settings, including optional trust-manager bundle consumption. The platform chart defaults this to `mode=nativeApi` with `nifi.observability.metrics.nativeApi.serviceMonitor.enabled=false`. | No | chart-derived |
 | `nifi.observability.audit.flowActions.*` | object | Flow-action audit settings for the nested NiFi workload, including durable local history support and the bounded advanced `export.type=log` reporter path. | No | chart-derived |
-| `nifi.persistence.*` | object | Repository storage settings. | No | chart-derived |
+| `nifi.persistence.*` | object | Repository storage settings, including the shared `storageClassName` fallback and optional per-repository `*.storageClassName` overrides. | No | chart-derived |
 | `nifi.resources.*` | object | NiFi pod resources. | No | chart-derived |
 | `nifi.config.extraProperties` | object | Extra `nifi.properties` entries rendered by the nested app chart. | No | chart-derived |
 | `nifi.config.propertyConfigMaps[]` | object list | Ordered external ConfigMap key references applied by the nested app chart during `init-conf` bootstrap. | No | chart-derived |

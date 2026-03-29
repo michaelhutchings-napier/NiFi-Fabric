@@ -706,7 +706,9 @@ pdb:
   minAvailable: 1
 
 # -- Persistent repository storage settings.
-# @default -- {"enabled":true,"storageClassName":"","accessModes":["ReadWriteOnce"],"databaseRepository":{"size":"2Gi"},"flowfileRepository":{"size":"2Gi"},"contentRepository":{"size":"4Gi"},"provenanceRepository":{"size":"4Gi"}}
+# `persistence.storageClassName` remains the shared fallback. Individual
+# repositories can override it with their own `storageClassName`.
+# @default -- {"enabled":true,"storageClassName":"","accessModes":["ReadWriteOnce"],"databaseRepository":{"size":"2Gi","storageClassName":""},"flowfileRepository":{"size":"2Gi","storageClassName":""},"contentRepository":{"size":"4Gi","storageClassName":""},"provenanceRepository":{"size":"4Gi","storageClassName":""}}
 persistence:
   enabled: true
   storageClassName: ""
@@ -714,12 +716,16 @@ persistence:
   - ReadWriteOnce
   databaseRepository:
     size: 2Gi
+    storageClassName: ""
   flowfileRepository:
     size: 2Gi
+    storageClassName: ""
   contentRepository:
     size: 4Gi
+    storageClassName: ""
   provenanceRepository:
     size: 4Gi
+    storageClassName: ""
 
 # -- NiFi container resource requests and limits.
 # @default -- {}

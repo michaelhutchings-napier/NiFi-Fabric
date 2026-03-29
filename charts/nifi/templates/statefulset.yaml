@@ -990,6 +990,10 @@ spec:
         emptyDir: {}
       {{- end }}
   {{- if .Values.persistence.enabled }}
+  {{- $databaseRepositoryStorageClassName := default .Values.persistence.storageClassName .Values.persistence.databaseRepository.storageClassName }}
+  {{- $flowfileRepositoryStorageClassName := default .Values.persistence.storageClassName .Values.persistence.flowfileRepository.storageClassName }}
+  {{- $contentRepositoryStorageClassName := default .Values.persistence.storageClassName .Values.persistence.contentRepository.storageClassName }}
+  {{- $provenanceRepositoryStorageClassName := default .Values.persistence.storageClassName .Values.persistence.provenanceRepository.storageClassName }}
   volumeClaimTemplates:
   - metadata:
       name: database-repository
@@ -1001,8 +1005,8 @@ spec:
       resources:
         requests:
           storage: {{ .Values.persistence.databaseRepository.size }}
-      {{- if .Values.persistence.storageClassName }}
-      storageClassName: {{ .Values.persistence.storageClassName }}
+      {{- if $databaseRepositoryStorageClassName }}
+      storageClassName: {{ $databaseRepositoryStorageClassName }}
       {{- end }}
   - metadata:
       name: flowfile-repository
@@ -1014,8 +1018,8 @@ spec:
       resources:
         requests:
           storage: {{ .Values.persistence.flowfileRepository.size }}
-      {{- if .Values.persistence.storageClassName }}
-      storageClassName: {{ .Values.persistence.storageClassName }}
+      {{- if $flowfileRepositoryStorageClassName }}
+      storageClassName: {{ $flowfileRepositoryStorageClassName }}
       {{- end }}
   - metadata:
       name: content-repository
@@ -1027,8 +1031,8 @@ spec:
       resources:
         requests:
           storage: {{ .Values.persistence.contentRepository.size }}
-      {{- if .Values.persistence.storageClassName }}
-      storageClassName: {{ .Values.persistence.storageClassName }}
+      {{- if $contentRepositoryStorageClassName }}
+      storageClassName: {{ $contentRepositoryStorageClassName }}
       {{- end }}
   - metadata:
       name: provenance-repository
@@ -1040,7 +1044,7 @@ spec:
       resources:
         requests:
           storage: {{ .Values.persistence.provenanceRepository.size }}
-      {{- if .Values.persistence.storageClassName }}
-      storageClassName: {{ .Values.persistence.storageClassName }}
+      {{- if $provenanceRepositoryStorageClassName }}
+      storageClassName: {{ $provenanceRepositoryStorageClassName }}
       {{- end }}
   {{- end }}
