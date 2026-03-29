@@ -144,7 +144,8 @@ is_transient_nifi_api_error() {
   [[ "${body}" == *"Flow Controller is initializing the Data Flow."* ]] \
     || [[ "${body}" == *"no nodes are connected"* ]] \
     || [[ "${status}" == "409" && "${body}" == *"initializing"* ]] \
-    || [[ "${status}" == "409" && "${body}" == *"unable to fulfill this request due to: Unexpected Response Code 500"* ]]
+    || [[ "${status}" == "409" && "${body}" == *"unable to fulfill this request due to: Unexpected Response Code 500"* ]] \
+    || [[ "${status}" == "500" && "${body}" == *"WebClientServiceException"* && "${body}" == *"Request execution failed HTTP Method ["* ]]
 }
 
 wait_for_nifi_exec_ready() {
@@ -363,6 +364,23 @@ for entry in payload.get("processGroupFlow", {}).get("flow", {}).get("processGro
     component = entry.get("component", {})
     if component.get("name") == target:
         raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
+root_flow_endpoint_ready() {
+  nifi_request GET /flow/process-groups/root >"${tmpdir}/root-flow-ready.json"
+  python3 - "${tmpdir}/root-flow-ready.json" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+process_group_flow = payload.get("processGroupFlow", {})
+flow = process_group_flow.get("flow", {}) if isinstance(process_group_flow, dict) else {}
+
+if isinstance(flow, dict):
+    raise SystemExit(0)
+
 raise SystemExit(1)
 PY
 }
@@ -1468,6 +1486,12 @@ bash "${ROOT_DIR}/hack/prove-parameter-contexts-runtime.sh" \
   --expected-inline-value https://payments.internal.example.com \
   --expected-sensitive-parameter "" \
   --expected-action created,unchanged,updated
+
+phase "Waiting for NiFi root flow endpoint to settle after parameter-context bootstrap"
+retry_proof "NiFi root flow endpoint recovers after runtime-managed parameter-context bootstrap" \
+  root_flow_endpoint_ready
+retry_proof "NiFi root flow endpoint remains stable on a second poll after runtime-managed parameter-context bootstrap" \
+  root_flow_endpoint_ready
 
 phase "Cleaning prior NiFiDataflow e2e artifacts"
 cleanup_e2e_artifacts
