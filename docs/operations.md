@@ -6,6 +6,7 @@ NiFi-Fabric includes a small starter operations package for day-two use.
 
 - starter dashboards
 - starter alert rules
+- planned-change playbooks
 - starter runbooks
 - basic troubleshooting steps for the standard managed install
 
@@ -21,6 +22,7 @@ Use this page when you want to:
 
 Helpful first links:
 
+- [Operations playbooks](operations/playbooks.md)
 - [Starter dashboards](operations/dashboards.md)
 - [Starter alerts](operations/alerts.md)
 - [Starter runbooks](operations/runbooks.md)
@@ -55,7 +57,12 @@ kubectl -n nifi-system logs deployment/nifi-controller-manager --tail=200
 
 ## Operator Notes
 
-The included dashboards, alerts, and runbooks are starter material. Most teams will still adapt:
+The included playbooks and runbooks do different jobs:
+
+- use [Operations playbooks](operations/playbooks.md) for planned changes such as upgrades or declared flow version changes
+- use [Starter runbooks](operations/runbooks.md) when the cluster is already blocked, failed, or degraded
+
+The included dashboards, alerts, playbooks, and runbooks are starter material. Most teams will still adapt:
 
 - Prometheus and Grafana conventions
 - namespace and label choices

@@ -30,6 +30,7 @@ Use this documentation set as the customer-facing guide for installing, operatin
 ## Operate and Support
 
 - [Operations and Troubleshooting](operations.md)
+- [Operations Playbooks](operations/playbooks.md)
 - [Backup, Restore, and Disaster Recovery](dr.md)
 - [Verification and Support Levels](testing.md)
 - [Experimental Features](experimental-features.md)
