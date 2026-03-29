@@ -250,6 +250,7 @@ If you use a Keycloak bootstrap or import process that reapplies users repeatedl
 
 ## Related
 
+- [External Identity Providers](external-identity-providers.md)
 - [Authentication](../manage/authentication.md)
 - [Advanced Install Paths](advanced.md)
 - [NiFi-Fabric Authz Tooling](../../tools/nifi-fabric-authz/README.md)

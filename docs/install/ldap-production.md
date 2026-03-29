@@ -322,6 +322,7 @@ Nested group assumptions:
 
 ## Related
 
+- [External Identity Providers](external-identity-providers.md)
 - [Authentication](../manage/authentication.md)
 - [Advanced Install Paths](advanced.md)
 - [ldap-values.yaml](../../examples/ldap-values.yaml)

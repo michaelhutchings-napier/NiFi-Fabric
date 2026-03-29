@@ -53,6 +53,7 @@ The OpenShift example overlay is [oidc-managed-values.yaml](../../examples/opens
 
 See:
 
+- [External Identity Providers](../install/external-identity-providers.md)
 - [Advanced Install Paths](../install/advanced.md)
 - [Integrated OIDC Install Contract](../install/integrated-oidc.md)
 - [Keycloak OIDC Production Setup](../install/keycloak-oidc-production.md)
@@ -115,6 +116,7 @@ Current limitation:
 
 See:
 
+- [External Identity Providers](../install/external-identity-providers.md)
 - [Advanced Install Paths](../install/advanced.md)
 - [LDAP Production Setup](../install/ldap-production.md)
 
@@ -147,4 +149,5 @@ For the current `ldap + ldapSync` path:
 
 - [Install with Helm](../install/helm.md)
 - [Advanced Install Paths](../install/advanced.md)
+- [External Identity Providers](../install/external-identity-providers.md)
 - [TLS and cert-manager](tls-and-cert-manager.md)
