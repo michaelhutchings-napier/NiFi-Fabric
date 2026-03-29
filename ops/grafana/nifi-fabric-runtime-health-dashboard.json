@@ -1,0 +1,444 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Starter nativeApi scrape-health panel. The default query assumes Prometheus Operator-style `namespace` and `service` labels on the NiFi metrics target. Edit it after import if your Prometheus labels differ.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(up{namespace=~\"$namespace\",service=~\".*metrics.*\"})",
+          "legendFormat": "nativeApi scrape targets up",
+          "refId": "A"
+        }
+      ],
+      "title": "Native API Scrape Targets Up",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Exporter-only panel. This is useful only when `observability.metrics.mode=exporter` is enabled and scraped.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 18,
+        "x": 6,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "nifi_fabric_exporter_source_up{source=~\"flow_prometheus|flow_status\"}",
+          "legendFormat": "{{source}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Exporter Source Health",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Controller-scrape panel sourced from the autoscaling queue-pressure signals the product already records.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "nifi_platform_autoscaling_signal_sample{namespace=~\"$namespace\",name=~\"$cluster\",signal=\"QueuePressure\",sample=\"flow_files_queued\"}",
+          "legendFormat": "flow files queued",
+          "refId": "A"
+        },
+        {
+          "expr": "nifi_platform_autoscaling_signal_sample{namespace=~\"$namespace\",name=~\"$cluster\",signal=\"QueuePressure\",sample=\"bytes_queued\"}",
+          "legendFormat": "bytes queued",
+          "refId": "B"
+        }
+      ],
+      "title": "Queue Pressure Samples",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Exporter-only panel using the flow-status supplement metrics from the supported exporter mode.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "nifi_fabric_flow_status_controller_flow_files_queued",
+          "legendFormat": "flow files queued",
+          "refId": "A"
+        },
+        {
+          "expr": "nifi_fabric_flow_status_controller_bytes_queued",
+          "legendFormat": "bytes queued",
+          "refId": "B"
+        }
+      ],
+      "title": "Exporter Queue Depth",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Exporter-only runtime activity panel sourced from `/flow/status` through the supported exporter supplement.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "nifi_fabric_flow_status_controller_running_component_count",
+          "legendFormat": "running",
+          "refId": "A"
+        },
+        {
+          "expr": "nifi_fabric_flow_status_controller_stopped_component_count",
+          "legendFormat": "stopped",
+          "refId": "B"
+        },
+        {
+          "expr": "nifi_fabric_flow_status_controller_invalid_component_count",
+          "legendFormat": "invalid",
+          "refId": "C"
+        },
+        {
+          "expr": "nifi_fabric_flow_status_controller_disabled_component_count",
+          "legendFormat": "disabled",
+          "refId": "D"
+        }
+      ],
+      "title": "Component States",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Exporter-only panel showing version-control and local-drift-oriented controller status counts.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "nifi_fabric_flow_status_controller_up_to_date_component_count",
+          "legendFormat": "up to date",
+          "refId": "A"
+        },
+        {
+          "expr": "nifi_fabric_flow_status_controller_locally_modified_component_count",
+          "legendFormat": "locally modified",
+          "refId": "B"
+        },
+        {
+          "expr": "nifi_fabric_flow_status_controller_stale_component_count",
+          "legendFormat": "stale",
+          "refId": "C"
+        },
+        {
+          "expr": "nifi_fabric_flow_status_controller_sync_failure_count",
+          "legendFormat": "sync failures",
+          "refId": "D"
+        }
+      ],
+      "title": "Flow Sync States",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Exporter-only panel sourced from the flow-status supplement metrics.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "nifi_fabric_flow_status_controller_active_thread_count",
+          "legendFormat": "active threads",
+          "refId": "A"
+        },
+        {
+          "expr": "nifi_fabric_flow_status_controller_terminated_thread_count",
+          "legendFormat": "terminated threads",
+          "refId": "B"
+        }
+      ],
+      "title": "Thread Counts",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Exporter-only panel sourced from `/flow/status` through the supported exporter supplement.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "nifi_fabric_flow_status_controller_active_remote_port_count",
+          "legendFormat": "active remote ports",
+          "refId": "A"
+        },
+        {
+          "expr": "nifi_fabric_flow_status_controller_inactive_remote_port_count",
+          "legendFormat": "inactive remote ports",
+          "refId": "B"
+        }
+      ],
+      "title": "Remote Port States",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": [
+    "nifi-fabric",
+    "runtime-health",
+    "starter"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "nifi",
+          "value": "nifi"
+        },
+        "hide": 0,
+        "label": "Namespace",
+        "name": "namespace",
+        "options": [],
+        "query": "nifi",
+        "skipUrlSync": false,
+        "type": "textbox"
+      },
+      {
+        "current": {
+          "text": "nifi",
+          "value": "nifi"
+        },
+        "hide": 0,
+        "label": "NiFiCluster",
+        "name": "cluster",
+        "options": [],
+        "query": "nifi",
+        "skipUrlSync": false,
+        "type": "textbox"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timezone": "",
+  "title": "NiFi-Fabric Starter Runtime Health",
+  "version": 1
+}

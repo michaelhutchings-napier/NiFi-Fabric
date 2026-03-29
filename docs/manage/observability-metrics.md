@@ -75,6 +75,7 @@ Both `nativeApi` and `exporter` metrics paths can consume a trust-manager-provid
 ## Related Docs
 
 - [Flow-Change Audit](observability-audit.md)
+- [Operations Dashboards](../operations/dashboards.md)
 - [TLS and cert-manager](tls-and-cert-manager.md)
 - [Operations and Troubleshooting](../operations.md)
 - [Compatibility](../compatibility.md)
