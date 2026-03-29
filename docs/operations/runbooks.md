@@ -80,6 +80,30 @@ Respond:
 - if restore is slow, confirm pods are becoming Ready and the NiFi cluster health gate is advancing
 - if hibernation failed, inspect the target pod and any storage or offload symptoms before retrying
 
+## Control-Plane Recovery After Namespace Loss
+
+Signals:
+
+- the NiFi namespace or Helm release was deleted or lost
+- the operator has an exported control-plane backup bundle
+- Secrets, issuers, and PVC recovery are being handled through the normal operator-owned paths
+
+Check:
+
+```bash
+kubectl get ns nifi
+kubectl get pvc -A | rg nifi
+bash hack/recover-control-plane-backup.sh --backup-dir ./backup/nifi-control-plane
+helm -n nifi status nifi
+kubectl -n nifi get nificluster,statefulset,pods,svc,pvc
+```
+
+Respond:
+
+- restore or recreate operator-owned Secrets, issuers, and any required PVCs before trusting the recovered release
+- use the recovery helper to rebuild the declarative control plane, not to replace storage restore or Secret escrow
+- if the namespace comes back but bounded runtime-owned features are still unhealthy, verify those after the base cluster is Ready rather than treating the initial Helm recovery as the final proof
+
 ## Autoscaling Blocked or Failed
 
 Signals:

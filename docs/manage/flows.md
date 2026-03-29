@@ -86,6 +86,11 @@ What remains operator-owned:
 
 Manual UI edits outside the managed import scope are unsupported. The product does not perform ongoing sync, and it does not attempt arbitrary graph reconciliation. Within the product-owned scope, direct version selection and direct Parameter Context attachment may be reconciled back to the declared state. When the optional `NiFiDataflow` bridge declares `spec.syncPolicy.mode=Once`, version drift on an already successful owned target is observed but not healed again until the declaration changes. Unsupported drift or same-name operator-owned collisions are reported as `blocked` in the runtime status file until the operator restores the expected state or deletes and recreates the target.
 
+From a recovery-planning perspective, this feature helps preserve declared flow
+source intent in Helm values and typed product surfaces. It does not replace
+storage-backed recovery for queued data or arbitrary runtime state outside the
+bounded managed scope.
+
 For the optional `NiFiDataflow` bridge path, version changes also honor a small
 typed rollout policy:
 
@@ -168,6 +173,9 @@ Column meaning:
   `status.ownership.state`, such as `Managed` or `AdoptionRefused`
 - `Retained` shows the first retained owned-import warning name when the runtime
   reports stale retained targets under `status.warnings.retainedOwnedImports[]`
+
+For the broader operator recovery model, see
+[Backup, Restore, and Disaster Recovery](../dr.md).
 
 ## Status Examples
 

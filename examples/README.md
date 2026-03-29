@@ -101,6 +101,13 @@ There is also one optional fast overlay:
   - Enables a kind-local GitHub Flow Registry Client catalog entry, one runtime-managed Parameter Context, and one versioned-flow import selection.
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml) and [platform-fast-values.yaml](platform-fast-values.yaml).
 
+Recovery note:
+
+- for control-plane recovery planning, export the live release intent with `bash hack/export-control-plane-backup.sh --release nifi --namespace nifi --output-dir ./backup/nifi-control-plane`
+- recover that declarative layer later with `bash hack/recover-control-plane-backup.sh --backup-dir ./backup/nifi-control-plane`
+- those helpers rebuild the declarative control plane only; pair them with your normal Secret escrow and PVC snapshot recovery procedures
+- see the [Backup, Restore, and Disaster Recovery](https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/dr.md) guide for the full recovery model and boundaries
+
 - [platform-managed-linkerd-values.yaml](platform-managed-linkerd-values.yaml)
   - Optional Linkerd compatibility overlay for the product chart.
   - Injects only the NiFi StatefulSet pods and keeps the controller outside the mesh.
@@ -198,7 +205,7 @@ Log shipping note:
 - use them together with `examples/platform-managed-values.yaml`
 - the example mounts the existing NiFi `logs` volume plus a writable Vector state directory into one sidecar and writes structured events to the sidecar stdout stream for cluster log collection
 - this is intentionally a docs-first sidecar pattern, not a built-in logging subsystem
-- see [../docs/operations/log-shipping.md](../docs/operations/log-shipping.md) for the operator guidance and tradeoffs
+- see [Log Shipping](https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/operations/log-shipping.md) for the operator guidance and tradeoffs
 
 KEDA note:
 
@@ -211,7 +218,7 @@ KEDA note:
 - it does not add any KEDA resources or values to `charts/nifi`
 - the controller still performs all actual scale-up and scale-down execution
 - the controller now reports the raw KEDA request, controller-evaluated intent, and blocked, ignored, or deferred handling through `status.autoscaling.external.*`
-- see [../docs/keda.md](../docs/keda.md) for the current recommendation and ownership model
+- see [KEDA](https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/keda.md) for the current recommendation and ownership model
 
 There are also authentication overlays:
 
@@ -262,7 +269,7 @@ There are also authentication overlays:
 - [values-prod-oidc.yaml](values-prod-oidc.yaml)
   - Production OIDC overlay for `charts/nifi-platform`.
   - Recommended customer path once the customer-managed Keycloak realm, groups, users, and client already exist.
-  - Pair it with [../docs/install/keycloak-oidc-production.md](../docs/install/keycloak-oidc-production.md) for the production setup steps.
+  - Pair it with [Keycloak OIDC Production Setup](https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/install/keycloak-oidc-production.md) for the production setup steps.
 
 - [integrated-keycloak-oidc-contract.yaml](integrated-keycloak-oidc-contract.yaml)
   - Advanced higher-level install contract sketch for bootstrapping Keycloak and NiFi-Fabric together.
@@ -271,11 +278,11 @@ There are also authentication overlays:
 
 - [ldap-values.yaml](ldap-values.yaml)
   - Enables `auth.mode=ldap` with `authz.mode=ldapSync`.
-  - Pair it with [../docs/install/ldap-production.md](../docs/install/ldap-production.md) for the production setup steps and baseline identity-bootstrap path.
+  - Pair it with [LDAP Production Setup](https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/install/ldap-production.md) for the production setup steps and baseline identity-bootstrap path.
 
 - [ldap-group-bootstrap-values.yaml](ldap-group-bootstrap-values.yaml)
   - Enables LDAP group bootstrap for newer NiFi images.
-  - Compose it with [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml) and [../docs/install/ldap-production.md](../docs/install/ldap-production.md).
+  - Compose it with [nifi-2.8.0-values.yaml](nifi-2.8.0-values.yaml) and [LDAP Production Setup](https://github.com/michaelhutchings-napier/NiFi-Fabric/blob/master/docs/install/ldap-production.md).
 
 - [ldap-kind-values.yaml](ldap-kind-values.yaml)
   - Kind LDAP overlay.

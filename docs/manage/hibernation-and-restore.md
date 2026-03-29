@@ -2,6 +2,10 @@
 
 NiFi-Fabric supports managed hibernation and restore through `NiFiCluster`.
 
+This is a lifecycle-control feature, not a backup or disaster-recovery feature.
+Use it to scale a cluster safely to zero and back again. Do not treat it as a
+replacement for control-plane export, secret escrow, or PVC snapshot recovery.
+
 ## What This Feature Does
 
 - hibernation reduces the cluster to zero replicas
@@ -34,3 +38,5 @@ Before removing a node, the controller reuses the same safe sequencing principle
 - hibernation: supported
 - restore: supported
 - local kind coverage is available for this feature
+
+For backup and recovery boundaries, see [Backup, Restore, and Disaster Recovery](../dr.md).
