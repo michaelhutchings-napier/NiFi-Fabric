@@ -11,6 +11,7 @@ NiFi-Fabric keeps the roadmap small and explicit.
 - operator playbooks for platform upgrades and flow version changes
 - documented sidecar-based log-shipping example overlay
 - clearer backup, restore, and disaster-recovery guidance around the control-plane and storage recovery split
+- AKS guidance for storing control-plane backup artifacts in Azure Blob Storage
 - starter runtime-health dashboard alongside the existing product-operations dashboard
 - per-repository storage-class overrides with the shared repository StorageClass kept as a fallback
 - standard pod placement and disruption controls through `affinity`, `topologySpreadConstraints`, and pod disruption budget settings

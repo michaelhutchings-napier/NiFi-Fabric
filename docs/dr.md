@@ -58,6 +58,10 @@ This export is intentionally practical rather than magical. It helps operators
 reconstruct the declarative control plane, but it does not export cleartext
 Secret material or storage-backed NiFi repository data.
 
+For AKS environments, Azure Blob Storage is a reasonable optional destination
+for this exported bundle when you want off-cluster storage for the declarative
+artifacts. See [AKS](aks.md) for one concrete operator workflow.
+
 ### What Control-Plane Export Does Not Capture
 
 The control-plane export does not restore:
