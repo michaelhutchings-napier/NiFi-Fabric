@@ -530,11 +530,17 @@ app.kubernetes.io/component: metrics
 {{- $repositoryEncryptionSecretRef := default (dict) $repositoryEncryption.secretRef -}}
 {{- $logging := default (dict) .Values.logging -}}
 {{- $loggingLevels := default (dict) $logging.levels -}}
+{{- $debugStartup := default (dict) .Values.debugStartup -}}
 {{- if or (and $linkerd.enabled $istio.enabled) (and $linkerd.enabled $ambient.enabled) (and $istio.enabled $ambient.enabled) -}}
 {{- fail "linkerd.enabled, istio.enabled, and ambient.enabled are mutually exclusive; choose one bounded service-mesh compatibility profile" -}}
 {{- end -}}
 {{- if and $config.propertyConfigMapsRestartOnChange (eq (len $propertyConfigMaps) 0) -}}
 {{- fail "config.propertyConfigMapsRestartOnChange=true requires at least one config.propertyConfigMaps entry" -}}
+{{- end -}}
+{{- if $debugStartup.enabled -}}
+{{- if lt (int $debugStartup.sleepSeconds) 1 -}}
+{{- fail "debugStartup.sleepSeconds must be greater than zero when debugStartup.enabled=true" -}}
+{{- end -}}
 {{- end -}}
 {{- $seenPropertyConfigMaps := dict -}}
 {{- range $index, $entry := $propertyConfigMaps -}}

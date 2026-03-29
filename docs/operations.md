@@ -62,6 +62,7 @@ The included playbooks and runbooks do different jobs:
 
 - use [Operations playbooks](operations/playbooks.md) for planned changes such as upgrades or declared flow version changes
 - use [Starter runbooks](operations/runbooks.md) when the cluster is already blocked, failed, or degraded
+- use the `debugStartup` runbook entry in [Starter runbooks](operations/runbooks.md) only for temporary pre-start NiFi pod inspection
 - use [Backup, Restore, and Disaster Recovery](dr.md) when you need the operator recovery model, recovery boundaries, or the control-plane export and recovery helpers
 
 The included dashboards, alerts, playbooks, and runbooks are starter material. Most teams will still adapt:

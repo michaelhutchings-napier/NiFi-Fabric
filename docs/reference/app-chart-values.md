@@ -300,6 +300,8 @@ For behavior and examples, see [Flows](../manage/flows.md).
 | `probes.startup.*` | object | Startup probe timings. | No | see values file |
 | `probes.readiness.*` | object | Readiness probe timings. | No | see values file |
 | `probes.liveness.*` | object | Liveness probe timings. | No | see values file |
+| `debugStartup.enabled` | boolean | Enables a temporary pre-start troubleshooting pause in the main NiFi container before `nifi.sh run`. | No | `false` |
+| `debugStartup.sleepSeconds` | integer | Length of the temporary pre-start troubleshooting pause when `debugStartup.enabled=true`. | No | `3600` |
 | `config.extraProperties` | object | Extra `nifi.properties` entries rendered by the chart. | No | `{}` |
 | `config.propertyConfigMaps[]` | object list | Ordered external ConfigMap key references applied after the chart-rendered `nifi.properties` overrides during the `init-conf` bootstrap. Later entries win on duplicate properties. | No | `[]` |
 | `config.propertyConfigMapsRestartOnChange` | boolean | In managed platform installs, appends `config.propertyConfigMaps[]` names to the watched ConfigMap restart-trigger set. Standalone installs ignore this flag. | No | `false` |
@@ -326,3 +328,23 @@ Changing `repositoryEncryption.*` updates the chart-managed config and pod spec,
 `logging.levels.*` is a narrow troubleshooting surface for named loggers such as `org.apache.nifi` or `org.apache.nifi.web.api`. The chart does not take ownership of the full `logback.xml`; it copies the upstream file into the writable config directory during `init-conf`, updates existing `<logger>` entries when they exist, and inserts new named logger entries before the root logger block when they do not.
 
 Changing `logging.levels.*` updates the chart-managed config ConfigMap and rolls standalone `charts/nifi` pods through the existing `checksum/config` annotation. In managed `charts/nifi-platform` installs, the same change flows through the nested app chart and the controller-managed rollout path. If a logging override causes startup trouble, revert the map entry and inspect the `init-conf` container logs for the failing pod.
+
+### Debug Startup Pause
+
+`debugStartup.*` is a temporary troubleshooting surface for pre-start inspection of
+the main NiFi pod. When enabled, the chart pauses in the main container after
+the chart-managed file-preparation steps and before the normal `nifi.sh run`
+path so operators can inspect rendered config, mounted Secrets, trust material,
+and writable paths with `kubectl exec`.
+
+This mode is intentionally narrow:
+
+- it is temporary and operator-driven
+- it is not a second supported runtime mode
+- the chart automatically omits startup and liveness probes while the pause is active
+- readiness remains in place so the pod stays out of service until NiFi actually starts
+
+Changing `debugStartup.*` updates the pod template and rolls through the normal
+StatefulSet diff path. In managed installs, enabling it will intentionally hold
+the controller-owned rollout at the paused pod until the configured sleep
+window expires or the setting is reverted.

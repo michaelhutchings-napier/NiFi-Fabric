@@ -30,6 +30,12 @@ For most teams, start with one of these `charts/nifi-platform` entry points:
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
   - Keeps `nifi.persistence.storageClassName` as the shared fallback while allowing specific repository PVCs to opt into a different `StorageClass`.
 
+- [platform-managed-debug-startup-values.yaml](platform-managed-debug-startup-values.yaml)
+  - Optional overlay for temporary pre-start NiFi pod inspection.
+  - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
+  - For local kind proof paths, also compose it with [platform-fast-values.yaml](platform-fast-values.yaml).
+  - Pauses before `nifi.sh run` and disables the normal probes while the pause is active.
+
 - [platform-managed-cert-manager-values.yaml](platform-managed-cert-manager-values.yaml)
   - Explicit advanced cert-manager path.
   - Use it when cert-manager already exists and you want explicit ownership of the remaining bootstrap inputs instead of the quickstart flow.

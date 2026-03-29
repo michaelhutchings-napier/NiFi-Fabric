@@ -14,6 +14,7 @@ NiFi-Fabric keeps the roadmap small and explicit.
 - AKS guidance for storing control-plane backup artifacts in Azure Blob Storage
 - starter runtime-health dashboard alongside the existing product-operations dashboard
 - per-repository storage-class overrides with the shared repository StorageClass kept as a fallback
+- temporary `debugStartup` troubleshooting mode for pre-start NiFi pod inspection
 - standard pod placement and disruption controls through `affinity`, `topologySpreadConstraints`, and pod disruption budget settings
 - built-in controller-owned autoscaling, including advisory recommendations, enforced scale-up, richer capacity reasoning, actual StatefulSet removal-candidate qualification, and sequential multi-step safe scale-down
 - optional KEDA external intent through `NiFiCluster` `/scale`, with controller-owned execution and starter operational support
