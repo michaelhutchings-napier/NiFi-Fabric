@@ -40,6 +40,16 @@ For most teams, start with one of these `charts/nifi-platform` entry points:
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
   - Use the full guidance in [Custom Component Loading](../docs/install/custom-component-loading.md) for custom NARs, Python extensions, and init-container preparation patterns.
 
+- [platform-managed-zone-spread-values.yaml](platform-managed-zone-spread-values.yaml)
+  - Optional baseline overlay for spreading NiFi pods across zones and hostnames.
+  - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
+  - Use the full guidance in [Pod Placement And Disruption](../docs/install/pod-placement-and-disruption.md).
+
+- [platform-managed-strict-anti-affinity-values.yaml](platform-managed-strict-anti-affinity-values.yaml)
+  - Optional stricter overlay requiring one NiFi pod per node.
+  - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
+  - Use the full guidance in [Pod Placement And Disruption](../docs/install/pod-placement-and-disruption.md).
+
 - [platform-managed-debug-startup-values.yaml](platform-managed-debug-startup-values.yaml)
   - Optional overlay for temporary pre-start NiFi pod inspection.
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).

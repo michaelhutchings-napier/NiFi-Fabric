@@ -37,6 +37,7 @@ NiFi-Fabric keeps the roadmap small and explicit.
 - configurable exporter Deployment replicas for the optional exporter metrics path
 - optional persistent log PVCs for local pod log retention
 - operator guidance for custom component loading through images, mounted volumes, and init-container preparation
+- operator guidance and starter overlays for pod placement and disruption controls
 
 ## Planned Next
 

@@ -14,6 +14,7 @@ The standard cert-manager-first path does not require pre-created bootstrap auth
 For the fastest supported first install, use the standard quickstart profile in this page.
 If you want a secondary self-signed evaluation path instead, use `--set global.nifiFabric.installProfile=quickstart-self-signed`.
 If you want explicit ownership of auth and TLS inputs from the start, use [Advanced Install Paths](advanced.md).
+If you want operator guidance for placement, zone spread, or disruption tuning, use [Pod Placement And Disruption](pod-placement-and-disruption.md).
 
 ## Standard Install
 
