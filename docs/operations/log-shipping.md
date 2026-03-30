@@ -35,7 +35,8 @@ volume pattern without committing the product to one destination backend.
 ## Important Notes
 
 - the main NiFi container already tails `nifi-app.log` to stdout, so this example may duplicate some events your cluster logging pipeline already captures
-- the shared logs volume is `emptyDir`, so this pattern is for near-real-time forwarding, not durable log retention
+- the shared logs volume is `emptyDir` by default, so this pattern is for near-real-time forwarding unless you explicitly enable `persistence.logs.*`
+- enabling `persistence.logs.*` gives the shared log path a per-pod PVC for local retention, but it does not replace centralized logging or make log retention a product-managed feature
 - if you need checkpointing, buffering, Secrets, or a remote sink, extend the example explicitly for your environment
 - NiFi-Fabric does not claim support for every third-party agent or backend; the supported shape is the Kubernetes sidecar pattern itself
 

@@ -868,8 +868,10 @@ spec:
           name: {{ include "nifi.fullname" . }}-config
       - name: writable-conf
         emptyDir: {}
+      {{- if not .Values.persistence.logs.enabled }}
       - name: logs
         emptyDir: {}
+      {{- end }}
       - name: tls
         secret:
           secretName: {{ include "nifi.tlsSecretName" . }}
@@ -995,12 +997,14 @@ spec:
       - name: provenance-repository
         emptyDir: {}
       {{- end }}
-  {{- if .Values.persistence.enabled }}
+  {{- if or .Values.persistence.enabled .Values.persistence.logs.enabled }}
   {{- $databaseRepositoryStorageClassName := default .Values.persistence.storageClassName .Values.persistence.databaseRepository.storageClassName }}
   {{- $flowfileRepositoryStorageClassName := default .Values.persistence.storageClassName .Values.persistence.flowfileRepository.storageClassName }}
   {{- $contentRepositoryStorageClassName := default .Values.persistence.storageClassName .Values.persistence.contentRepository.storageClassName }}
   {{- $provenanceRepositoryStorageClassName := default .Values.persistence.storageClassName .Values.persistence.provenanceRepository.storageClassName }}
+  {{- $logsStorageClassName := default .Values.persistence.storageClassName .Values.persistence.logs.storageClassName }}
   volumeClaimTemplates:
+  {{- if .Values.persistence.enabled }}
   - metadata:
       name: database-repository
       labels:
@@ -1053,4 +1057,20 @@ spec:
       {{- if $provenanceRepositoryStorageClassName }}
       storageClassName: {{ $provenanceRepositoryStorageClassName }}
       {{- end }}
+  {{- end }}
+  {{- if .Values.persistence.logs.enabled }}
+  - metadata:
+      name: logs
+      labels:
+        {{- include "nifi.labels" . | nindent 8 }}
+    spec:
+      accessModes:
+      {{- toYaml .Values.persistence.accessModes | nindent 6 }}
+      resources:
+        requests:
+          storage: {{ .Values.persistence.logs.size }}
+      {{- if $logsStorageClassName }}
+      storageClassName: {{ $logsStorageClassName }}
+      {{- end }}
+  {{- end }}
   {{- end }}

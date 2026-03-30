@@ -1,0 +1,10 @@
+# Optional persistent pod logs overlay.
+# Compose with examples/platform-managed-values.yaml.
+# This keeps the shared NiFi logs path on a per-pod PVC for local retention and
+# troubleshooting. It does not add retention management or backup guarantees.
+
+nifi:
+  persistence:
+    logs:
+      enabled: true
+      size: 8Gi

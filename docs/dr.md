@@ -100,7 +100,9 @@ Additional runtime state may also matter depending on the enabled feature set:
 
 By default, the writable `conf` copy and pod `logs` volume are `emptyDir`
 content. Those are not durable recovery sources unless you deliberately replace
-or extend them with your own storage pattern.
+or extend them with your own storage pattern. If you enable
+`persistence.logs.*`, treat that PVC as operator-owned local retention for
+troubleshooting, not as a backup or recovery guarantee.
 
 ## Recovery Asset Inventory
 

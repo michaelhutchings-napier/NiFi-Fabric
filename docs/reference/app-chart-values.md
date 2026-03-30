@@ -258,13 +258,18 @@ For behavior and examples, see [Flows](../manage/flows.md).
 | `persistence.contentRepository.storageClassName` | string | Optional content repository StorageClass override. | No | `""` |
 | `persistence.provenanceRepository.size` | string | Provenance repository PVC size. | No | `4Gi` |
 | `persistence.provenanceRepository.storageClassName` | string | Optional provenance repository StorageClass override. | No | `""` |
+| `persistence.logs.enabled` | boolean | Replaces the default `emptyDir` pod logs volume with a per-pod PVC for local log retention. | No | `false` |
+| `persistence.logs.size` | string | Persistent logs PVC size when `persistence.logs.enabled=true`. | No | `4Gi` |
+| `persistence.logs.storageClassName` | string | Optional persistent logs StorageClass override. Falls back to `persistence.storageClassName` when unset. | No | `""` |
 | `resources.*` | object | NiFi container resource requests and limits. | No | `{}` |
 | `env[]` | object list | Extra environment variables appended to the main NiFi container. | No | `[]` |
 | `envFrom[]` | object list | Extra environment sources appended to the main NiFi container. | No | `[]` |
 | `extraVolumes[]` | object list | Extra pod volumes appended to the NiFi pod. | No | `[]` |
 | `extraVolumeMounts[]` | object list | Extra volume mounts appended to the main NiFi container. | No | `[]` |
 
-`persistence.storageClassName` remains the simple shared default. When a repository-specific `*.storageClassName` is set, that per-repository value wins for that PVC only. If neither the per-repository field nor the shared fallback is set, Kubernetes uses the cluster default `StorageClass`.
+`persistence.storageClassName` remains the simple shared default. When a repository-specific `*.storageClassName` is set, that per-repository value wins for that PVC only. `persistence.logs.storageClassName` follows the same precedence for the optional log PVC. If neither the per-resource field nor the shared fallback is set, Kubernetes uses the cluster default `StorageClass`.
+
+`persistence.logs.*` is intentionally narrow. It changes the shared `/opt/nifi/nifi-current/logs` volume from `emptyDir` to a per-pod PVC for local retention and troubleshooting. It does not add retention management, pruning, archive export, or backup guarantees. Operators still own disk growth, cleanup, and centralized log collection.
 
 ## Scheduling and Security
 
