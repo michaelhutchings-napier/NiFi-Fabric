@@ -35,6 +35,11 @@ For most teams, start with one of these `charts/nifi-platform` entry points:
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
   - Keeps the shared NiFi logs path on persistent storage for local retention and troubleshooting without adding product-managed retention behavior.
 
+- [custom-components-jdbc-values.yaml](custom-components-jdbc-values.yaml)
+  - Optional overlay showing mounted JDBC driver files through `extraVolumes[]` and `extraVolumeMounts[]`.
+  - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
+  - Use the full guidance in [Custom Component Loading](../docs/install/custom-component-loading.md) for custom NARs, Python extensions, and init-container preparation patterns.
+
 - [platform-managed-debug-startup-values.yaml](platform-managed-debug-startup-values.yaml)
   - Optional overlay for temporary pre-start NiFi pod inspection.
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).

@@ -64,6 +64,7 @@ The included playbooks and runbooks do different jobs:
 - use [Starter runbooks](operations/runbooks.md) when the cluster is already blocked, failed, or degraded
 - use the `debugStartup` runbook entry in [Starter runbooks](operations/runbooks.md) only for temporary pre-start NiFi pod inspection
 - use [Backup, Restore, and Disaster Recovery](dr.md) when you need the operator recovery model, recovery boundaries, or the control-plane export and recovery helpers
+- use [Custom Component Loading](install/custom-component-loading.md) when you need operator-owned NAR, JDBC driver, Python extension, or file-mount guidance rather than a product-managed extension feature
 
 The included dashboards, alerts, playbooks, and runbooks are starter material. Most teams will still adapt:
 

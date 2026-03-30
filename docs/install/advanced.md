@@ -235,6 +235,23 @@ See:
 - [Integrated OIDC Install Contract](integrated-oidc.md)
 - [integrated-keycloak-oidc-contract.yaml](../../examples/integrated-keycloak-oidc-contract.yaml)
 
+## Custom Component Loading
+
+Use the existing pod-extension hooks when you need to load custom NiFi
+components or support files without widening NiFi-Fabric into an extension
+manager.
+
+Start with:
+
+- [Custom Component Loading](custom-component-loading.md)
+
+Use that guide when you need:
+
+- custom NAR directories
+- mounted JDBC drivers
+- Python extension directories
+- extra processor-side files prepared through volumes or init containers
+
 ## Generated Manifest Bundle
 
 If you need a manifest-based workflow without copying chart logic, render a generated bundle from `charts/nifi-platform`:
