@@ -41,7 +41,40 @@ Use platform chart values under:
 - GitLab: verified on the supported NiFi `2.x` line
 - Bitbucket: verified on the supported NiFi `2.x` line
 - NiFi Registry: verified on the supported NiFi `2.x` line through a real in-cluster `apache/nifi-registry` service
-- Azure DevOps: configuration surface available and chart rendering supported
+- Azure DevOps: configuration surface available, chart rendering supported, and live pod-mounted catalog proof covered here
+
+## Azure DevOps
+
+Azure DevOps is supported here as a prepared Flow Registry Client catalog shape.
+
+What the current Azure DevOps path covers:
+
+- chart validation of the `provider=azureDevOps` client shape
+- chart rendering of the prepared client catalog into `clients.yaml` and
+  `clients.json`
+- pod-mounted availability of that prepared catalog inside the NiFi workload
+
+What the current Azure DevOps path does not claim:
+
+- automatic live Flow Registry Client creation in NiFi
+- runtime-managed versioned-flow import parity
+- repository-verified end-to-end connectivity to a real Azure DevOps
+  organization, project, and repository
+
+Expected Azure DevOps client inputs:
+
+- `azureDevOps.apiUrl`
+- `azureDevOps.organization`
+- `azureDevOps.project`
+- `repository.name`
+- optional `repository.path`
+- optional `repository.branch`
+- `azureDevOps.oauth2AccessTokenProviderName`
+- `azureDevOps.webClientServiceName`
+
+These fields describe the prepared client definition NiFi should use. Operators
+still own the matching Azure DevOps-side repository, OAuth2 provider setup, and
+live client lifecycle in NiFi.
 
 ## Typed NiFi Registry Integration
 
@@ -84,6 +117,19 @@ What remains manual or out of scope:
 - deployment remains user-driven
 - there is no controller-managed flow synchronization
 - there are no flow CRDs
+
+## Azure DevOps Boundary
+
+Keep the current product boundary explicit:
+
+- Flow Registry Client catalogs can render Azure DevOps-backed client
+  definitions
+- those rendered definitions are a supported starting point for manual NiFi UI
+  or API configuration
+- broader workflow parity with every Git provider is not implied by this path
+- if future customer demand appears, deeper parity should be evaluated as a
+  separate versioned-flow-import decision rather than assumed from catalog
+  support alone
 
 ## What This Feature Does Not Do
 

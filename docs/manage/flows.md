@@ -117,6 +117,9 @@ follow-up explicit.
 - the runtime loop uses the workload TLS certificate as a trusted-proxy client and acts as the declared management identity
 - `provider=nifiRegistry` entries can be created and reconciled live by this path
 - other supported providers still require a matching live Flow Registry Client to already exist in NiFi
+- Azure DevOps-backed client catalogs are supported, but this feature does not
+  currently claim Azure DevOps-specific runtime-managed import parity beyond the
+  existing generic pre-created-live-client boundary
 - version attachment uses the selected registry-backed snapshot through the NiFi versions API and does not commit a new registry version
 - when NiFi exposes only version metadata and not inline snapshot content, the current fallback supports GitHub and NiFi Registry sources in this feature
 - validation on the single-node platform path upgrades the release, lets the live in-pod reconcile loop import the declared flow, and then verifies a later declared version change reconciles without replacing pod `-0`

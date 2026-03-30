@@ -33,6 +33,7 @@ NiFi-Fabric keeps the roadmap small and explicit.
 - NiFi Registry integration through a typed `provider=nifiRegistry` client plus platform-chart versioned-flow import
 - generic extra volumes, mounts, and sidecars for environment-specific extensions
 - Secret-backed repository encryption support through a dedicated chart surface
+- clearer Azure DevOps Flow Registry Client guidance, with live proof of the prepared catalog path
 
 ## Planned Next
 
