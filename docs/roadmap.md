@@ -36,6 +36,7 @@ NiFi-Fabric keeps the roadmap small and explicit.
 - clearer Azure DevOps Flow Registry Client guidance, with live proof of rendered and mounted client catalog support
 - configurable exporter Deployment replicas for the optional exporter metrics path
 - optional persistent log PVCs for local pod log retention
+- operator guidance for custom component loading through images, mounted volumes, and init-container preparation
 
 ## Planned Next
 
