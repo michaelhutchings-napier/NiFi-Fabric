@@ -518,6 +518,7 @@ undeploy-controller:
 
 install-crd:
 	$(KUBECTL) apply -f config/crd/bases/platform.nifi.io_nificlusters.yaml
+	$(KUBECTL) apply -f config/crd/bases/platform.nifi.io_nifidataflows.yaml
 
 helm-install-standalone:
 	$(HELM) upgrade --install $(HELM_RELEASE) charts/nifi --namespace $(NAMESPACE) --create-namespace -f examples/standalone/values.yaml
