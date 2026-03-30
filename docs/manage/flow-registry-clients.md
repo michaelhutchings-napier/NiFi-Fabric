@@ -41,7 +41,38 @@ Use platform chart values under:
 - GitLab: verified on the supported NiFi `2.x` line
 - Bitbucket: verified on the supported NiFi `2.x` line
 - NiFi Registry: verified on the supported NiFi `2.x` line through a real in-cluster `apache/nifi-registry` service
-- Azure DevOps: configuration surface available and chart rendering supported
+- Azure DevOps: configuration surface available, chart rendering supported, and live pod-mounted catalog proof covered here
+
+## Azure DevOps
+
+Azure DevOps is supported here through a prepared Flow Registry Client catalog
+definition.
+
+Current Azure DevOps support includes:
+
+- chart validation of the `provider=azureDevOps` client shape
+- chart rendering of the prepared client catalog into `clients.yaml` and
+  `clients.json`
+- pod-mounted availability of that prepared catalog inside the NiFi workload
+
+The live Flow Registry Client lifecycle in NiFi remains operator-managed, and
+runtime-managed versioned-flow import follows the same generic pre-created live
+client requirement used by other non-`nifiRegistry` providers.
+
+Expected Azure DevOps client inputs:
+
+- `azureDevOps.apiUrl`
+- `azureDevOps.organization`
+- `azureDevOps.project`
+- `repository.name`
+- optional `repository.path`
+- optional `repository.branch`
+- `azureDevOps.oauth2AccessTokenProviderName`
+- `azureDevOps.webClientServiceName`
+
+These fields describe the prepared client definition NiFi should use. Operators
+still own the matching Azure DevOps-side repository, OAuth2 provider setup, and
+live client lifecycle in NiFi.
 
 ## Typed NiFi Registry Integration
 

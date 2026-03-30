@@ -355,6 +355,7 @@ There are also Flow Registry Client overlays:
 - [azure-devops-flow-registry-values.yaml](azure-devops-flow-registry-values.yaml)
   - Azure DevOps Flow Registry Client catalog entry.
   - Renders a catalog definition only; it does not auto-create the client in NiFi.
+  - Models the current supported Azure DevOps client inputs: API URL, organization, project, repository, OAuth2 access-token provider, and web client service.
 
 There are also Parameter Context overlays:
 
@@ -442,10 +443,12 @@ Flow Registry Client notes:
 - the chart renders a catalog under `flowRegistryClients.mountPath`
 - the catalog is available as both `clients.yaml` and `clients.json`
 - there is no controller-managed flow import or synchronization
+- Azure DevOps currently shares the prepared-catalog support level, not the better-covered end-to-end runtime workflow level
 - kind coverage includes the GitLab client path on NiFi `2.8.0` against a GitLab-compatible evaluator service
 - kind coverage also includes the GitHub client path on NiFi `2.8.0` against a GitHub-compatible evaluator service with the fast profile
 - kind coverage also includes a user-driven GitHub save-to-registry workflow on NiFi `2.8.0`
 - kind coverage also includes the Bitbucket client path on NiFi `2.8.0` against a Bitbucket-compatible evaluator service with the fast profile
+- kind coverage for Azure DevOps here verifies the rendered catalog and mounted pod files, not live Azure DevOps API connectivity
 
 ## Standalone
 
