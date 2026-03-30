@@ -1,0 +1,19 @@
+# Optional zone-spread baseline for charts/nifi-platform.
+# Compose with examples/platform-managed-values.yaml.
+
+nifi:
+  topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: nifi
+        app.kubernetes.io/instance: RELEASE-NAME
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: nifi
+        app.kubernetes.io/instance: RELEASE-NAME

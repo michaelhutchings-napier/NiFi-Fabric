@@ -40,6 +40,16 @@ For most teams, start with one of these `charts/nifi-platform` entry points:
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
   - Use the full guidance in [Custom Component Loading](../docs/install/custom-component-loading.md) for custom NARs, Python extensions, and init-container preparation patterns.
 
+- [platform-managed-zone-spread-values.yaml](platform-managed-zone-spread-values.yaml)
+  - Optional baseline overlay for spreading NiFi pods across zones and hostnames.
+  - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
+  - Use the full guidance in [Pod Placement And Disruption](../docs/install/pod-placement-and-disruption.md).
+
+- [platform-managed-strict-anti-affinity-values.yaml](platform-managed-strict-anti-affinity-values.yaml)
+  - Optional stricter overlay requiring one NiFi pod per node.
+  - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
+  - Use the full guidance in [Pod Placement And Disruption](../docs/install/pod-placement-and-disruption.md).
+
 - [platform-managed-debug-startup-values.yaml](platform-managed-debug-startup-values.yaml)
   - Optional overlay for temporary pre-start NiFi pod inspection.
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
@@ -50,31 +60,14 @@ For most teams, start with one of these `charts/nifi-platform` entry points:
   - Explicit advanced cert-manager path.
   - Use it when cert-manager already exists and you want explicit ownership of the remaining bootstrap inputs instead of the quickstart flow.
 
-The quickstart paths are valid for evaluation and low-friction first installs, but they are not a substitute for explicit enterprise auth planning.
+Use [Install with Helm](../docs/install/helm.md) for the standard and advanced
+install commands.
 
-Primary one-command product installs:
+If you enable `repositoryEncryption.*`, create the matching Secret first; see
+[repository-encryption-secret.yaml](secret-contracts/repository-encryption-secret.yaml).
 
-- managed standard: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace --set global.nifiFabric.installProfile=quickstart-cert-manager --set nifi.tls.certManager.issuerRef.name=nifi-ca`
-- managed advanced explicit external-secret: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-values.yaml`
-- managed advanced explicit cert-manager: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-managed-cert-manager-values.yaml`
-- managed self-signed quickstart: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace --set global.nifiFabric.installProfile=quickstart-self-signed`
-- standalone: `helm upgrade --install nifi charts/nifi-platform -n nifi --create-namespace -f examples/platform-standalone-values.yaml`
-
-Optional Secret contract note:
-
-- if you enable `repositoryEncryption.*`, create the matching Secret first; see [repository-encryption-secret.yaml](secret-contracts/repository-encryption-secret.yaml)
-
-Generated manifest-bundle installs:
-
-- managed: `make render-platform-managed-bundle && kubectl apply -f dist/nifi-platform-managed-bundle.yaml`
-- managed + cert-manager: `make render-platform-managed-cert-manager-bundle && kubectl apply -f dist/nifi-platform-managed-cert-manager-bundle.yaml`
-- fresh packaged chart for downstreams: `make package-platform-chart`
-
-Advanced evaluator installs still exist:
-
-- standalone: `make install-standalone`
-- managed: `make install-managed`
-- managed + cert-manager: `make install-managed-cert-manager`
+Generated manifest-bundle and evaluator commands still exist, but they are
+secondary to the standard Helm install paths above.
 
 There is also one AKS overlay set:
 
@@ -154,74 +147,43 @@ Recovery note:
 
 Metrics note:
 
-- [platform-managed-metrics-native-values.yaml](platform-managed-metrics-native-values.yaml) is an optional overlay for the first-class native API metrics subsystem
-- it enables `nifi.observability.metrics.nativeApi.serviceMonitor.enabled=true`
-- the platform chart already defaults managed installs to `nifi.observability.metrics.mode=nativeApi` and keeps `ServiceMonitor` opt-in until Prometheus Operator is present
-- it renders a dedicated metrics `Service` plus multiple named `ServiceMonitor` resources
-- it uses the provider-agnostic machine-auth Secret and CA Secret layout shared by the metrics subsystem
-- `hack/bootstrap-metrics-machine-auth.sh` can create those Kubernetes Secrets from a pre-minted token or from existing NiFi-accepted credentials
-- local kind coverage includes the secured flow-metrics endpoint and two named scrape profiles against that same endpoint
-- [platform-managed-trust-manager-values.yaml](platform-managed-trust-manager-values.yaml) is an optional overlay for trust-manager-based shared CA bundle distribution
-- it enables `trustManager.enabled=true`
-- it enables `trustManager.mirrorTLSSecret.enabled=true` so the workload TLS `ca.crt` is mirrored into trust-manager's trust namespace automatically
-- it wires the resulting bundle into optional NiFi extra trust import
-- nativeApi and exporter can also consume the same bundle through `*.tlsConfig.ca.useTrustManagerBundle=true`
-- [platform-managed-metrics-native-trust-manager-values.yaml](platform-managed-metrics-native-trust-manager-values.yaml) layers trust-manager-backed native API metrics on top of the managed metrics overlay
-- it switches the Bundle target to a Secret, enables an additional PKCS12 output, and points nativeApi TLS trust at the trust-manager bundle
-- use it together with `examples/platform-managed-values.yaml`, `examples/platform-managed-trust-manager-values.yaml`, and `examples/platform-managed-metrics-native-values.yaml`
-- [platform-managed-metrics-exporter-values.yaml](platform-managed-metrics-exporter-values.yaml) is an optional overlay for the supported exporter metrics mode
-- it enables `nifi.observability.metrics.mode=exporter`
-- it renders a small companion exporter `Deployment`, a clean HTTP metrics `Service`, and one exporter `ServiceMonitor`
-- it uses the same provider-agnostic machine-auth Secret and CA Secret layout
-- nativeApi remains the primary recommended metrics path; use this overlay only when you specifically want the exporter shape
-- local kind coverage includes the secured `/nifi-api/flow/metrics/prometheus` endpoint with the upstream NiFi metric-family set preserved on exporter `/metrics`
-- it also enables controller-status gauges derived from `/nifi-api/flow/status`
-- local kind coverage also includes upstream-aware readiness and mounted auth Secret rotation without restarting the exporter pod
-- [platform-managed-metrics-exporter-trust-manager-values.yaml](platform-managed-metrics-exporter-trust-manager-values.yaml) layers trust-manager-backed exporter upstream trust on top of the managed exporter overlay
-- it switches the Bundle target to a Secret and points exporter source TLS trust at the trust-manager bundle instead of a manually created CA Secret
-- use it together with `examples/platform-managed-values.yaml`, `examples/platform-managed-trust-manager-values.yaml`, and `examples/platform-managed-metrics-exporter-values.yaml`
-- [platform-managed-metrics-site-to-site-values.yaml](platform-managed-metrics-site-to-site-values.yaml) is an optional overlay for the GA sender-side typed site-to-site metrics export path
-- it enables `nifi.observability.metrics.mode=siteToSite`
-- it enables `nifi.observability.metrics.siteToSite.enabled=true`
-- it models the destination, auth, receiver-authorized identity, source, transport, and format settings for one `SiteToSiteMetricsReportingTask`
-- it keeps destination receiver topology and destination-side user or policy lifecycle operator-owned
-- [platform-managed-metrics-site-to-site-kind-values.yaml](platform-managed-metrics-site-to-site-kind-values.yaml) points that typed feature at a cluster-local kind URL for local kind use
-- [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is the kind receiver harness used by that command
-- the harness bootstraps one public input port, one minimal downstream processor, and the minimum receiver-side auth needed to trust and authorize the declared sender identity for delivery
-- site-to-site status is its own optional GA sender-side typed path and is not part of the `observability.metrics.mode=siteToSite` metrics claim
-- [platform-managed-site-to-site-status-values.yaml](platform-managed-site-to-site-status-values.yaml) is an optional overlay for the GA sender-side typed site-to-site status export path
-- it enables `nifi.observability.siteToSiteStatus.enabled=true`
-- it models the destination, auth, receiver-authorized identity, optional source instance URL override, and transport settings for one `SiteToSiteStatusReportingTask`
-- it keeps JSON status payload shape, platform, batching, and filters fixed behind the typed API
-- it keeps destination receiver topology and destination-side user or policy lifecycle operator-owned
-- [platform-managed-site-to-site-status-kind-values.yaml](platform-managed-site-to-site-status-kind-values.yaml) points that typed feature at a cluster-local kind URL for local kind use
-- [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is reused as the kind receiver harness for that command
-- site-to-site provenance is its own optional GA sender-side typed path and is not part of the `observability.metrics.mode=siteToSite` metrics claim
-- [platform-managed-site-to-site-provenance-values.yaml](platform-managed-site-to-site-provenance-values.yaml) is an optional overlay for the GA sender-side typed site-to-site provenance export path
-- it enables `nifi.observability.siteToSiteProvenance.enabled=true`
-- it models the destination, auth, receiver-authorized identity, optional source instance URL override, transport settings, and a small provenance cursor for one `SiteToSiteProvenanceReportingTask`
-- it keeps fixed platform, batching, and schedule defaults behind the typed API
-- it keeps destination receiver topology, destination-side user or policy lifecycle, long-lived credential lifecycle, downstream provenance processing, and downstream storage or retention expectations operator-owned
-- [platform-managed-site-to-site-provenance-kind-values.yaml](platform-managed-site-to-site-provenance-kind-values.yaml) points that typed feature at a cluster-local kind URL for local kind use
-- [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml) is reused as the kind receiver harness for that command
+- [platform-managed-metrics-native-values.yaml](platform-managed-metrics-native-values.yaml)
+  - Optional overlay for native API metrics with named `ServiceMonitor` resources.
+- [platform-managed-metrics-native-trust-manager-values.yaml](platform-managed-metrics-native-trust-manager-values.yaml)
+  - Trust-manager-backed native API metrics overlay.
+  - Compose it with [platform-managed-trust-manager-values.yaml](platform-managed-trust-manager-values.yaml) and [platform-managed-metrics-native-values.yaml](platform-managed-metrics-native-values.yaml).
+- [platform-managed-metrics-exporter-values.yaml](platform-managed-metrics-exporter-values.yaml)
+  - Optional overlay for the exporter metrics mode.
+  - Use it when you specifically want the exporter `Deployment` and HTTP metrics `Service`.
+- [platform-managed-metrics-exporter-trust-manager-values.yaml](platform-managed-metrics-exporter-trust-manager-values.yaml)
+  - Trust-manager-backed exporter overlay.
+  - Compose it with [platform-managed-trust-manager-values.yaml](platform-managed-trust-manager-values.yaml) and [platform-managed-metrics-exporter-values.yaml](platform-managed-metrics-exporter-values.yaml).
+- [platform-managed-metrics-site-to-site-values.yaml](platform-managed-metrics-site-to-site-values.yaml)
+  - Optional overlay for typed Site-to-Site metrics export.
+- [platform-managed-site-to-site-status-values.yaml](platform-managed-site-to-site-status-values.yaml)
+  - Optional overlay for typed Site-to-Site status export.
+- [platform-managed-site-to-site-provenance-values.yaml](platform-managed-site-to-site-provenance-values.yaml)
+  - Optional overlay for typed Site-to-Site provenance export.
+- Kind receiver and proof overlays:
+  - [platform-managed-metrics-site-to-site-kind-values.yaml](platform-managed-metrics-site-to-site-kind-values.yaml)
+  - [platform-managed-site-to-site-status-kind-values.yaml](platform-managed-site-to-site-status-kind-values.yaml)
+  - [platform-managed-site-to-site-provenance-kind-values.yaml](platform-managed-site-to-site-provenance-kind-values.yaml)
+  - [standalone-site-to-site-receiver-kind-values.yaml](standalone-site-to-site-receiver-kind-values.yaml)
+- Use [Observability and Metrics](../docs/manage/observability-metrics.md) for the full metrics guidance and tradeoffs.
 
 Audit note:
 
-- [platform-managed-audit-flow-actions-local-only-values.yaml](platform-managed-audit-flow-actions-local-only-values.yaml) is the local-only example for enabling durable NiFi-native audit while keeping external export disabled
-- [platform-managed-audit-flow-actions-ghcr-values.yaml](platform-managed-audit-flow-actions-ghcr-values.yaml) is the connected-cluster example for using a published reporter image directly
-- [platform-managed-audit-flow-actions-private-registry-values.yaml](platform-managed-audit-flow-actions-private-registry-values.yaml) is the restricted-cluster example for using a mirrored internal reporter image plus `imagePullSecrets`
-- [platform-managed-audit-flow-actions-values.yaml](platform-managed-audit-flow-actions-values.yaml) is the optional managed-platform overlay for bounded design-time flow-action audit export
-- it enables `nifi.observability.audit.flowActions.enabled=true`
-- it keeps durable local history, request log, and flow archive as the primary support layer
-- it adds only the advanced `export.type=log` path; HTTP and Kafka sinks are intentionally not part of this shape
-- it expects a reporter image containing the NAR at the configured path; build the local example image with `make build-flow-action-audit-reporter-image`, or use the release-published upstream image from `ghcr.io/<owner>/nifi-fabric-flow-action-audit-reporter`
-- it pins the NiFi workload image to `2.8.0` because FlowActionReporter is only available in published NiFi artifacts from `2.4.0` onward
-- use it together with `examples/platform-managed-values.yaml`
-- [platform-managed-audit-flow-actions-kind-values.yaml](platform-managed-audit-flow-actions-kind-values.yaml) is the focused local kind overlay for this proof path
-- it switches the proof to a single NiFi node and keeps startup on the normal path until the proof script grants one temporary root-canvas policy through the NiFi API
-- use it together with `examples/platform-managed-values.yaml`, one audit overlay, and `examples/platform-fast-values.yaml`
-- use `make kind-flow-action-audit-fast-e2e` for the focused local kind proof path that installs local-only audit first and then upgrades to `export.type=log`
-- production rollout starts with the local-only overlay above, then moves to one of the explicit reporter-image overlays once the reporter image source and pull path are validated in the target cluster
+- [platform-managed-audit-flow-actions-local-only-values.yaml](platform-managed-audit-flow-actions-local-only-values.yaml)
+  - Local-only audit overlay with external export disabled.
+- [platform-managed-audit-flow-actions-ghcr-values.yaml](platform-managed-audit-flow-actions-ghcr-values.yaml)
+  - Connected-cluster overlay using a published reporter image.
+- [platform-managed-audit-flow-actions-private-registry-values.yaml](platform-managed-audit-flow-actions-private-registry-values.yaml)
+  - Restricted-cluster overlay using a mirrored internal reporter image.
+- [platform-managed-audit-flow-actions-values.yaml](platform-managed-audit-flow-actions-values.yaml)
+  - Optional managed-platform overlay for bounded `export.type=log` flow-action audit export.
+- [platform-managed-audit-flow-actions-kind-values.yaml](platform-managed-audit-flow-actions-kind-values.yaml)
+  - Focused local kind proof overlay for the audit export path.
+- Use [Flow-Change Audit](../docs/manage/observability-audit.md) for rollout guidance, image expectations, and support boundaries.
 
 Log shipping note:
 
@@ -447,18 +409,12 @@ Fallback bootstrap:
 
 Flow Registry Client notes:
 
-- classic NiFi Registry is supported here for NiFi `2.x` environments, while Git-based Flow Registry Clients remain the preferred long-term direction
-- Git-based Flow Registry Clients are preferred
-- the `provider=nifiRegistry` path owns only the live Registry Client objects and imported flow instances it explicitly creates in the NiFi Registry compatibility workflow
-- the chart renders a catalog under `flowRegistryClients.mountPath`
-- the catalog is available as both `clients.yaml` and `clients.json`
-- there is no controller-managed flow import or synchronization
-- Azure DevOps currently shares the prepared-catalog support level, not the better-covered end-to-end runtime workflow level
-- kind coverage includes the GitLab client path on NiFi `2.8.0` against a GitLab-compatible evaluator service
-- kind coverage also includes the GitHub client path on NiFi `2.8.0` against a GitHub-compatible evaluator service with the fast profile
-- kind coverage also includes a user-driven GitHub save-to-registry workflow on NiFi `2.8.0`
-- kind coverage also includes the Bitbucket client path on NiFi `2.8.0` against a Bitbucket-compatible evaluator service with the fast profile
-- kind coverage for Azure DevOps here verifies the rendered catalog and mounted pod files, not live Azure DevOps API connectivity
+- Git-based Flow Registry Clients are the preferred direction.
+- The chart renders the client catalog under `flowRegistryClients.mountPath` as both `clients.yaml` and `clients.json`.
+- The `provider=nifiRegistry` path owns only the live Registry Client objects and imported flow instances it explicitly creates in the compatibility workflow.
+- There is no controller-managed flow import or synchronization beyond the documented runtime-managed import path.
+- Azure DevOps support here covers the rendered catalog and mounted pod files, not live Azure DevOps API connectivity.
+- Use [Flow Registry Clients](../docs/manage/flow-registry-clients.md) and [Flows](../docs/manage/flows.md) for the full support model and workflow guidance.
 
 ## Standalone
 

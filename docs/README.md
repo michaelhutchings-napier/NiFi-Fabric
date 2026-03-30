@@ -11,6 +11,7 @@ Use this documentation set as the customer-facing guide for installing, operatin
 ## Install
 
 - [Install with Helm](install/helm.md)
+- [Pod Placement And Disruption](install/pod-placement-and-disruption.md)
 - [First Access and Day-1 Checks](first-day.md)
 - [Advanced Install Paths](install/advanced.md)
 - [Custom Component Loading](install/custom-component-loading.md)
