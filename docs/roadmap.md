@@ -34,6 +34,7 @@ NiFi-Fabric keeps the roadmap small and explicit.
 - generic extra volumes, mounts, and sidecars for environment-specific extensions
 - Secret-backed repository encryption support through a dedicated chart surface
 - clearer Azure DevOps Flow Registry Client guidance, with live proof of rendered and mounted client catalog support
+- configurable exporter Deployment replicas for the optional exporter metrics path
 
 ## Planned Next
 

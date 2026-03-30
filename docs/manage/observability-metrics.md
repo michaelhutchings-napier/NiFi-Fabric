@@ -56,6 +56,8 @@ This is an optional secondary path for environments that prefer a dedicated expo
 
 The exporter preserves upstream NiFi Prometheus metric families on the exporter endpoint and adds controller-status gauges from `/nifi-api/flow/status`.
 
+`observability.metrics.exporter.deployment.replicas` defaults to `1`. Increase it only when you want additional exporter endpoint availability and are comfortable with Prometheus scraping each replica separately. When `supplemental.flowStatus.enabled=true`, each exporter replica also emits the same flow-status gauges.
+
 ## Site-to-Site Export
 
 NiFi-Fabric also supports Site-to-Site observability paths for:

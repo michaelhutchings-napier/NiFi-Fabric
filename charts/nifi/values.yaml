@@ -413,6 +413,7 @@ observability:
         tag: "3.12-alpine"
         pullPolicy: IfNotPresent
       deployment:
+        replicas: 1
         annotations: {}
         labels: {}
       service:

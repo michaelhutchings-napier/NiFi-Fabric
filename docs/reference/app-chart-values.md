@@ -165,6 +165,7 @@ See also:
 | `observability.metrics.nativeApi.tlsConfig.ca.secretRef.*` | object | Secret CA reference for native metrics TLS. | No | empty |
 | `observability.metrics.nativeApi.endpoints[]` | object list | Named native metrics scrape profiles. | No | see values file |
 | `observability.metrics.exporter.image.*` | object | Exporter image settings for the optional secondary metrics path. | No | see values file |
+| `observability.metrics.exporter.deployment.replicas` | integer | Exporter Deployment replica count. Use values greater than `1` only when you want additional exporter endpoint availability and understand that Prometheus will scrape each replica separately. | No | `1` |
 | `observability.metrics.exporter.service.*` | object | Exporter Service settings. | No | see values file |
 | `observability.metrics.exporter.serviceMonitor.*` | object | Exporter ServiceMonitor settings. | No | see values file |
 | `observability.metrics.exporter.machineAuth.*` | object | Machine-auth Secret settings for exporter upstream scraping. | No | see values file |
