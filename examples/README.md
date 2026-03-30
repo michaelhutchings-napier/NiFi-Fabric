@@ -30,6 +30,11 @@ For most teams, start with one of these `charts/nifi-platform` entry points:
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
   - Keeps `nifi.persistence.storageClassName` as the shared fallback while allowing specific repository PVCs to opt into a different `StorageClass`.
 
+- [platform-managed-persistent-logs-values.yaml](platform-managed-persistent-logs-values.yaml)
+  - Optional overlay for a per-pod persistent logs PVC.
+  - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).
+  - Keeps the shared NiFi logs path on persistent storage for local retention and troubleshooting without adding product-managed retention behavior.
+
 - [platform-managed-debug-startup-values.yaml](platform-managed-debug-startup-values.yaml)
   - Optional overlay for temporary pre-start NiFi pod inspection.
   - Compose it with [platform-managed-values.yaml](platform-managed-values.yaml).

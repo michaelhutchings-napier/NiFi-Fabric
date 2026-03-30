@@ -708,8 +708,9 @@ pdb:
 
 # -- Persistent repository storage settings.
 # `persistence.storageClassName` remains the shared fallback. Individual
-# repositories can override it with their own `storageClassName`.
-# @default -- {"enabled":true,"storageClassName":"","accessModes":["ReadWriteOnce"],"databaseRepository":{"size":"2Gi","storageClassName":""},"flowfileRepository":{"size":"2Gi","storageClassName":""},"contentRepository":{"size":"4Gi","storageClassName":""},"provenanceRepository":{"size":"4Gi","storageClassName":""}}
+# repositories and the optional logs PVC can override it with their own
+# `storageClassName`.
+# @default -- {"enabled":true,"storageClassName":"","accessModes":["ReadWriteOnce"],"databaseRepository":{"size":"2Gi","storageClassName":""},"flowfileRepository":{"size":"2Gi","storageClassName":""},"contentRepository":{"size":"4Gi","storageClassName":""},"provenanceRepository":{"size":"4Gi","storageClassName":""},"logs":{"enabled":false,"size":"4Gi","storageClassName":""}}
 persistence:
   enabled: true
   storageClassName: ""
@@ -725,6 +726,10 @@ persistence:
     size: 4Gi
     storageClassName: ""
   provenanceRepository:
+    size: 4Gi
+    storageClassName: ""
+  logs:
+    enabled: false
     size: 4Gi
     storageClassName: ""
 
