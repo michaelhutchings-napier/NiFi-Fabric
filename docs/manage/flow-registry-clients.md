@@ -45,21 +45,19 @@ Use platform chart values under:
 
 ## Azure DevOps
 
-Azure DevOps is supported here as a prepared Flow Registry Client catalog shape.
+Azure DevOps is supported here through a prepared Flow Registry Client catalog
+definition.
 
-What the current Azure DevOps path covers:
+Current Azure DevOps support includes:
 
 - chart validation of the `provider=azureDevOps` client shape
 - chart rendering of the prepared client catalog into `clients.yaml` and
   `clients.json`
 - pod-mounted availability of that prepared catalog inside the NiFi workload
 
-What the current Azure DevOps path does not claim:
-
-- automatic live Flow Registry Client creation in NiFi
-- runtime-managed versioned-flow import parity
-- repository-verified end-to-end connectivity to a real Azure DevOps
-  organization, project, and repository
+The live Flow Registry Client lifecycle in NiFi remains operator-managed, and
+runtime-managed versioned-flow import follows the same generic pre-created live
+client requirement used by other non-`nifiRegistry` providers.
 
 Expected Azure DevOps client inputs:
 
@@ -117,19 +115,6 @@ What remains manual or out of scope:
 - deployment remains user-driven
 - there is no controller-managed flow synchronization
 - there are no flow CRDs
-
-## Azure DevOps Boundary
-
-Keep the current product boundary explicit:
-
-- Flow Registry Client catalogs can render Azure DevOps-backed client
-  definitions
-- those rendered definitions are a supported starting point for manual NiFi UI
-  or API configuration
-- broader workflow parity with every Git provider is not implied by this path
-- if future customer demand appears, deeper parity should be evaluated as a
-  separate versioned-flow-import decision rather than assumed from catalog
-  support alone
 
 ## What This Feature Does Not Do
 

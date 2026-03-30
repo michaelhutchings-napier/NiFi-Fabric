@@ -1,8 +1,8 @@
 # Prepared Azure DevOps Flow Registry Client overlay.
 # Compose with standalone or managed values.
 # This renders a validated catalog entry only. It does not auto-create the client in NiFi.
-# Current support here is the prepared catalog shape plus pod-mounted availability,
-# not repository-verified end-to-end Azure DevOps connectivity.
+# Current support here includes catalog rendering and pod-mounted availability
+# for the Azure DevOps client definition.
 
 flowRegistryClients:
   enabled: true
