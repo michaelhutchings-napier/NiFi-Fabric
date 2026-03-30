@@ -716,6 +716,7 @@ app.kubernetes.io/component: metrics
 {{- $flowStatus := default (dict) $supplemental.flowStatus -}}
 {{- $service := default (dict) $exporter.service -}}
 {{- $serviceMonitor := default (dict) $exporter.serviceMonitor -}}
+{{- $deployment := default (dict) $exporter.deployment -}}
 {{- if and (ne $machineAuth.type "bearerToken") (ne $machineAuth.type "authorizationHeader") -}}
 {{- fail "observability.metrics.exporter.machineAuth.type must be one of: bearerToken, authorizationHeader" -}}
 {{- end -}}
@@ -746,6 +747,9 @@ app.kubernetes.io/component: metrics
 {{- end -}}
 {{- if and (not $service.enabled) (default true $serviceMonitor.enabled) -}}
 {{- fail "observability.metrics.exporter.service.enabled=false cannot be combined with an enabled exporter ServiceMonitor" -}}
+{{- end -}}
+{{- if lt (int $deployment.replicas) 1 -}}
+{{- fail "observability.metrics.exporter.deployment.replicas must be greater than zero" -}}
 {{- end -}}
 {{- $serviceMonitorDefaults := default (dict) $serviceMonitor.defaults -}}
 {{- $serviceMonitorScheme := default "http" $serviceMonitorDefaults.scheme -}}

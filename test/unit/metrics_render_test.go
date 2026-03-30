@@ -279,6 +279,48 @@ func TestExporterMetricsCanDisableServiceMonitorWhileKeepingService(t *testing.T
 	}
 }
 
+func TestExporterMetricsCanSetDeploymentReplicas(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.metrics.mode=exporter",
+		"--set", "observability.metrics.exporter.machineAuth.secretRef.name=nifi-metrics-auth",
+		"--set", "observability.metrics.exporter.machineAuth.authorization.type=Bearer",
+		"--set", "observability.metrics.exporter.machineAuth.authorization.credentialsKey=token",
+		"--set", "observability.metrics.exporter.deployment.replicas=2",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+	for _, want := range []string{
+		"kind: Deployment",
+		"name: test-nifi-metrics-exporter",
+		"replicas: 2",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered output to contain %q\n%s", want, output)
+		}
+	}
+}
+
+func TestExporterMetricsValidationFailsForInvalidReplicaCount(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"--set", "observability.metrics.mode=exporter",
+		"--set", "observability.metrics.exporter.machineAuth.secretRef.name=nifi-metrics-auth",
+		"--set", "observability.metrics.exporter.machineAuth.authorization.type=Bearer",
+		"--set", "observability.metrics.exporter.machineAuth.authorization.credentialsKey=token",
+		"--set", "observability.metrics.exporter.deployment.replicas=0",
+	)
+	if err == nil {
+		t.Fatalf("expected helm template to fail for an invalid exporter replica count\n%s", output)
+	}
+	if !strings.Contains(output, "observability.metrics.exporter.deployment.replicas must be greater than zero") {
+		t.Fatalf("expected exporter replica validation error\n%s", output)
+	}
+}
+
 func TestExporterMetricsValidationFailsWhenServiceMonitorEnabledWithoutService(t *testing.T) {
 	output, err := helmTemplate(
 		t,
