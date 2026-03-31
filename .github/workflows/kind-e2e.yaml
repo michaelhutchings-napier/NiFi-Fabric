@@ -57,7 +57,7 @@ jobs:
     - uses: azure/setup-helm@v5
       with:
         version: v3.20.0
-    - uses: azure/setup-kubectl@v4
+    - uses: azure/setup-kubectl@v5
       with:
         version: v1.31.0
     - uses: engineerd/setup-kind@v0.6.2
