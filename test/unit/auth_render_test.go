@@ -92,6 +92,30 @@ func TestOIDCInitialAdminGroupKindExampleKeepsGroupBootstrapPrimary(t *testing.T
 	}
 }
 
+func TestOIDCInitialAdminGroupFastProfileKeepsSingleReplica(t *testing.T) {
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		"-f", "examples/managed/values.yaml",
+		"-f", "examples/oidc-values.yaml",
+		"-f", "examples/oidc-group-claims-values.yaml",
+		"-f", "examples/test-fast-values.yaml",
+		"-f", "examples/oidc-kind-initial-admin-group-values.yaml",
+	)
+	if err != nil {
+		t.Fatalf("helm template failed: %v\n%s", err, output)
+	}
+
+	statefulSetStart := strings.Index(output, "kind: StatefulSet")
+	if statefulSetStart == -1 {
+		t.Fatalf("expected rendered output to contain the NiFi StatefulSet\n%s", output)
+	}
+	statefulSetBody := output[statefulSetStart:]
+	if !strings.Contains(statefulSetBody, "\n  replicas: 1\n") {
+		t.Fatalf("expected the Initial Admin Group fast profile to keep the NiFi StatefulSet at one replica\n%s", statefulSetBody)
+	}
+}
+
 func TestBitbucketFlowRegistryKindExampleRendersPreparedClient(t *testing.T) {
 	output, err := helmTemplate(
 		t,

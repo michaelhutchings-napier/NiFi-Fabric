@@ -399,16 +399,17 @@ helm_values_args+=(
   -f examples/oidc-group-claims-values.yaml
 )
 
-if [[ "${OIDC_INITIAL_ADMIN_GROUP}" == "true" ]]; then
-  helm_values_args+=(-f examples/oidc-kind-initial-admin-group-values.yaml)
-else
-  helm_values_args+=(-f examples/oidc-kind-values.yaml)
-fi
-
 profile_label=""
 if [[ "${FAST_PROFILE}" == "true" ]]; then
   helm_values_args+=(-f "${FAST_VALUES_FILE}")
   profile_label=" with fast profile"
+fi
+
+# Keep focused proof overlays last so they can override the generic fast profile.
+if [[ "${OIDC_INITIAL_ADMIN_GROUP}" == "true" ]]; then
+  helm_values_args+=(-f examples/oidc-kind-initial-admin-group-values.yaml)
+else
+  helm_values_args+=(-f examples/oidc-kind-values.yaml)
 fi
 
 bootstrap_keycloak() {
