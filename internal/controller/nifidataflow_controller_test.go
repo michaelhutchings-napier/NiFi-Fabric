@@ -321,6 +321,80 @@ func TestNiFiDataflowReconcileProjectsReadyRuntimeStatus(t *testing.T) {
 	expectEventContains(t, recorder, "Normal RuntimeImportReady", "process group pg-orders", "version 12")
 }
 
+func TestNiFiDataflowReconcilePreservesLastSuccessfulVersionWhenOnceDriftIsSkipped(t *testing.T) {
+	cluster := &platformv1alpha1.NiFiCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},
+		Spec: platformv1alpha1.NiFiClusterSpec{
+			TargetRef:    platformv1alpha1.TargetRef{Name: "nifi"},
+			DesiredState: platformv1alpha1.DesiredStateRunning,
+		},
+	}
+	target := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{
+						{
+							Name: "nifidataflow-bridge",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{Name: "nifi-nifidataflows"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	dataflow := dataflowFixture()
+	dataflow.Spec.SyncPolicy.Mode = platformv1alpha1.DataflowSyncModeOnce
+	dataflow.Status.LastSuccessfulVersion = "12"
+	dataflow.Status.ObservedVersion = "12"
+	statusConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "nifi-nifidataflows-status", Namespace: "nifi"},
+		Data: map[string]string{
+			"status.json": `{
+  "status": "ok",
+  "imports": [
+    {
+      "name": "orders-ingest",
+      "status": "ok",
+      "action": "unchanged",
+      "syncPolicyMode": "Once",
+      "versionDriftReconcileSkipped": true,
+      "processGroupId": "pg-orders",
+      "registryClientName": "github-main",
+      "registryClientId": "registry-1",
+      "bucket": "platform-flows",
+      "bucketId": "bucket-1",
+      "flowName": "orders-ingest",
+      "flowId": "flow-1",
+      "resolvedVersion": "12",
+      "actualVersion": "11"
+    }
+  ]
+}`,
+		},
+	}
+	reconciler, k8sClient, _ := newTestDataflowReconciler(t, dataflow, cluster, target, bridgeConfigMapFixture(), statusConfigMap)
+
+	reconcileDataflow(t, reconciler)
+	reconcileDataflow(t, reconciler)
+
+	updated := &platformv1alpha1.NiFiDataflow{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: "nifi", Name: "orders-ingest"}, updated); err != nil {
+		t.Fatalf("get updated dataflow: %v", err)
+	}
+	if updated.Status.ObservedVersion != "11" {
+		t.Fatalf("expected observed version to reflect the live drifted version, got %q", updated.Status.ObservedVersion)
+	}
+	if updated.Status.LastSuccessfulVersion != "12" {
+		t.Fatalf("expected last successful version to preserve the last reconciled version during Once drift skip, got %q", updated.Status.LastSuccessfulVersion)
+	}
+}
+
 func TestNiFiDataflowReconcileProjectsBlockedRuntimeStatus(t *testing.T) {
 	cluster := &platformv1alpha1.NiFiCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "nifi", Namespace: "nifi"},

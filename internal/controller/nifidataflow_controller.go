@@ -39,6 +39,8 @@ type bridgeRuntimeImportRef struct {
 	Reason               string `json:"reason"`
 	Action               string `json:"action"`
 	OwnershipState       string `json:"ownershipState"`
+	SyncPolicyMode       string `json:"syncPolicyMode"`
+	VersionDriftSkipped  bool   `json:"versionDriftReconcileSkipped"`
 	ProcessGroupID       string `json:"processGroupId"`
 	RegistryClientName   string `json:"registryClientName"`
 	RegistryClientID     string `json:"registryClientId"`
@@ -452,6 +454,16 @@ func runtimeImportObservedVersion(runtimeImport *bridgeRuntimeImportRef) string 
 		return version
 	}
 	return strings.TrimSpace(runtimeImport.ResolvedVersion)
+}
+
+func runtimeImportLastSuccessfulVersion(runtimeImport *bridgeRuntimeImportRef) string {
+	if runtimeImport == nil || runtimeImport.VersionDriftSkipped {
+		return ""
+	}
+	if version := strings.TrimSpace(runtimeImport.ResolvedVersion); version != "" {
+		return version
+	}
+	return runtimeImportObservedVersion(runtimeImport)
 }
 
 func runtimeImportSummary(runtimeImport *bridgeRuntimeImportRef) string {
@@ -1441,7 +1453,9 @@ func (r *NiFiDataflowReconciler) markRuntimeImportReady(dataflow *platformv1alph
 	}
 	if observedVersion := runtimeImportObservedVersion(runtimeImport); observedVersion != "" {
 		dataflow.Status.ObservedVersion = observedVersion
-		dataflow.Status.LastSuccessfulVersion = observedVersion
+	}
+	if lastSuccessfulVersion := runtimeImportLastSuccessfulVersion(runtimeImport); lastSuccessfulVersion != "" {
+		dataflow.Status.LastSuccessfulVersion = lastSuccessfulVersion
 	}
 	action := strings.TrimSpace(runtimeImport.Action)
 	if action == "" {
