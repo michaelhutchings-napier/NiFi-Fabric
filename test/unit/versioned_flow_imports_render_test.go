@@ -195,7 +195,7 @@ func TestVersionedFlowImportsBootstrapSupportsBoundedRolloutStrategies(t *testin
 	}
 }
 
-func TestVersionedFlowImportsBootstrapMarksOwnershipBeforeParameterContextMutation(t *testing.T) {
+func TestVersionedFlowImportsBootstrapUpdatesOwnershipAfterRuntimeMutations(t *testing.T) {
 	args := append(
 		preparedGitHubFlowRegistryClientArgs(),
 		"--set", "controllerManaged.enabled=true",
@@ -220,18 +220,22 @@ func TestVersionedFlowImportsBootstrapMarksOwnershipBeforeParameterContextMutati
 	ensureImportBody := output[ensureImportIndex:]
 
 	commentsBlockIndex := strings.Index(ensureImportBody, `desired_comments = managed_comments(`)
-	updateCommentsCallIndex := strings.Index(ensureImportBody, "if (component.get(\"comments\", \"\") or \"\") != desired_comments:\n            update_process_group_comments(")
-	bindParameterContextCallIndex := strings.Index(ensureImportBody, "if parameter_context_id:\n                if actual_parameter_context_id != parameter_context_id:\n                    bind_parameter_context(")
-	clearParameterContextCallIndex := strings.Index(ensureImportBody, "elif actual_parameter_context_id:\n                clear_parameter_context(")
+	updateCommentsCallIndex := strings.Index(ensureImportBody, "update_process_group_comments(")
+	versionUpdateCallIndex := strings.Index(ensureImportBody, "if needs_version_update:")
+	bindParameterContextCallIndex := strings.Index(ensureImportBody, "bind_parameter_context(")
+	clearParameterContextCallIndex := strings.Index(ensureImportBody, "clear_parameter_context(")
 
-	if commentsBlockIndex == -1 || updateCommentsCallIndex == -1 || bindParameterContextCallIndex == -1 || clearParameterContextCallIndex == -1 {
-		t.Fatalf("expected rendered bootstrap.py to contain ownership-comment and parameter-context update paths\n%s", output)
+	if commentsBlockIndex == -1 || updateCommentsCallIndex == -1 || versionUpdateCallIndex == -1 || bindParameterContextCallIndex == -1 || clearParameterContextCallIndex == -1 {
+		t.Fatalf("expected rendered bootstrap.py to contain ownership-comment, version-update, and parameter-context update paths\n%s", output)
 	}
-	if commentsBlockIndex > bindParameterContextCallIndex || updateCommentsCallIndex > bindParameterContextCallIndex {
-		t.Fatalf("expected ownership marker update to be prepared before parameter context attachment logic\n%s", output)
+	if commentsBlockIndex < versionUpdateCallIndex || updateCommentsCallIndex < versionUpdateCallIndex {
+		t.Fatalf("expected ownership marker update to happen after version-update logic so retried Once imports cannot trust stale comments\n%s", output)
 	}
-	if commentsBlockIndex > clearParameterContextCallIndex || updateCommentsCallIndex > clearParameterContextCallIndex {
-		t.Fatalf("expected ownership marker update to be prepared before parameter context removal logic\n%s", output)
+	if commentsBlockIndex < bindParameterContextCallIndex || updateCommentsCallIndex < bindParameterContextCallIndex {
+		t.Fatalf("expected ownership marker update to happen after parameter context attachment logic\n%s", output)
+	}
+	if commentsBlockIndex < clearParameterContextCallIndex || updateCommentsCallIndex < clearParameterContextCallIndex {
+		t.Fatalf("expected ownership marker update to happen after parameter context removal logic\n%s", output)
 	}
 }
 

@@ -1703,32 +1703,6 @@ data:
             else:
                 needs_version_update = True
 
-        desired_comments = managed_comments(
-            config,
-            component.get("comments", "") or "",
-            import_entry,
-            resolved_version,
-            import_status["observedHash"],
-        )
-        if (component.get("comments", "") or "") != desired_comments:
-            update_process_group_comments(
-                opener,
-                base_url,
-                proxied_identity,
-                config,
-                process_group_id,
-                revision.get("version", 0),
-                component.get("name", target_name),
-                desired_comments,
-            )
-            action = "updated" if action == "unchanged" else action
-            component_payload, component, revision, process_group_flow, flow_payload, version_control = refresh_process_group_state(
-                opener,
-                base_url,
-                proxied_identity,
-                process_group_id,
-            )
-
         _, _, process_group_status_snapshot = get_process_group_status(opener, base_url, proxied_identity, process_group_id)
         should_resume_after_version_update = False
 
