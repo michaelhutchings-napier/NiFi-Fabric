@@ -1674,6 +1674,37 @@ data:
                 f"target process group {process_group_id!r} has name {component.get('name')!r}; expected {target_name!r}"
             )
 
+        if action == "created":
+            desired_comments = managed_comments(
+                config,
+                component.get("comments", "") or "",
+                import_entry,
+                import_status["resolvedVersion"],
+                import_status["observedHash"],
+            )
+            if (component.get("comments", "") or "") != desired_comments:
+                update_process_group_comments(
+                    opener,
+                    base_url,
+                    proxied_identity,
+                    config,
+                    process_group_id,
+                    revision.get("version", 0),
+                    component.get("name", target_name),
+                    desired_comments,
+                )
+                component_payload, component, revision, process_group_flow, flow_payload, version_control = refresh_process_group_state(
+                    opener,
+                    base_url,
+                    proxied_identity,
+                    process_group_id,
+                )
+            ownership_metadata = ownership_metadata_from_comments(config, component.get("comments", ""))
+            if not ownership_metadata:
+                raise NiFiAPIError(
+                    f"created target root child process group {target_name!r} did not retain the product ownership marker after initial claim"
+                )
+
         actual_flow_name = version_control.get("flowName") or version_control.get("name") or ""
         actual_flow_id = version_control.get("flowId") or version_control.get("identifier") or ""
         actual_version = version_control.get("version")

@@ -219,14 +219,30 @@ func TestVersionedFlowImportsBootstrapUpdatesOwnershipAfterRuntimeMutations(t *t
 	}
 	ensureImportBody := output[ensureImportIndex:]
 
-	commentsBlockIndex := strings.Index(ensureImportBody, `desired_comments = managed_comments(`)
-	updateCommentsCallIndex := strings.Index(ensureImportBody, "update_process_group_comments(")
+	createOwnershipClaimIndex := strings.Index(ensureImportBody, `if action == "created":`)
+	createOwnershipCommentsIndex := strings.Index(ensureImportBody, `if action == "created":
+            desired_comments = managed_comments(`)
+	createUpdateCommentsCallIndex := strings.Index(ensureImportBody, `if action == "created":
+            desired_comments = managed_comments(
+                config,
+                component.get("comments", "") or "",
+                import_entry,
+                import_status["resolvedVersion"],
+                import_status["observedHash"],
+            )
+            if (component.get("comments", "") or "") != desired_comments:
+                update_process_group_comments(`)
+	commentsBlockIndex := strings.LastIndex(ensureImportBody, `desired_comments = managed_comments(`)
+	updateCommentsCallIndex := strings.LastIndex(ensureImportBody, "update_process_group_comments(")
 	versionUpdateCallIndex := strings.Index(ensureImportBody, "if needs_version_update:")
 	bindParameterContextCallIndex := strings.Index(ensureImportBody, "bind_parameter_context(")
 	clearParameterContextCallIndex := strings.Index(ensureImportBody, "clear_parameter_context(")
 
-	if commentsBlockIndex == -1 || updateCommentsCallIndex == -1 || versionUpdateCallIndex == -1 || bindParameterContextCallIndex == -1 || clearParameterContextCallIndex == -1 {
-		t.Fatalf("expected rendered bootstrap.py to contain ownership-comment, version-update, and parameter-context update paths\n%s", output)
+	if createOwnershipClaimIndex == -1 || createOwnershipCommentsIndex == -1 || createUpdateCommentsCallIndex == -1 || commentsBlockIndex == -1 || updateCommentsCallIndex == -1 || versionUpdateCallIndex == -1 || bindParameterContextCallIndex == -1 || clearParameterContextCallIndex == -1 {
+		t.Fatalf("expected rendered bootstrap.py to contain early ownership-claim, late ownership-comment, version-update, and parameter-context update paths\n%s", output)
+	}
+	if createOwnershipClaimIndex > versionUpdateCallIndex || createOwnershipCommentsIndex > versionUpdateCallIndex || createUpdateCommentsCallIndex > versionUpdateCallIndex {
+		t.Fatalf("expected created targets to claim ownership before version-update logic so retries do not block on an unmarked target\n%s", output)
 	}
 	if commentsBlockIndex < versionUpdateCallIndex || updateCommentsCallIndex < versionUpdateCallIndex {
 		t.Fatalf("expected ownership marker update to happen after version-update logic so retried Once imports cannot trust stale comments\n%s", output)
