@@ -1561,6 +1561,41 @@ data:
                 )
 
 
+    def reclaimable_previous_ownership(import_entry, previous_entry, process_group_id):
+        if not isinstance(previous_entry, dict):
+            return {}
+        if str(previous_entry.get("status") or "").strip() != "ok":
+            return {}
+        if str(previous_entry.get("ownershipState") or "").strip() != "owned":
+            return {}
+        if str(previous_entry.get("processGroupId") or "").strip() != process_group_id:
+            return {}
+        if str(previous_entry.get("name") or "").strip() != import_entry["name"]:
+            return {}
+        if str(previous_entry.get("targetRootProcessGroupName") or "").strip() != import_entry["target"]["rootProcessGroupName"]:
+            return {}
+        expected_pairs = (
+            ("registryClientName", import_entry["registryClientRef"]["name"]),
+            ("bucket", import_entry["source"]["bucket"]),
+            ("flowName", import_entry["source"]["flowName"]),
+        )
+        for field, expected in expected_pairs:
+            actual = str(previous_entry.get(field) or "").strip()
+            if actual and actual != expected:
+                return {}
+        metadata = {
+            "importName": import_entry["name"],
+            "registryClientName": import_entry["registryClientRef"]["name"],
+            "bucket": import_entry["source"]["bucket"],
+            "flowName": import_entry["source"]["flowName"],
+            "targetRootProcessGroupName": import_entry["target"]["rootProcessGroupName"],
+            "selectedVersion": str(previous_entry.get("selectedVersion") or import_entry["source"]["version"]),
+            "resolvedVersion": str(previous_entry.get("resolvedVersion") or ""),
+            "observedHash": str(previous_entry.get("observedHash") or ""),
+        }
+        return {key: value for key, value in metadata.items() if value}
+
+
     def ensure_import(config, previous_entry, opener, base_url, proxied_identity, import_entry):
         client_id = config["management"]["clientId"]
         import_status = {
@@ -1583,9 +1618,11 @@ data:
         ownership_metadata = ownership_metadata_from_comments(config, target_matches[0]["comments"]) if target_matches else {}
         if process_group_id:
             if not ownership_metadata:
-                raise NiFiAPIError(
-                    f"declared target root child process group {target_name!r} already exists in NiFi without the product ownership marker; operator-owned targets are not adopted automatically"
-                )
+                ownership_metadata = reclaimable_previous_ownership(import_entry, previous_entry, process_group_id)
+                if not ownership_metadata:
+                    raise NiFiAPIError(
+                        f"declared target root child process group {target_name!r} already exists in NiFi without the product ownership marker; operator-owned targets are not adopted automatically"
+                    )
             validate_owned_target(import_entry, ownership_metadata)
             import_status["ownershipState"] = "owned"
         else:
