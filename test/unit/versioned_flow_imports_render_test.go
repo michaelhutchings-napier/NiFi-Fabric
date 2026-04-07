@@ -255,6 +255,49 @@ func TestVersionedFlowImportsBootstrapUpdatesOwnershipAfterRuntimeMutations(t *t
 	}
 }
 
+func TestVersionedFlowImportsBootstrapCanReclaimPreviouslyOwnedTargetsWithoutLiveMarker(t *testing.T) {
+	args := append(
+		preparedGitHubFlowRegistryClientArgs(),
+		"--set", "controllerManaged.enabled=true",
+		"--set", "auth.mode=singleUser",
+		"--set", "authz.bundles.flowVersionManager.includeInitialAdmin=true",
+		"--set", "versionedFlowImports.enabled=true",
+		"--set", "versionedFlowImports.controllerBridge.enabled=true",
+	)
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		args...,
+	)
+	if err != nil {
+		t.Fatalf("expected helm template to render versionedFlowImports bootstrap script with controller bridge enabled: %v\n%s", err, output)
+	}
+
+	for _, want := range []string{
+		`def reclaimable_previous_ownership(import_entry, previous_entry, process_group_id):`,
+		`if str(previous_entry.get("status") or "").strip() != "ok":`,
+		`if str(previous_entry.get("ownershipState") or "").strip() != "owned":`,
+		`if str(previous_entry.get("processGroupId") or "").strip() != process_group_id:`,
+		`ownership_metadata = reclaimable_previous_ownership(import_entry, previous_entry, process_group_id)`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected rendered bootstrap.py to contain %q\n%s", want, output)
+		}
+	}
+
+	ensureImportIndex := strings.Index(output, `def ensure_import(`)
+	if ensureImportIndex == -1 {
+		t.Fatalf("expected rendered bootstrap.py to contain ensure_import()\n%s", output)
+	}
+	ensureImportBody := output[ensureImportIndex:]
+
+	reclaimIndex := strings.Index(ensureImportBody, `ownership_metadata = reclaimable_previous_ownership(import_entry, previous_entry, process_group_id)`)
+	blockIndex := strings.Index(ensureImportBody, `operator-owned targets are not adopted automatically`)
+	if reclaimIndex == -1 || blockIndex == -1 || reclaimIndex > blockIndex {
+		t.Fatalf("expected previously owned targets to attempt ownership reclaim before adoption refusal\n%s", output)
+	}
+}
+
 func TestVersionedFlowImportsControllerBridgeRequiresManagedWorkload(t *testing.T) {
 	args := append(
 		preparedGitHubFlowRegistryClientArgs(),
