@@ -1991,6 +1991,8 @@ data:
                         "reason": "reconciliation is suspended by NiFiDataflow spec.suspend=true",
                     }
                 )
+                status["status"] = "blocked" if blocked else "running"
+                write_status(config, status)
                 continue
             try:
                 import_status = ensure_import(
@@ -2011,6 +2013,8 @@ data:
                 }
                 blocked = True
             status["imports"].append(import_status)
+            status["status"] = "blocked" if blocked else "running"
+            write_status(config, status)
 
         observe_retained_owned_imports(config, opener, base_url, proxied_identity, status)
         status["status"] = "blocked" if blocked else "ok"

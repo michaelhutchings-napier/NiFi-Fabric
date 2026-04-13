@@ -298,6 +298,47 @@ func TestVersionedFlowImportsBootstrapCanReclaimPreviouslyOwnedTargetsWithoutLiv
 	}
 }
 
+func TestVersionedFlowImportsBootstrapPersistsIncrementalStatusDuringReconcile(t *testing.T) {
+	args := append(
+		preparedGitHubFlowRegistryClientArgs(),
+		"--set", "controllerManaged.enabled=true",
+		"--set", "auth.mode=singleUser",
+		"--set", "authz.bundles.flowVersionManager.includeInitialAdmin=true",
+		"--set", "versionedFlowImports.enabled=true",
+		"--set", "versionedFlowImports.controllerBridge.enabled=true",
+	)
+	output, err := helmTemplate(
+		t,
+		"charts/nifi",
+		args...,
+	)
+	if err != nil {
+		t.Fatalf("expected helm template to render versionedFlowImports bootstrap script with controller bridge enabled: %v\n%s", err, output)
+	}
+
+	reconcileIndex := strings.Index(output, `def reconcile_once(config):`)
+	if reconcileIndex == -1 {
+		t.Fatalf("expected rendered bootstrap.py to contain reconcile_once()\n%s", output)
+	}
+	mainIndex := strings.Index(output[reconcileIndex:], `def main():`)
+	if mainIndex == -1 {
+		t.Fatalf("expected rendered bootstrap.py to contain main() after reconcile_once()\n%s", output)
+	}
+	reconcileBody := output[reconcileIndex : reconcileIndex+mainIndex]
+
+	writeIndex := strings.LastIndex(reconcileBody, `write_status(config, status)`)
+	retainedIndex := strings.Index(reconcileBody, `observe_retained_owned_imports(config, opener, base_url, proxied_identity, status)`)
+	loopAppendIndex := strings.LastIndex(reconcileBody, `status["imports"].append(import_status)`)
+	partialStatusIndex := strings.LastIndex(reconcileBody, `status["status"] = "blocked" if blocked else "running"`)
+
+	if writeIndex == -1 || retainedIndex == -1 || loopAppendIndex == -1 || partialStatusIndex == -1 {
+		t.Fatalf("expected rendered bootstrap.py to persist per-import runtime status before final retained-owned-import observation\n%s", output)
+	}
+	if partialStatusIndex < loopAppendIndex || writeIndex < partialStatusIndex || writeIndex > retainedIndex {
+		t.Fatalf("expected reconcile_once() to write incremental status after appending each import result and before final observation\n%s", output)
+	}
+}
+
 func TestVersionedFlowImportsControllerBridgeRequiresManagedWorkload(t *testing.T) {
 	args := append(
 		preparedGitHubFlowRegistryClientArgs(),
