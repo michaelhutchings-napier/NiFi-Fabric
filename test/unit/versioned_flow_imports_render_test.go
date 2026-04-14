@@ -326,16 +326,22 @@ func TestVersionedFlowImportsBootstrapPersistsIncrementalStatusDuringReconcile(t
 	}
 	reconcileBody := output[reconcileIndex : reconcileIndex+mainIndex]
 
-	writeIndex := strings.LastIndex(reconcileBody, `write_status(config, status)`)
+	writeIndex := strings.LastIndex(reconcileBody, `write_status(config, status, False)`)
 	retainedIndex := strings.Index(reconcileBody, `observe_retained_owned_imports(config, opener, base_url, proxied_identity, status)`)
 	loopAppendIndex := strings.LastIndex(reconcileBody, `status["imports"].append(import_status)`)
 	partialStatusIndex := strings.LastIndex(reconcileBody, `status["status"] = "blocked" if blocked else "running"`)
 
 	if writeIndex == -1 || retainedIndex == -1 || loopAppendIndex == -1 || partialStatusIndex == -1 {
-		t.Fatalf("expected rendered bootstrap.py to persist per-import runtime status before final retained-owned-import observation\n%s", output)
+		t.Fatalf("expected rendered bootstrap.py to checkpoint per-import runtime status locally before final retained-owned-import observation\n%s", output)
 	}
 	if partialStatusIndex < loopAppendIndex || writeIndex < partialStatusIndex || writeIndex > retainedIndex {
-		t.Fatalf("expected reconcile_once() to write incremental status after appending each import result and before final observation\n%s", output)
+		t.Fatalf("expected reconcile_once() to checkpoint incremental status after appending each import result and before final observation\n%s", output)
+	}
+	if !strings.Contains(output, `def write_status(config, payload, publish_configmap=True):`) {
+		t.Fatalf("expected rendered bootstrap.py to support local-only status writes during reconcile\n%s", output)
+	}
+	if !strings.Contains(output, `if publish_configmap:`) {
+		t.Fatalf("expected rendered bootstrap.py to gate ConfigMap publication for incremental checkpoints\n%s", output)
 	}
 }
 

@@ -231,7 +231,7 @@ data:
             return {}
 
 
-    def write_status(config, payload):
+    def write_status(config, payload, publish_configmap=True):
         path = config["management"]["statusFile"]
         directory = os.path.dirname(path)
         if directory:
@@ -240,7 +240,8 @@ data:
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
             handle.write("\n")
-        publish_status_configmap(config, payload)
+        if publish_configmap:
+            publish_status_configmap(config, payload)
 
 
     def base_status(config):
@@ -1992,7 +1993,7 @@ data:
                     }
                 )
                 status["status"] = "blocked" if blocked else "running"
-                write_status(config, status)
+                write_status(config, status, False)
                 continue
             try:
                 import_status = ensure_import(
@@ -2014,7 +2015,7 @@ data:
                 blocked = True
             status["imports"].append(import_status)
             status["status"] = "blocked" if blocked else "running"
-            write_status(config, status)
+            write_status(config, status, False)
 
         observe_retained_owned_imports(config, opener, base_url, proxied_identity, status)
         status["status"] = "blocked" if blocked else "ok"
