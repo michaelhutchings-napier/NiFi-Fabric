@@ -695,6 +695,64 @@ raise SystemExit(0)
 PY
 }
 
+bridge_catalog_import_matches() {
+  local import_name="$1"
+  local expected_declared_version="$2"
+
+  kubectl -n "${NAMESPACE}" get configmap "${BRIDGE_IMPORTS_CONFIGMAP_NAME}" -o jsonpath='{.data.imports\.json}' >"${tmpdir}/bridge-imports.json"
+  python3 - "${tmpdir}/bridge-imports.json" "${import_name}" "${expected_declared_version}" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+target_name = sys.argv[2]
+expected_declared_version = sys.argv[3]
+
+imports = payload.get("imports")
+if not isinstance(imports, list):
+    raise SystemExit(1)
+
+for entry in imports:
+    if str(entry.get("name") or "") != target_name:
+        continue
+    source = entry.get("source") or {}
+    if expected_declared_version and str(source.get("version") or "") != expected_declared_version:
+        raise SystemExit(1)
+    raise SystemExit(0)
+
+raise SystemExit(1)
+PY
+}
+
+mounted_bridge_import_matches() {
+  local import_name="$1"
+  local expected_declared_version="$2"
+
+  nifi_exec cat "${BRIDGE_IMPORTS_MOUNT_PATH}" >"${tmpdir}/mounted-bridge-imports.json"
+  python3 - "${tmpdir}/mounted-bridge-imports.json" "${import_name}" "${expected_declared_version}" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+target_name = sys.argv[2]
+expected_declared_version = sys.argv[3]
+
+imports = payload.get("imports")
+if not isinstance(imports, list):
+    raise SystemExit(1)
+
+for entry in imports:
+    if str(entry.get("name") or "") != target_name:
+        continue
+    source = entry.get("source") or {}
+    if expected_declared_version and str(source.get("version") or "") != expected_declared_version:
+        raise SystemExit(1)
+    raise SystemExit(0)
+
+raise SystemExit(1)
+PY
+}
+
 runtime_import_prereqs_ready() {
   local import_name="$1"
   local expected_selected_version="$2"
@@ -1216,6 +1274,10 @@ ensure_runtime_import_prereqs() {
   local import_name="$1"
   local expected_selected_version="$2"
 
+  retry_proof "controller bridge ConfigMap publishes ${import_name}=${expected_selected_version}" \
+    bridge_catalog_import_matches "${import_name}" "${expected_selected_version}"
+  retry_proof "mounted NiFiDataflow bridge refreshes ${import_name}=${expected_selected_version}" \
+    mounted_bridge_import_matches "${import_name}" "${expected_selected_version}"
   retry_proof "bounded runtime can resolve live Flow Registry Client ${REGISTRY_CLIENT_NAME} for ${import_name}=${expected_selected_version}" \
     runtime_import_prereqs_ready "${import_name}" "${expected_selected_version}"
 }
